@@ -1,5 +1,7 @@
 # Movie-Agent
 
+面向 ModelScope「AI + 影视流」创作的电影策划 Agent：从一句原创科幻创意出发，输出项目设定、剧本、视觉规范、可渲染分镜和可导出的制作计划。
+
 面向 ModelScope「AI + 影视流」比赛的电影 Agent MVP。输入一句原创科幻创意，应用会生成项目设定、短剧本、视觉设定和可供 ComfyUI 执行的结构化分镜。
 
 当前版本为 **mock 制作模式**：不会下载模型、调用 ComfyUI 或生成真实视频，但会完整模拟“规划 → 镜头生成 → 质检 → 剪辑”的状态流，并保存每个镜头的任务状态。后续将在 Spark 上接入 MiniMax-H3、ComfyUI、真实重试和 FFmpeg 剪辑。
@@ -10,7 +12,7 @@
 
 ## 启用魔搭文本 API
 
-默认 `MODEL_PROVIDER=mock`，不调用外部服务。要启用导演、编剧、分镜和视觉设定的真实文本生成，在 Spark 的 `.env` 中配置：
+默认 `MODEL_PROVIDER=mock`，不调用外部服务。要启用导演、编剧、分镜和视觉设定的真实文本生成，在 Spark 或魔搭创空间的 `.env` / Secrets 中配置：
 
 ```text
 MODEL_PROVIDER=modelscope
@@ -19,6 +21,29 @@ MODELSCOPE_MODEL=Qwen/Qwen3-30B-A3B-Instruct-2507
 ```
 
 此阶段会由 ModelScope API 生成文字创作资产；API 客户端只依赖 Python 标准库。视频生成、质检和剪辑仍是 mock 占位，等待 Spark 上的 ComfyUI 与 MiniMax-H3 安装完成后接入。
+
+## 当前能力
+
+- 导演、编剧、视觉设定、分镜四个独立 Agent；真实 ModelScope 文本模式或离线 mock 模式均可运行。
+- 6–10 个结构化分镜：镜头号、时长、景别、画面、动作、声音、生成方式和最终提示词。
+- 质量门：检查镜头数、时长、提示词完整性、视觉卡完整性及预设影视 IP 风险。
+- 项目自动保存、历史恢复、单镜头重新规划、JSON / Markdown 导出。
+- 真实视频生成仍待 Spark 上 MiniMax-H3 + ComfyUI 环境就绪后接入。
+
+## 本地启动
+
+```bash
+python -m venv .venv
+.venv\Scripts\activate
+python -m pip install -r requirements.txt
+python app.py
+```
+
+Windows 上启动后访问 `http://127.0.0.1:9071`。其他系统请按其终端语法激活 `.venv`。
+
+## 部署与参赛
+
+完整的魔搭创空间部署步骤、验收清单和创作说明模板见 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) 与 [docs/CREATION_NOTES.md](docs/CREATION_NOTES.md)。
 
 访问令牌只能放在 `.env` 或创空间密文环境变量中，绝不能提交到 Git。模型通过 OpenAI 兼容的 `https://api-inference.modelscope.cn/v1` 接口调用。
 
