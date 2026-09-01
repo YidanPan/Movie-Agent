@@ -63,4 +63,23 @@ class MovieOrchestrator:
             logs=logs,
         )
         self.store.save(project)
+        return self.run_mock_production(project_id)
+
+    def run_mock_production(self, project_id: str) -> MovieProject:
+        """Simulate the state flow that will later call ComfyUI and FFmpeg."""
+        project = self.store.load(project_id)
+        project.status = "generating_mock"
+        project.logs.append("生成 Agent：开始模拟提交镜头任务队列。")
+        for shot in project.storyboard:
+            shot.status = "generating_mock"
+            shot.attempts += 1
+            project.logs.append(f"生成 Agent：镜头 {shot.number} 已进入 mock 生成队列。")
+            shot.status = "approved_mock"
+            project.logs.append(f"质检 Agent：镜头 {shot.number} 通过 mock 一致性与合规检查。")
+
+        project.status = "completed_mock"
+        project.final_output_placeholder = f"outputs/{project.project_id}/final-cut.mp4"
+        project.logs.append("剪辑 Agent：已模拟合并镜头、字幕和音轨。")
+        project.logs.append(f"项目完成：最终成片预留路径为 {project.final_output_placeholder}。")
+        self.store.save(project)
         return project

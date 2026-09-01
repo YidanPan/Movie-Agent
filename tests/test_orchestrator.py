@@ -15,11 +15,13 @@ class MovieOrchestratorTests(unittest.TestCase):
                 "一名守夜人发现空城每天都在等他下班。", 48, "写实近未来"
             )
 
-            self.assertEqual(project.status, "planned_mock")
+            self.assertEqual(project.status, "completed_mock")
             self.assertGreaterEqual(len(project.storyboard), 6)
             self.assertLessEqual(len(project.storyboard), 10)
             self.assertEqual(sum(shot.duration_seconds for shot in project.storyboard), 48)
             self.assertTrue((root / project.project_id / "project.json").exists())
+            self.assertEqual(project.final_output_placeholder, f"outputs/{project.project_id}/final-cut.mp4")
+            self.assertTrue(all(shot.status == "approved_mock" for shot in project.storyboard))
 
     def test_rejects_short_ideas(self) -> None:
         with TemporaryDirectory() as temporary_directory:

@@ -17,6 +17,8 @@ class Shot:
     generation_mode: str
     prompt: str
     output_placeholder: str
+    status: str = "planned"
+    attempts: int = 0
 
 
 @dataclass
@@ -31,9 +33,26 @@ class MovieProject:
     visual_bible: dict[str, str]
     storyboard: list[Shot]
     logs: list[str] = field(default_factory=list)
+    final_output_placeholder: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "MovieProject":
+        return cls(
+            project_id=data["project_id"],
+            idea=data["idea"],
+            duration_seconds=data["duration_seconds"],
+            visual_style=data["visual_style"],
+            status=data["status"],
+            brief=data["brief"],
+            script=data["script"],
+            visual_bible=data["visual_bible"],
+            storyboard=[Shot(**shot) for shot in data["storyboard"]],
+            logs=data.get("logs", []),
+            final_output_placeholder=data.get("final_output_placeholder"),
+        )
 
     def brief_as_markdown(self) -> str:
         return "\n".join(["## 项目设定"] + [f"- **{key}**：{value}" for key, value in self.brief.items()])
@@ -49,12 +68,12 @@ class MovieProject:
     def storyboard_as_markdown(self) -> str:
         rows = [
             "## 分镜表",
-            "| 镜头 | 时长 | 景别 | 生成方式 | 画面与动作 | 声音 |",
-            "| --- | --- | --- | --- | --- | --- |",
+            "| 镜头 | 时长 | 景别 | 生成方式 | 状态 | 画面与动作 | 声音 |",
+            "| --- | --- | --- | --- | --- | --- | --- |",
         ]
         for shot in self.storyboard:
             rows.append(
-                f"| {shot.number} | {shot.duration_seconds}s | {shot.framing} | {shot.generation_mode} | "
+                f"| {shot.number} | {shot.duration_seconds}s | {shot.framing} | {shot.generation_mode} | {shot.status} | "
                 f"{shot.image_description}；{shot.action} | {shot.sound_design} |"
             )
         return "\n".join(rows)

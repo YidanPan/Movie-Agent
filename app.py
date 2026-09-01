@@ -23,7 +23,8 @@ def create_project(idea: str, duration: int, visual_style: str):
         project.visual_bible_as_markdown(),
         project.storyboard_as_markdown(),
         project.log_as_markdown(),
-        f"已完成规划（mock 模式）：{project.project_id}",
+        f"已完成 mock 制作流程：{project.project_id}",
+        project.final_output_placeholder or "",
     )
 
 
@@ -45,10 +46,11 @@ with gr.Blocks(title="Movie-Agent") as demo:
                 value="写实近未来",
                 label="视觉风格",
             )
-            submit = gr.Button("开始规划", variant="primary")
+            submit = gr.Button("开始 mock 制作", variant="primary")
         with gr.Column(scale=2):
             status = gr.Textbox(label="状态", interactive=False)
             project_id = gr.Textbox(label="项目 ID", interactive=False)
+            final_output = gr.Textbox(label="成片输出（mock 预留路径）", interactive=False)
             brief = gr.Markdown(label="项目设定")
             script = gr.Markdown(label="剧本与旁白")
             visual_bible = gr.Markdown(label="视觉设定")
@@ -58,7 +60,7 @@ with gr.Blocks(title="Movie-Agent") as demo:
     submit.click(
         create_project,
         inputs=[idea, duration, visual_style],
-        outputs=[project_id, brief, script, visual_bible, storyboard, logs, status],
+        outputs=[project_id, brief, script, visual_bible, storyboard, logs, status, final_output],
     )
 
 

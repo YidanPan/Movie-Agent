@@ -2,7 +2,7 @@
 
 面向 ModelScope「AI + 影视流」比赛的电影 Agent MVP。输入一句原创科幻创意，应用会生成项目设定、短剧本、视觉设定和可供 ComfyUI 执行的结构化分镜。
 
-当前版本为 **mock 规划模式**：不会下载模型、调用 ComfyUI 或生成真实视频。它用于先验证从创意到分镜的完整工作流；后续将在 Spark 上接入 MiniMax-H3、ComfyUI、质检重试和 FFmpeg 剪辑。
+当前版本为 **mock 制作模式**：不会下载模型、调用 ComfyUI 或生成真实视频，但会完整模拟“规划 → 镜头生成 → 质检 → 剪辑”的状态流，并保存每个镜头的任务状态。后续将在 Spark 上接入 MiniMax-H3、ComfyUI、真实重试和 FFmpeg 剪辑。
 
 已包含一个安全的 `ComfyUIClient`：它只会提交从 Spark ComfyUI 页面验证并导出的 API 工作流模板，且只能改写配置清单中明确声明的提示词、种子与时长节点。
 
