@@ -7,11 +7,12 @@ class VisualBibleAgent:
     def __init__(self, llm: CreativeLLM | None = None) -> None:
         self.llm = llm
 
-    def create(self, visual_style: str) -> dict[str, str]:
+    def create(self, visual_style: str, brief: dict[str, str], script: dict[str, str]) -> dict[str, str]:
         if self.llm:
             result = self.llm.complete_json(
                 "你是电影美术指导。为原创科幻短片制定可复用的一致性规范。",
-                f"视觉风格：{visual_style}\n返回键：角色卡、场景卡、风格卡、声音卡。",
+                f"视觉风格：{visual_style}\n导演设定：{brief}\n剧本：{script.get('story', '')}\n"
+                "返回键：角色卡、场景卡、风格卡、声音卡。",
             )
             return {key: str(value) for key, value in result.items()}
         return {

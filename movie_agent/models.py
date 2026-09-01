@@ -32,6 +32,7 @@ class MovieProject:
     script: dict[str, str]
     visual_bible: dict[str, str]
     storyboard: list[Shot]
+    quality_report: list[str] = field(default_factory=list)
     logs: list[str] = field(default_factory=list)
     final_output_placeholder: str | None = None
 
@@ -50,6 +51,7 @@ class MovieProject:
             script=data["script"],
             visual_bible=data["visual_bible"],
             storyboard=[Shot(**shot) for shot in data["storyboard"]],
+            quality_report=data.get("quality_report", []),
             logs=data.get("logs", []),
             final_output_placeholder=data.get("final_output_placeholder"),
         )

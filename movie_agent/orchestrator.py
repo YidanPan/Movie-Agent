@@ -15,6 +15,7 @@ from movie_agent.config import Settings
 from movie_agent.models import MovieProject
 from movie_agent.storage.project_store import ProjectStore
 from movie_agent.services.llm import build_creative_llm
+from movie_agent.services.quality import PlanningQualityGate
 
 
 class MovieOrchestrator:
@@ -30,6 +31,7 @@ class MovieOrchestrator:
         self.generation_agent = GenerationAgent()
         self.reviewer = ReviewerAgent()
         self.editor = EditorAgent()
+        self.quality_gate = PlanningQualityGate()
 
     def create_project(self, idea: str, duration: int, visual_style: str) -> MovieProject:
         cleaned_idea = idea.strip()
@@ -48,17 +50,30 @@ class MovieOrchestrator:
             "生成调度 Agent：视频生成暂为 mock，尚未提交真实 ComfyUI 任务。",
             "项目归档：已保存项目 JSON；后续将接入质检、重试与 FFmpeg 剪辑。",
         ]
+        brief = self.director.plan(cleaned_idea, duration, visual_style)
+        script = self.writer.write(cleaned_idea, brief)
+        visual_bible = self.visual_bible_agent.create(visual_style, brief, script)
+        storyboard = self.storyboard_agent.create(
+            cleaned_idea, duration, visual_style, project_id, brief, script, visual_bible
+        )
+        quality_report = self.quality_gate.review(
+            duration_seconds=duration,
+            script=script,
+            visual_bible=visual_bible,
+            storyboard=storyboard,
+        )
         project = MovieProject(
             project_id=project_id,
             idea=cleaned_idea,
             duration_seconds=duration,
             visual_style=visual_style,
             status="planned_text_ai" if self.using_creative_llm else "planned_mock",
-            brief=self.director.plan(cleaned_idea, duration, visual_style),
-            script=self.writer.write(cleaned_idea),
-            visual_bible=self.visual_bible_agent.create(visual_style),
-            storyboard=self.storyboard_agent.create(cleaned_idea, duration, visual_style, project_id),
-            logs=logs,
+            brief=brief,
+            script=script,
+            visual_bible=visual_bible,
+            storyboard=storyboard,
+            quality_report=quality_report,
+            logs=logs + quality_report,
         )
         self.store.save(project)
         return self.run_mock_production(project_id)

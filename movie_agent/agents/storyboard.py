@@ -9,13 +9,23 @@ class StoryboardAgent:
     def __init__(self, llm: CreativeLLM | None = None) -> None:
         self.llm = llm
 
-    def create(self, idea: str, duration_seconds: int, visual_style: str, project_id: str) -> list[Shot]:
+    def create(
+        self,
+        idea: str,
+        duration_seconds: int,
+        visual_style: str,
+        project_id: str,
+        brief: dict[str, str],
+        script: dict[str, str],
+        visual_bible: dict[str, str],
+    ) -> list[Shot]:
         if self.llm:
             result = self.llm.complete_json(
                 "你是电影分镜师。将故事拆成独立、可生成的原创科幻镜头。"
                 "每镜 4–8 秒，镜头数 6–10，避免复杂多人互动与现有影视 IP。",
                 (
                     f"创意：{idea}\n总时长：{duration_seconds} 秒\n风格：{visual_style}\n"
+                    f"导演设定：{brief}\n剧本：{script}\n视觉设定：{visual_bible}\n"
                     "返回 JSON：{\"shots\":[{\"duration_seconds\":6,\"framing\":\"中近景\","
                     "\"image_description\":\"...\",\"action\":\"...\",\"sound_design\":\"...\","
                     "\"generation_mode\":\"T2V\",\"prompt\":\"...\"}]}。"

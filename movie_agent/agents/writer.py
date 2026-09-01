@@ -7,11 +7,12 @@ class WriterAgent:
     def __init__(self, llm: CreativeLLM | None = None) -> None:
         self.llm = llm
 
-    def write(self, idea: str) -> dict[str, str]:
+    def write(self, idea: str, brief: dict[str, str]) -> dict[str, str]:
         if self.llm:
             result = self.llm.complete_json(
                 "你是科幻短片编剧。故事必须原创、简洁、可拆成 4–8 秒的镜头，避免现有影视 IP。",
-                f"根据这个创意写一个 30–80 秒短片。创意：{idea}\n返回键：story、narration。",
+                f"创意：{idea}\n导演设定：{brief}\n"
+                "根据导演设定写一个 30–80 秒短片。返回键：story、narration。",
             )
             return {"story": str(result["story"]), "narration": str(result["narration"])}
         return {

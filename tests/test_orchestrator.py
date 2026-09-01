@@ -23,6 +23,7 @@ class MovieOrchestratorTests(unittest.TestCase):
             self.assertEqual(MovieOrchestrator(settings).store.list_project_ids(), [project.project_id])
             self.assertEqual(project.final_output_placeholder, f"outputs/{project.project_id}/final-cut.mp4")
             self.assertTrue(all(shot.status == "approved_mock" for shot in project.storyboard))
+            self.assertEqual(len(project.quality_report), 3)
 
     def test_rejects_short_ideas(self) -> None:
         with TemporaryDirectory() as temporary_directory:
