@@ -4,6 +4,13 @@ from __future__ import annotations
 
 from uuid import uuid4
 
+from movie_agent.agents.director import DirectorAgent
+from movie_agent.agents.editor import EditorAgent
+from movie_agent.agents.generation import GenerationAgent
+from movie_agent.agents.reviewer import ReviewerAgent
+from movie_agent.agents.storyboard import StoryboardAgent
+from movie_agent.agents.visual_bible import VisualBibleAgent
+from movie_agent.agents.writer import WriterAgent
 from movie_agent.config import Settings
 from movie_agent.models import MovieProject
 from movie_agent.services.mock_creator import build_storyboard
@@ -14,6 +21,13 @@ class MovieOrchestrator:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self.store = ProjectStore(settings.projects_dir)
+        self.director = DirectorAgent()
+        self.writer = WriterAgent()
+        self.storyboard_agent = StoryboardAgent()
+        self.visual_bible_agent = VisualBibleAgent()
+        self.generation_agent = GenerationAgent()
+        self.reviewer = ReviewerAgent()
+        self.editor = EditorAgent()
 
     def create_project(self, idea: str, duration: int, visual_style: str) -> MovieProject:
         cleaned_idea = idea.strip()
@@ -37,29 +51,10 @@ class MovieOrchestrator:
             duration_seconds=duration,
             visual_style=visual_style,
             status="planned_mock",
-            brief={
-                "原始创意": cleaned_idea,
-                "主题": "人在智能系统包围下重新确认自身选择的意义",
-                "叙事尺度": "一个人 + 一个空间 + 一件小事",
-                "视觉风格": visual_style,
-                "目标时长": f"{duration} 秒",
-                "合规约束": "仅使用原创或已授权素材；不复刻现有影视 IP、角色、台词或肖像。",
-            },
-            script={
-                "story": (
-                    f"主角置身于一个安静而高度自动化的空间。{cleaned_idea} "
-                    "他先把异常当成系统噪声，随后发现那个细小变化正迫使自己作出选择。"
-                    "结尾不解释所有答案，只留下一个与开场形成呼应的动作。"
-                ),
-                "narration": "未来最难被自动化的，也许不是工作，而是决定何时相信自己。",
-            },
-            visual_bible={
-                "角色卡": "单一主角；中性、克制的服装；所有镜头保持同一发型、服饰轮廓和情绪状态。",
-                "场景卡": "单一封闭近未来空间；少量可重复识别的控制台、窗面与冷色光源。",
-                "风格卡": f"{visual_style}；低饱和、有限色板、慢镜头运动、以特写和空镜推进叙事。",
-                "声音卡": "环境底噪、设备低鸣、克制配乐；避免模仿可识别人物音色。",
-            },
-            storyboard=build_storyboard(cleaned_idea, duration, visual_style, project_id),
+            brief=self.director.plan(cleaned_idea, duration, visual_style),
+            script=self.writer.write(cleaned_idea),
+            visual_bible=self.visual_bible_agent.create(visual_style),
+            storyboard=self.storyboard_agent.create(cleaned_idea, duration, visual_style, project_id),
             logs=logs,
         )
         self.store.save(project)
@@ -71,15 +66,11 @@ class MovieOrchestrator:
         project.status = "generating_mock"
         project.logs.append("生成 Agent：开始模拟提交镜头任务队列。")
         for shot in project.storyboard:
-            shot.status = "generating_mock"
-            shot.attempts += 1
-            project.logs.append(f"生成 Agent：镜头 {shot.number} 已进入 mock 生成队列。")
-            shot.status = "approved_mock"
-            project.logs.append(f"质检 Agent：镜头 {shot.number} 通过 mock 一致性与合规检查。")
+            project.logs.append(self.generation_agent.generate_mock(shot))
+            project.logs.append(self.reviewer.review_mock(shot))
 
         project.status = "completed_mock"
-        project.final_output_placeholder = f"outputs/{project.project_id}/final-cut.mp4"
-        project.logs.append("剪辑 Agent：已模拟合并镜头、字幕和音轨。")
+        project.logs.append(self.editor.assemble_mock(project))
         project.logs.append(f"项目完成：最终成片预留路径为 {project.final_output_placeholder}。")
         self.store.save(project)
         return project
