@@ -40,6 +40,20 @@ def refresh_history():
     return gr.update(choices=project_ids, value=project_ids[0] if project_ids else None)
 
 
+def regenerate_shot(project_id: str, shot_number: int):
+    try:
+        project = orchestrator.regenerate_shot(project_id, int(shot_number))
+    except Exception as error:
+        return ("", "", "", "", "", f"## 任务日志\n- 失败：{error}", f"重新规划失败：{error}", "", gr.update())
+    return _project_outputs(project, f"已重新规划镜头 {int(shot_number)}", gr.update(value=project.project_id))
+
+
+def export_project(project_id: str):
+    if not project_id:
+        raise gr.Error("请先创建或打开一个项目。")
+    return [str(path) for path in orchestrator.store.export(project_id)]
+
+
 def _project_outputs(project, status_message: str, history_update):
     return (
         project.project_id,
@@ -80,6 +94,9 @@ with gr.Blocks(title="Movie-Agent") as demo:
             with gr.Row():
                 refresh = gr.Button("刷新历史")
                 load = gr.Button("打开项目")
+            shot_number = gr.Slider(1, 10, value=1, step=1, label="要重新规划的镜头号")
+            regenerate = gr.Button("重新规划单个镜头")
+            export = gr.Button("导出项目 JSON 与 Markdown")
         with gr.Column(scale=2):
             status = gr.Textbox(label="状态", interactive=False)
             project_id = gr.Textbox(label="项目 ID", interactive=False)
@@ -89,6 +106,7 @@ with gr.Blocks(title="Movie-Agent") as demo:
             visual_bible = gr.Markdown(label="视觉设定")
             storyboard = gr.Markdown(label="分镜")
             logs = gr.Markdown(label="任务日志")
+            exports = gr.File(label="项目导出", file_count="multiple", interactive=False)
 
     # Keep creation and history recovery on the same display contract.
     submit.click(
@@ -102,6 +120,12 @@ with gr.Blocks(title="Movie-Agent") as demo:
         inputs=history,
         outputs=[project_id, brief, script, visual_bible, storyboard, logs, status, final_output, history],
     )
+    regenerate.click(
+        regenerate_shot,
+        inputs=[project_id, shot_number],
+        outputs=[project_id, brief, script, visual_bible, storyboard, logs, status, final_output, history],
+    )
+    export.click(export_project, inputs=project_id, outputs=exports)
 
 
 if __name__ == "__main__":

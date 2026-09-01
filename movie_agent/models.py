@@ -80,5 +80,24 @@ class MovieProject:
             )
         return "\n".join(rows)
 
+    def project_as_markdown(self) -> str:
+        """Portable production brief for judges, collaborators, or later rendering."""
+        prompts = [
+            "## 最终视频提示词",
+            *[f"### 镜头 {shot.number}\n{shot.prompt}" for shot in self.storyboard],
+        ]
+        return "\n\n".join(
+            [
+                f"# Movie-Agent 项目：{self.project_id}",
+                f"**创意**：{self.idea}\n\n**目标时长**：{self.duration_seconds} 秒\n\n**视觉风格**：{self.visual_style}",
+                self.brief_as_markdown(),
+                self.script_as_markdown(),
+                self.visual_bible_as_markdown(),
+                self.storyboard_as_markdown(),
+                "\n".join(prompts),
+                self.log_as_markdown(),
+            ]
+        )
+
     def log_as_markdown(self) -> str:
         return "## 任务日志\n" + "\n".join(f"- {entry}" for entry in self.logs)

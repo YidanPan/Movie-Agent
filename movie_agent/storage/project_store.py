@@ -34,3 +34,10 @@ class ProjectStore:
             for project_file in self.root.glob("*/project.json")
         ]
         return [project_id for _, project_id in sorted(projects, reverse=True)]
+
+    def export(self, project_id: str) -> list[Path]:
+        project = self.load(project_id)
+        project_dir = self.root / project_id
+        markdown_path = project_dir / "movie-plan.md"
+        markdown_path.write_text(project.project_as_markdown(), encoding="utf-8")
+        return [project_dir / "project.json", markdown_path]

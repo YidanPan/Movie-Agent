@@ -92,3 +92,20 @@ class MovieOrchestrator:
         project.logs.append(f"项目完成：最终成片预留路径为 {project.final_output_placeholder}。")
         self.store.save(project)
         return project
+
+    def regenerate_shot(self, project_id: str, shot_number: int) -> MovieProject:
+        project = self.store.load(project_id)
+        if not 1 <= shot_number <= len(project.storyboard):
+            raise ValueError(f"镜头号必须在 1–{len(project.storyboard)} 之间。")
+        index = shot_number - 1
+        project.storyboard[index] = self.storyboard_agent.revise(project.storyboard[index], project.visual_bible)
+        project.quality_report = self.quality_gate.review(
+            duration_seconds=project.duration_seconds,
+            script=project.script,
+            visual_bible=project.visual_bible,
+            storyboard=project.storyboard,
+        )
+        project.logs.append(f"分镜 Agent：已重新规划镜头 {shot_number}，保留其时长和叙事位置。")
+        project.logs.extend(project.quality_report)
+        self.store.save(project)
+        return project

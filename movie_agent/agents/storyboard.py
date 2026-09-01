@@ -59,3 +59,23 @@ class StoryboardAgent:
                 )
             return shots
         return build_storyboard(idea, duration_seconds, visual_style, project_id)
+
+    def revise(self, shot: Shot, visual_bible: dict[str, str]) -> Shot:
+        """Refresh one render prompt while retaining its assigned story beat and duration."""
+        consistency = "；".join(
+            value for key, value in visual_bible.items() if key in {"角色卡", "场景卡", "风格卡"}
+        )
+        revised_prompt = f"{shot.prompt}。一致性约束：{consistency}"
+        return Shot(
+            number=shot.number,
+            duration_seconds=shot.duration_seconds,
+            framing=shot.framing,
+            image_description=shot.image_description,
+            action=shot.action,
+            sound_design=shot.sound_design,
+            generation_mode=shot.generation_mode,
+            prompt=revised_prompt,
+            output_placeholder=shot.output_placeholder,
+            status="replanned",
+            attempts=shot.attempts + 1,
+        )
