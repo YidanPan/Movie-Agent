@@ -8,6 +8,20 @@
 
 `MovieOrchestrator` 负责共享状态和任务顺序；每个创作角色均为独立模块：导演、编剧、分镜、视觉设定、生成、质检和剪辑。当前模块使用确定性的 mock 实现，后续会分别接入 LLM、ComfyUI、视觉质检和 FFmpeg。
 
+## 启用魔搭文本 API
+
+默认 `MODEL_PROVIDER=mock`，不调用外部服务。要启用导演、编剧、分镜和视觉设定的真实文本生成，在 Spark 的 `.env` 中配置：
+
+```text
+MODEL_PROVIDER=modelscope
+MODELSCOPE_API_KEY=你的魔搭访问令牌
+MODELSCOPE_MODEL=Qwen/Qwen3-30B-A3B-Instruct-2507
+```
+
+此阶段会由 ModelScope API 生成文字创作资产；API 客户端只依赖 Python 标准库。视频生成、质检和剪辑仍是 mock 占位，等待 Spark 上的 ComfyUI 与 MiniMax-H3 安装完成后接入。
+
+访问令牌只能放在 `.env` 或创空间密文环境变量中，绝不能提交到 Git。模型通过 OpenAI 兼容的 `https://api-inference.modelscope.cn/v1` 接口调用。
+
 已包含一个安全的 `ComfyUIClient`：它只会提交从 Spark ComfyUI 页面验证并导出的 API 工作流模板，且只能改写配置清单中明确声明的提示词、种子与时长节点。
 
 ## 本地运行

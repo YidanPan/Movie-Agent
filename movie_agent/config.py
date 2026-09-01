@@ -6,7 +6,12 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    def load_dotenv() -> bool:
+        """Allow command-line deployments that export environment variables themselves."""
+        return False
 
 
 @dataclass(frozen=True)
@@ -17,6 +22,10 @@ class Settings:
     port: int
     projects_dir: Path
     mock_mode: bool
+    model_provider: str = "mock"
+    modelscope_api_key: str | None = None
+    modelscope_api_base: str = "https://api-inference.modelscope.cn/v1"
+    modelscope_model: str = "Qwen/Qwen3-30B-A3B-Instruct-2507"
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -28,4 +37,8 @@ class Settings:
             port=int(os.getenv("PORT", "9071")),
             projects_dir=Path(os.getenv("PROJECTS_DIR", "./projects")),
             mock_mode=os.getenv("MOCK_MODE", "true").lower() == "true",
+            model_provider=os.getenv("MODEL_PROVIDER", "mock").lower(),
+            modelscope_api_key=os.getenv("MODELSCOPE_API_KEY") or None,
+            modelscope_api_base=os.getenv("MODELSCOPE_API_BASE", "https://api-inference.modelscope.cn/v1"),
+            modelscope_model=os.getenv("MODELSCOPE_MODEL", "Qwen/Qwen3-30B-A3B-Instruct-2507"),
         )

@@ -15,7 +15,11 @@ orchestrator = MovieOrchestrator(settings)
 
 
 def create_project(idea: str, duration: int, visual_style: str):
-    project = orchestrator.create_project(idea, duration, visual_style)
+    try:
+        project = orchestrator.create_project(idea, duration, visual_style)
+    except Exception as error:
+        return ("", "", "", "", "", f"## 任务日志\n- 失败：{error}", f"创作失败：{error}", "")
+    text_mode = "ModelScope AI 文案" if orchestrator.using_creative_llm else "mock 文案"
     return (
         project.project_id,
         project.brief_as_markdown(),
@@ -23,7 +27,7 @@ def create_project(idea: str, duration: int, visual_style: str):
         project.visual_bible_as_markdown(),
         project.storyboard_as_markdown(),
         project.log_as_markdown(),
-        f"已完成 mock 制作流程：{project.project_id}",
+        f"已完成：{text_mode} + mock 视频流程（{project.project_id}）",
         project.final_output_placeholder or "",
     )
 
@@ -46,7 +50,7 @@ with gr.Blocks(title="Movie-Agent") as demo:
                 value="写实近未来",
                 label="视觉风格",
             )
-            submit = gr.Button("开始 mock 制作", variant="primary")
+            submit = gr.Button("开始创作", variant="primary")
         with gr.Column(scale=2):
             status = gr.Textbox(label="状态", interactive=False)
             project_id = gr.Textbox(label="项目 ID", interactive=False)

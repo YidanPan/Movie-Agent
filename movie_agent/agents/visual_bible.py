@@ -1,8 +1,19 @@
 """Visual-bible agent: locks character, setting, style, and sound rules."""
 
+from movie_agent.services.llm import CreativeLLM
+
 
 class VisualBibleAgent:
+    def __init__(self, llm: CreativeLLM | None = None) -> None:
+        self.llm = llm
+
     def create(self, visual_style: str) -> dict[str, str]:
+        if self.llm:
+            result = self.llm.complete_json(
+                "你是电影美术指导。为原创科幻短片制定可复用的一致性规范。",
+                f"视觉风格：{visual_style}\n返回键：角色卡、场景卡、风格卡、声音卡。",
+            )
+            return {key: str(value) for key, value in result.items()}
         return {
             "角色卡": "单一主角；中性、克制的服装；所有镜头保持同一发型、服饰轮廓和情绪状态。",
             "场景卡": "单一封闭近未来空间；少量可重复识别的控制台、窗面与冷色光源。",
