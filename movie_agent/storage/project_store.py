@@ -24,3 +24,13 @@ class ProjectStore:
         if not target.exists():
             raise FileNotFoundError(f"找不到项目 {project_id}。")
         return MovieProject.from_dict(json.loads(target.read_text(encoding="utf-8")))
+
+    def list_project_ids(self) -> list[str]:
+        """Return saved projects newest first without loading every project file."""
+        if not self.root.exists():
+            return []
+        projects = [
+            (project_file.stat().st_mtime, project_file.parent.name)
+            for project_file in self.root.glob("*/project.json")
+        ]
+        return [project_id for _, project_id in sorted(projects, reverse=True)]

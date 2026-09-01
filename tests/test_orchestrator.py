@@ -20,6 +20,7 @@ class MovieOrchestratorTests(unittest.TestCase):
             self.assertLessEqual(len(project.storyboard), 10)
             self.assertEqual(sum(shot.duration_seconds for shot in project.storyboard), 48)
             self.assertTrue((root / project.project_id / "project.json").exists())
+            self.assertEqual(MovieOrchestrator(settings).store.list_project_ids(), [project.project_id])
             self.assertEqual(project.final_output_placeholder, f"outputs/{project.project_id}/final-cut.mp4")
             self.assertTrue(all(shot.status == "approved_mock" for shot in project.storyboard))
 
