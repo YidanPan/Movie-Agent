@@ -26,6 +26,11 @@ class Settings:
     modelscope_api_key: str | None = None
     modelscope_api_base: str = "https://api-inference.modelscope.cn/v1"
     modelscope_model: str = "Qwen/Qwen3-30B-A3B-Instruct-2507"
+    video_generation_mode: str = "mock"
+    comfy_workflow_template: str = "minimax_h3_t2v_api.json"
+    comfy_output_dir: Path = Path("./comfy-output")
+    outputs_dir: Path = Path("./outputs")
+    ffmpeg_bin: str = "ffmpeg"
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -41,4 +46,9 @@ class Settings:
             modelscope_api_key=os.getenv("MODELSCOPE_API_KEY") or None,
             modelscope_api_base=os.getenv("MODELSCOPE_API_BASE", "https://api-inference.modelscope.cn/v1"),
             modelscope_model=os.getenv("MODELSCOPE_MODEL", "Qwen/Qwen3-30B-A3B-Instruct-2507"),
+            video_generation_mode=os.getenv("VIDEO_GENERATION_MODE", "mock").lower(),
+            comfy_workflow_template=os.getenv("COMFY_WORKFLOW_TEMPLATE", "minimax_h3_t2v_api.json"),
+            comfy_output_dir=Path(os.getenv("COMFY_OUTPUT_DIR", "./comfy-output")),
+            outputs_dir=Path(os.getenv("OUTPUTS_DIR", "./outputs")),
+            ffmpeg_bin=os.getenv("FFMPEG_BIN", "ffmpeg"),
         )

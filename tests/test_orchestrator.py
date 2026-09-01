@@ -39,3 +39,14 @@ class MovieOrchestratorTests(unittest.TestCase):
             )
             with self.assertRaisesRegex(ValueError, "至少 10"):
                 MovieOrchestrator(settings).create_project("太短", 48, "写实近未来")
+
+    def test_real_render_requires_comfyui_mode(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            settings = Settings(
+                "http://127.0.0.1:8188", 900, Path("workflows"), 9071, Path(temporary_directory), True
+            )
+            project = MovieOrchestrator(settings).create_project(
+                "一名守夜人发现空城每天都在等他下班。", 48, "写实近未来"
+            )
+            with self.assertRaisesRegex(ValueError, "mock 模式"):
+                MovieOrchestrator(settings).render_project(project.project_id)

@@ -4,7 +4,7 @@
 
 面向 ModelScope「AI + 影视流」比赛的电影 Agent MVP。输入一句原创科幻创意，应用会生成项目设定、短剧本、视觉设定和可供 ComfyUI 执行的结构化分镜。
 
-当前版本为 **mock 制作模式**：不会下载模型、调用 ComfyUI 或生成真实视频，但会完整模拟“规划 → 镜头生成 → 质检 → 剪辑”的状态流，并保存每个镜头的任务状态。后续将在 Spark 上接入 MiniMax-H3、ComfyUI、真实重试和 FFmpeg 剪辑。
+默认是 **mock 制作模式**：不会调用 ComfyUI 或生成真实视频，但会完整模拟“规划 → 镜头生成 → 质检 → 剪辑”的状态流，并保存每个镜头的任务状态。Spark 上将 `VIDEO_GENERATION_MODE=comfyui` 后，页面的“Spark 真实生成并合成”会逐镜提交已验证的 MiniMax-H3 工作流，保存 MP4 并用 FFmpeg 合片。
 
 ## 多 Agent 结构
 
@@ -20,7 +20,7 @@ MODELSCOPE_API_KEY=你的魔搭访问令牌
 MODELSCOPE_MODEL=Qwen/Qwen3-30B-A3B-Instruct-2507
 ```
 
-此阶段会由 ModelScope API 生成文字创作资产；API 客户端只依赖 Python 标准库。视频生成、质检和剪辑仍是 mock 占位，等待 Spark 上的 ComfyUI 与 MiniMax-H3 安装完成后接入。
+此阶段会由 ModelScope API 生成文字创作资产；API 客户端只依赖 Python 标准库。真实视频模式要求 Spark 本机 ComfyUI、MiniMax-H3 权重、FFmpeg 与 `workflows/minimax_h3_t2v_api.json` 均已验证。
 
 ## 当前能力
 
@@ -28,7 +28,7 @@ MODELSCOPE_MODEL=Qwen/Qwen3-30B-A3B-Instruct-2507
 - 6–10 个结构化分镜：镜头号、时长、景别、画面、动作、声音、生成方式和最终提示词。
 - 质量门：检查镜头数、时长、提示词完整性、视觉卡完整性及预设影视 IP 风险。
 - 项目自动保存、历史恢复、单镜头重新规划、JSON / Markdown 导出。
-- 真实视频生成仍待 Spark 上 MiniMax-H3 + ComfyUI 环境就绪后接入。
+- 真实视频模式逐镜同步运行，首版未提供中途取消或断点续渲染；长项目应先小规模验证。
 
 ## 本地启动
 

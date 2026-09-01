@@ -28,9 +28,9 @@ class MovieOrchestrator:
         self.writer = WriterAgent(creative_llm)
         self.storyboard_agent = StoryboardAgent(creative_llm)
         self.visual_bible_agent = VisualBibleAgent(creative_llm)
-        self.generation_agent = GenerationAgent()
+        self.generation_agent = GenerationAgent(settings)
         self.reviewer = ReviewerAgent()
-        self.editor = EditorAgent()
+        self.editor = EditorAgent(settings)
         self.quality_gate = PlanningQualityGate()
 
     def create_project(self, idea: str, duration: int, visual_style: str) -> MovieProject:
@@ -47,8 +47,8 @@ class MovieOrchestrator:
             f"编剧 Agent：已通过{creative_source}生成短剧本、旁白与情绪节奏。",
             f"分镜 Agent：已通过{creative_source}拆分独立镜头并标记生成方式。",
             f"视觉设定 Agent：已通过{creative_source}锁定角色、场景和风格规范。",
-            "生成调度 Agent：视频生成暂为 mock，尚未提交真实 ComfyUI 任务。",
-            "项目归档：已保存项目 JSON；后续将接入质检、重试与 FFmpeg 剪辑。",
+            "生成调度 Agent：已准备好逐镜生成任务。",
+            "项目归档：已保存项目 JSON，可继续渲染或导出。",
         ]
         brief = self.director.plan(cleaned_idea, duration, visual_style)
         script = self.writer.write(cleaned_idea, brief)
@@ -76,6 +76,11 @@ class MovieOrchestrator:
             logs=logs + quality_report,
         )
         self.store.save(project)
+        if self.settings.video_generation_mode == "comfyui":
+            project.status = "ready_for_comfyui_render"
+            project.logs.append("生成调度 Agent：项目已就绪，点击“Spark 真实生成并合成”后提交逐镜任务。")
+            self.store.save(project)
+            return project
         return self.run_mock_production(project_id)
 
     def run_mock_production(self, project_id: str) -> MovieProject:
@@ -90,6 +95,24 @@ class MovieOrchestrator:
         project.status = "completed_text_ai_video_mock" if self.using_creative_llm else "completed_mock"
         project.logs.append(self.editor.assemble_mock(project))
         project.logs.append(f"项目完成：最终成片预留路径为 {project.final_output_placeholder}。")
+        self.store.save(project)
+        return project
+
+    def render_project(self, project_id: str) -> MovieProject:
+        if self.settings.video_generation_mode != "comfyui":
+            raise ValueError("当前为 mock 模式。请在 Spark 的 .env 设置 VIDEO_GENERATION_MODE=comfyui 后再渲染。")
+        project = self.store.load(project_id)
+        project.status = "rendering_comfyui"
+        project.logs.append("生成调度 Agent：开始提交 Spark ComfyUI 逐镜任务。")
+        self.store.save(project)
+        for shot in project.storyboard:
+            project.logs.append(self.generation_agent.generate(project.project_id, shot))
+            project.logs.append(self.reviewer.review_generated(shot))
+            self.store.save(project)
+
+        project.logs.append(self.editor.assemble(project))
+        project.status = "completed_comfyui"
+        project.logs.append(f"项目完成：真实成片已输出到 {project.final_output_placeholder}。")
         self.store.save(project)
         return project
 

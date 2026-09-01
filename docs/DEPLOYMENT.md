@@ -30,6 +30,18 @@ PORT=7860
 - 无 API Key 时仍可切换为 mock 模式演示。
 - 视频能力未就绪时，页面明确标注为 mock 视频流程，不能将占位路径宣传为真实成片。
 
-## 5. Spark 视频模式（后续）
+## 5. Spark 视频模式
 
 将验证过的 ComfyUI 服务限定为 `127.0.0.1:8188`，由 Movie-Agent 后端调用。前端创空间不直接暴露 Spark 的 ComfyUI 端口或任何凭据。
+
+在 Spark 应用目录的 `.env` 中设置：
+
+```ini
+VIDEO_GENERATION_MODE=comfyui
+COMFY_BASE_URL=http://127.0.0.1:8188
+COMFY_WORKFLOW_TEMPLATE=minimax_h3_t2v_api.json
+COMFY_OUTPUT_DIR=/path/to/ComfyUI/output
+OUTPUTS_DIR=/path/to/Movie-Agent/outputs
+```
+
+点击页面的“Spark 真实生成并合成”后，应用会逐镜调用固定 API 工作流；每个镜头完成即保存 `project.json`，全部完成后由 FFmpeg 合成 `final-cut.mp4`。

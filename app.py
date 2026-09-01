@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import gradio as gr
 
 from movie_agent.config import Settings
@@ -16,22 +18,23 @@ def create_project(idea: str, duration: int, visual_style: str):
     try:
         project = orchestrator.create_project(idea, duration, visual_style)
     except Exception as error:
-        return ("", "", "", "", "", f"## 任务日志\n- 失败：{error}", f"创作失败：{error}", "", gr.update())
+        return ("", "", "", "", "", f"## 任务日志\n- 失败：{error}", f"创作失败：{error}", "", None, gr.update())
     text_mode = "ModelScope AI 文案" if orchestrator.using_creative_llm else "mock 文案"
+    video_mode = "Spark 真实视频待生成" if settings.video_generation_mode == "comfyui" else "mock 视频流程"
     return _project_outputs(
         project,
-        f"已完成：{text_mode} + mock 视频流程（{project.project_id}）",
+        f"已完成：{text_mode} + {video_mode}（{project.project_id}）",
         gr.update(choices=orchestrator.store.list_project_ids(), value=project.project_id),
     )
 
 
 def load_project(project_id: str):
     if not project_id:
-        return ("", "", "", "", "", "## 任务日志\n- 请先选择一个项目。", "尚未选择项目", "", gr.update())
+        return ("", "", "", "", "", "## 任务日志\n- 请先选择一个项目。", "尚未选择项目", "", None, gr.update())
     try:
         project = orchestrator.store.load(project_id)
     except Exception as error:
-        return ("", "", "", "", "", f"## 任务日志\n- 失败：{error}", f"读取失败：{error}", "", gr.update())
+        return ("", "", "", "", "", f"## 任务日志\n- 失败：{error}", f"读取失败：{error}", "", None, gr.update())
     return _project_outputs(project, f"已恢复项目：{project.project_id}", gr.update(value=project.project_id))
 
 
@@ -44,8 +47,20 @@ def regenerate_shot(project_id: str, shot_number: int):
     try:
         project = orchestrator.regenerate_shot(project_id, int(shot_number))
     except Exception as error:
-        return ("", "", "", "", "", f"## 任务日志\n- 失败：{error}", f"重新规划失败：{error}", "", gr.update())
+        return ("", "", "", "", "", f"## 任务日志\n- 失败：{error}", f"重新规划失败：{error}", "", None, gr.update())
     return _project_outputs(project, f"已重新规划镜头 {int(shot_number)}", gr.update(value=project.project_id))
+
+
+def render_project(project_id: str):
+    try:
+        project = orchestrator.render_project(project_id)
+    except Exception as error:
+        return ("", "", "", "", "", f"## 任务日志\n- 失败：{error}", f"渲染失败：{error}", "", None, gr.update())
+    return _project_outputs(
+        project,
+        f"真实成片已生成（{project.project_id}）",
+        gr.update(value=project.project_id),
+    )
 
 
 def export_project(project_id: str):
@@ -64,8 +79,13 @@ def _project_outputs(project, status_message: str, history_update):
         project.log_as_markdown(),
         status_message,
         project.final_output_placeholder or "",
+        _video_value(project.final_output_placeholder),
         history_update,
     )
+
+
+def _video_value(path: str | None) -> str | None:
+    return path if path and Path(path).is_file() else None
 
 
 with gr.Blocks(title="Movie-Agent") as demo:
@@ -96,11 +116,13 @@ with gr.Blocks(title="Movie-Agent") as demo:
                 load = gr.Button("打开项目")
             shot_number = gr.Slider(1, 10, value=1, step=1, label="要重新规划的镜头号")
             regenerate = gr.Button("重新规划单个镜头")
+            render = gr.Button("Spark 真实生成并合成", variant="primary")
             export = gr.Button("导出项目 JSON 与 Markdown")
         with gr.Column(scale=2):
             status = gr.Textbox(label="状态", interactive=False)
             project_id = gr.Textbox(label="项目 ID", interactive=False)
-            final_output = gr.Textbox(label="成片输出（mock 预留路径）", interactive=False)
+            final_output = gr.Textbox(label="成片输出路径", interactive=False)
+            final_video = gr.Video(label="最终成片", interactive=False)
             brief = gr.Markdown(label="项目设定")
             script = gr.Markdown(label="剧本与旁白")
             visual_bible = gr.Markdown(label="视觉设定")
@@ -112,18 +134,23 @@ with gr.Blocks(title="Movie-Agent") as demo:
     submit.click(
         create_project,
         inputs=[idea, duration, visual_style],
-        outputs=[project_id, brief, script, visual_bible, storyboard, logs, status, final_output, history],
+        outputs=[project_id, brief, script, visual_bible, storyboard, logs, status, final_output, final_video, history],
     )
     refresh.click(refresh_history, outputs=history)
     load.click(
         load_project,
         inputs=history,
-        outputs=[project_id, brief, script, visual_bible, storyboard, logs, status, final_output, history],
+        outputs=[project_id, brief, script, visual_bible, storyboard, logs, status, final_output, final_video, history],
     )
     regenerate.click(
         regenerate_shot,
         inputs=[project_id, shot_number],
-        outputs=[project_id, brief, script, visual_bible, storyboard, logs, status, final_output, history],
+        outputs=[project_id, brief, script, visual_bible, storyboard, logs, status, final_output, final_video, history],
+    )
+    render.click(
+        render_project,
+        inputs=project_id,
+        outputs=[project_id, brief, script, visual_bible, storyboard, logs, status, final_output, final_video, history],
     )
     export.click(export_project, inputs=project_id, outputs=exports)
 
