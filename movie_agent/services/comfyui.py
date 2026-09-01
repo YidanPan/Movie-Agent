@@ -99,11 +99,44 @@ def load_verified_workflow(template_path: Path, overrides: WorkflowOverrides) ->
         raise ComfyUIError("工作流缺少 _movie_agent 配置清单。")
 
     workflow = copy.deepcopy(raw)
-    _set_input(workflow, manifest.get("prompt_node"), "text", overrides.prompt)
-    _set_input(workflow, manifest.get("seed_node"), "noise_seed", overrides.seed)
+    _set_input(
+        workflow,
+        manifest.get("prompt_node"),
+        _manifest_field(manifest, "prompt_field", "text"),
+        overrides.prompt,
+    )
+    _set_input(
+        workflow,
+        manifest.get("seed_node"),
+        _manifest_field(manifest, "seed_field", "noise_seed"),
+        overrides.seed,
+    )
     if overrides.duration_seconds is not None and manifest.get("duration_node"):
-        _set_input(workflow, manifest["duration_node"], "duration_seconds", overrides.duration_seconds)
+        _set_input(
+            workflow,
+            manifest["duration_node"],
+            _manifest_field(manifest, "duration_field", "duration_seconds"),
+            _duration_value(manifest, overrides.duration_seconds),
+        )
     return workflow
+
+
+def _manifest_field(manifest: dict[str, Any], name: str, default: str) -> str:
+    field = manifest.get(name, default)
+    if not isinstance(field, str) or not field:
+        raise ComfyUIError(f"工作流清单的 {name} 必须是非空字符串。")
+    return field
+
+
+def _duration_value(manifest: dict[str, Any], seconds: int) -> int:
+    """Translate seconds only when a verified workflow explicitly requests it."""
+    transform = manifest.get("duration_transform", "seconds")
+    if transform == "seconds":
+        return seconds
+    if transform == "minimax_h3_frames":
+        frames = max(5, round(seconds * 24))
+        return frames + (5 - frames % 17) % 17
+    raise ComfyUIError(f"不支持的工作流时长转换方式：{transform!r}。")
 
 
 def _set_input(workflow: dict[str, Any], node_id: Any, field: str, value: Any) -> None:
