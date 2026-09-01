@@ -4,6 +4,8 @@
 
 当前版本为 **mock 规划模式**：不会下载模型、调用 ComfyUI 或生成真实视频。它用于先验证从创意到分镜的完整工作流；后续将在 Spark 上接入 MiniMax-H3、ComfyUI、质检重试和 FFmpeg 剪辑。
 
+已包含一个安全的 `ComfyUIClient`：它只会提交从 Spark ComfyUI 页面验证并导出的 API 工作流模板，且只能改写配置清单中明确声明的提示词、种子与时长节点。
+
 ## 本地运行
 
 ```bash
@@ -21,7 +23,7 @@ python app.py
 
 - `movie_agent/agents`：后续的导演、编剧、分镜、质检等 Agent 实现。
 - `movie_agent/services`：外部能力适配层；当前为 mock，后续加入 ComfyUI 与 FFmpeg。
-- `workflows/`：后续存放已验证的 ComfyUI API 工作流 JSON 模板。
+- `workflows/`：存放已验证的 ComfyUI API 工作流 JSON 模板；见其中 README。
 - `projects/`：运行时项目数据，不纳入 Git。
 
 ## 合规

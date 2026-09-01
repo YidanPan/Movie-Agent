@@ -12,6 +12,8 @@ from dotenv import load_dotenv
 @dataclass(frozen=True)
 class Settings:
     comfy_base_url: str
+    comfy_timeout_seconds: int
+    workflows_dir: Path
     port: int
     projects_dir: Path
     mock_mode: bool
@@ -21,6 +23,8 @@ class Settings:
         load_dotenv()
         return cls(
             comfy_base_url=os.getenv("COMFY_BASE_URL", "http://127.0.0.1:8188"),
+            comfy_timeout_seconds=int(os.getenv("COMFY_TIMEOUT_SECONDS", "900")),
+            workflows_dir=Path(os.getenv("WORKFLOWS_DIR", "./workflows")),
             port=int(os.getenv("PORT", "9071")),
             projects_dir=Path(os.getenv("PROJECTS_DIR", "./projects")),
             mock_mode=os.getenv("MOCK_MODE", "true").lower() == "true",
