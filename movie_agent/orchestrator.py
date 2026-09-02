@@ -73,6 +73,22 @@ class MovieOrchestrator:
             "项目归档：已保存项目 JSON，可继续渲染或导出。",
         ]
         emit({"type": "agent_start", "agent": "director"})
+        emit(
+            {
+                "type": "artifact",
+                "agent": "director",
+                "title": "创意拆解",
+                "content": "正在提取核心意象、冲突对象和观众最后一秒应获得的情绪。",
+            }
+        )
+        emit(
+            {
+                "type": "chat",
+                "from": "director",
+                "to": "writer",
+                "message": "我先锁定一个可被动作表达的冲突，编剧收到设定后再补足人物选择。",
+            }
+        )
         brief = self.director.plan(cleaned_idea, duration, visual_style)
         emit({"type": "agent_done", "agent": "director", "brief": brief})
         emit(
@@ -98,6 +114,14 @@ class MovieOrchestrator:
             }
         )
         emit({"type": "agent_start", "agent": "writer"})
+        emit(
+            {
+                "type": "artifact",
+                "agent": "writer",
+                "title": "冲突草稿",
+                "content": "正在把世界观压缩成一个人物、一个异常和一次不可逆的选择。",
+            }
+        )
         script = self.writer.write(cleaned_idea, brief)
         emit({"type": "agent_done", "agent": "writer", "script": script})
         if script.get("outline"):
@@ -121,6 +145,14 @@ class MovieOrchestrator:
             }
         )
         emit({"type": "agent_start", "agent": "visual_bible"})
+        emit(
+            {
+                "type": "artifact",
+                "agent": "visual_bible",
+                "title": "材质样本",
+                "content": "旧金属、玻璃反光与唯一暖色光源进入视觉候选，等待剧本确认情绪方向。",
+            }
+        )
         visual_bible = self.visual_bible_agent.create(visual_style, brief, script)
         emit({"type": "agent_done", "agent": "visual_bible", "visual_bible": visual_bible})
         emit(
@@ -146,6 +178,14 @@ class MovieOrchestrator:
             }
         )
         emit({"type": "agent_start", "agent": "storyboard"})
+        emit(
+            {
+                "type": "artifact",
+                "agent": "storyboard",
+                "title": "机位草图",
+                "content": "先以固定机位建立秩序，再把镜头运动留给关键转折，避免每一镜都在炫技。",
+            }
+        )
         storyboard = self.storyboard_agent.create(
             cleaned_idea, duration, visual_style, project_id, brief, script, visual_bible
         )
@@ -179,6 +219,14 @@ class MovieOrchestrator:
             }
         )
         emit({"type": "agent_start", "agent": "quality"})
+        emit(
+            {
+                "type": "artifact",
+                "agent": "quality",
+                "title": "质检预扫描",
+                "content": "正在并行检查时长、镜头数量、提示词完整性和潜在版权近似。",
+            }
+        )
         quality_report = self.quality_gate.review(
             duration_seconds=duration,
             script=script,
