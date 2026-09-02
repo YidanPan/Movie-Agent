@@ -15,7 +15,7 @@ orchestrator = MovieOrchestrator(settings)
 
 
 APP_CSS = """
-@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&family=Noto+Serif+SC:wght@500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Merriweather:wght@300;400;700&family=Noto+Serif+SC:wght@500;600;700&family=Playfair+Display:wght@600;700&display=swap');
 :root {
   --ink: #161514;
   --ink-soft: #292725;
@@ -178,6 +178,56 @@ button[disabled] { opacity: .48 !important; cursor: not-allowed !important; }
   .workspace-status, .asset-grid { grid-template-columns: 1fr; }
   .panel { padding: 17px !important; }
 }
+
+/* Visual language inspired by the accompanying personal site: calm editorial type,
+   dusty-rose accents, generous whitespace, and softly elevated surfaces. */
+:root { --ink: #3a3d4f; --ink-soft: #4d516d; --paper: #fcfaf9; --surface: #ffffff; --surface-muted: #f3ecea; --line: #e8dedb; --muted: #9698a6; --accent: #a8868c; --accent-deep: #8b6b72; --accent-soft: #efe4e6; --lavender: #efeaf0; --lavender-ink: #695773; }
+body, .gradio-container { background: var(--paper); color: var(--ink); }
+.gradio-container { position: relative; isolation: isolate; max-width: 1500px !important; padding: 24px clamp(18px, 4.8vw, 72px) 64px !important; font-family: "Merriweather", "Noto Serif SC", Georgia, serif; }
+.gradio-container::before, .gradio-container::after { position: fixed; z-index: -1; width: 31rem; height: 31rem; border-radius: 50%; content: ""; pointer-events: none; }
+.gradio-container::before { top: -20rem; right: -14rem; background: rgba(239,228,230,.5); }
+.gradio-container::after { bottom: -23rem; left: -18rem; background: rgba(239,234,240,.62); }
+.app-topbar { min-height: 64px; margin-bottom: 54px; padding: 0 2px; border-bottom: 1px solid var(--line); }
+.brand-mark { width: 34px; height: 34px; border-radius: 50%; color: var(--accent-deep); background: linear-gradient(135deg, var(--accent-soft), #cbb3b8); box-shadow: 0 2px 8px rgba(61,64,79,.06); font-family: "Playfair Display", "Noto Serif SC", serif; font-size: .92rem; font-weight: 700; }
+.brand-name { color: var(--ink); font-family: "JetBrains Mono", monospace; font-size: .84rem; font-weight: 600; letter-spacing: .02em; }
+.topbar-nav { display: flex; align-items: center; gap: 2px; margin-left: auto; padding: 4px; border-radius: 999px; background: var(--surface-muted); }
+.topbar-nav span { padding: 7px 13px; border-radius: 999px; color: var(--ink-soft); font-size: .71rem; line-height: 1; }
+.topbar-nav span:first-child { color: var(--accent-deep); background: var(--surface); box-shadow: 0 1px 2px rgba(61,64,79,.05); }
+.topbar-meta { margin-left: 3px; color: var(--muted); font-family: "JetBrains Mono", monospace; font-size: .62rem; letter-spacing: .04em; }
+.movie-hero { overflow: visible; grid-template-columns: minmax(0, 1fr) minmax(220px, .42fr); gap: clamp(32px, 7vw, 100px); align-items: center; margin: 0 0 54px; padding: 0 5.5% 0 5%; border-radius: 0; color: var(--ink); background: transparent; box-shadow: none; }
+.movie-hero::after { z-index: -1; inset: auto 3% auto auto; top: 45%; width: clamp(190px, 25vw, 320px); height: clamp(190px, 25vw, 320px); border: 1px dashed rgba(168,134,140,.55); }
+.movie-hero__eyebrow { margin-bottom: 14px; color: var(--accent); font-family: "JetBrains Mono", monospace; font-size: .67rem; letter-spacing: .09em; }
+.movie-hero h1 { color: var(--ink) !important; font-family: "Playfair Display", "Noto Serif SC", Georgia, serif !important; font-size: clamp(2.7rem, 5.2vw, 5.15rem); font-weight: 700; letter-spacing: -.02em; line-height: 1.12; }
+.movie-hero p:last-child { max-width: 610px; margin-top: 20px; color: var(--ink-soft) !important; font-size: .95rem; line-height: 1.95; }
+.hero-status { z-index: 1; gap: 10px; padding: 25px 24px; border: 1px solid var(--line); border-radius: 18px; background: rgba(255,255,255,.9); box-shadow: 0 8px 24px rgba(61,64,79,.08); }
+.hero-status::before { content: "PRODUCTION STATUS"; color: var(--accent); font-family: "JetBrains Mono", monospace; font-size: .61rem; letter-spacing: .1em; }
+.hero-status strong { color: var(--ink); font-family: "Playfair Display", "Noto Serif SC", serif; font-size: 1.25rem; letter-spacing: -.02em; }
+.hero-status span { color: var(--ink-soft); }
+.panel { padding: 24px !important; border-radius: 16px !important; background: rgba(255,255,255,.9) !important; box-shadow: 0 2px 8px rgba(61,64,79,.06) !important; }
+.panel-heading { margin-bottom: 19px; padding-bottom: 15px; }
+.panel-title { color: var(--accent); font-family: "JetBrains Mono", monospace; font-size: .66rem; font-weight: 600; letter-spacing: .08em; }
+.panel-note { color: var(--ink-soft); font-size: .78rem; line-height: 1.8; }
+.stage-strip { gap: 8px; margin-bottom: 21px; border: 0; background: transparent; }
+.stage-strip span { padding: 13px 12px; border: 1px solid var(--line); border-radius: 12px; color: var(--ink-soft); background: rgba(255,255,255,.64); font-size: .72rem; font-weight: 400; }
+.stage-strip b { color: var(--muted); font-family: "JetBrains Mono", monospace; font-size: .58rem; }
+.stage-strip span:nth-child(1), .stage-strip span:nth-child(2) { background: var(--surface-muted); }
+.stage-strip span:nth-child(3) { border-color: var(--accent); color: var(--accent-deep); background: var(--accent-soft); }
+.stage-strip span:nth-child(3) b { color: var(--accent); }
+#create-button, #create-button button, #render-button, #render-button button { border-color: var(--accent) !important; border-radius: 999px !important; color: #fff !important; background: var(--accent) !important; box-shadow: 0 8px 20px rgba(168,134,140,.22) !important; transition: transform .2s ease, box-shadow .2s ease, background .2s ease !important; }
+#render-button, #render-button button { border-color: var(--lavender-ink) !important; background: var(--lavender-ink) !important; box-shadow: 0 8px 20px rgba(105,87,115,.18) !important; }
+#create-button:hover, #create-button button:hover, #render-button:hover, #render-button button:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(61,64,79,.12) !important; }
+button.secondary, button:not(.primary) { border-radius: 999px !important; border-color: var(--line) !important; color: var(--ink-soft) !important; background: var(--surface) !important; }
+button, textarea, input, .wrap, .prose, .markdown { font-family: "Merriweather", "Noto Serif SC", Georgia, serif !important; }
+label span { color: var(--ink) !important; font-size: .78rem !important; }
+textarea, input, .wrap-inner { border-radius: 9px !important; }
+#status textarea, #final-output textarea { color: var(--ink-soft) !important; background: var(--surface-muted) !important; font-family: "JetBrains Mono", monospace !important; font-size: .7rem !important; }
+.status-meta { padding: 14px 15px; border-radius: 12px; background: var(--lavender); }
+.status-meta__label { color: var(--lavender-ink); font-family: "JetBrains Mono", monospace; font-size: .58rem; }
+.status-meta__copy { color: var(--ink); font-size: .78rem; line-height: 1.6; }.status-meta__copy span { color: var(--ink-soft); font-size: .71rem; font-weight: 400; }
+.tabs > .tab-nav { gap: 7px !important; border-bottom: 0 !important; }.tabs > .tab-nav button { padding: 9px 15px !important; border: 1px solid transparent !important; border-radius: 999px !important; color: var(--ink-soft) !important; font-size: .78rem !important; font-weight: 400 !important; }.tabs > .tab-nav button.selected { border-color: var(--line) !important; color: var(--accent-deep) !important; background: var(--accent-soft) !important; }.tabs > .tab-nav button:hover { color: var(--accent-deep) !important; background: var(--surface-muted) !important; }
+.asset-card { border-radius: 12px; background: var(--surface-muted); transition: transform .2s ease, box-shadow .2s ease; }.asset-card:nth-child(2) { background: var(--lavender); }.asset-card:nth-child(3) { background: #f7f4f7; }.asset-card:hover { transform: translateY(-2px); box-shadow: 0 2px 8px rgba(61,64,79,.06); }.asset-card b { font-family: "Playfair Display", "Noto Serif SC", serif; font-size: .93rem; }.asset-card span { color: var(--ink-soft); line-height: 1.6; }
+.file-delivery { border: 1px solid var(--line); border-radius: 14px; background: linear-gradient(135deg, var(--surface-muted), var(--lavender)); }.file-delivery h3 { font-family: "Playfair Display", "Noto Serif SC", serif; color: var(--ink); }.file-delivery p { color: var(--ink-soft); line-height: 1.8; }
+@media (max-width: 760px) { .gradio-container { padding: 16px !important; }.app-topbar { min-height: 54px; margin-bottom: 38px; }.topbar-nav, .topbar-meta { display: none; }.movie-hero { grid-template-columns: 1fr; margin-bottom: 40px; padding: 0 5%; }.movie-hero h1 { font-size: 2.5rem; letter-spacing: -.02em; }.movie-hero::after { right: -9%; top: 24%; opacity: .55; }.panel { padding: 18px !important; } }
 """
 
 
@@ -271,11 +321,12 @@ with gr.Blocks(title="Movie-Agent · 流影制片台", css=APP_CSS) as demo:
     gr.HTML(
         """
         <header class="app-topbar">
-          <div class="brand-lockup"><span class="brand-mark">M/A</span><span class="brand-name">MOVIE AGENT</span></div>
-          <div class="topbar-meta">ORIGINAL IDEAS / STRUCTURED PRODUCTION / V1.0</div>
+          <div class="brand-lockup"><span class="brand-mark">M</span><span class="brand-name">Movie Agent</span></div>
+          <div class="topbar-nav"><span>创作</span><span>分镜</span><span>生成</span><span>交付</span></div>
+          <div class="topbar-meta">AI FILM STUDIO / V1.0</div>
         </header>
         <section class="movie-hero">
-          <div><p class="movie-hero__eyebrow">A production desk for original sci-fi shorts</p><h1>流影制片台</h1><p>把一句原创科幻创意，组织成可审阅、可渲染、可交付的短片生产流程。</p></div>
+          <div><p class="movie-hero__eyebrow">Original AI film production desk</p><h1>把灵感，<br>拍成一部电影。</h1><p>从一句原创科幻创意出发，完成剧本、分镜、视觉设定与成片交付；每一步都可审阅、可恢复。</p></div>
           <aside class="hero-status"><strong>制作引擎就绪</strong><span>文案策划 · H3 生成 · FFmpeg 合片</span></aside>
         </section>
         """
