@@ -59,7 +59,6 @@ const els = {
   finalVideo: $("#final-video"),
   posterTitle: $("#poster-title"),
   posterMeta: $("#poster-meta"),
-  deliveryInfo: $("#delivery-info"),
   exportJson: $("#export-json"),
   exportMd: $("#export-md"),
   drawer: $("#drawer"),
@@ -130,6 +129,7 @@ const state = {
   renderStartedAt: 0,
   manualTab: "brief",
   hasFinalVideo: false,
+  creditsProjectId: null,
 };
 
 let manualTypingRun = 0;
@@ -658,11 +658,15 @@ function renderDelivery(project) {
   els.creditsRoll.innerHTML = credits
     .map(([heading, value]) => `<div class="cr-group"><p class="cr-head">${esc(heading)}</p><p class="cr-strong">${esc(value)}</p></div>`)
     .join("");
-  els.creditsRoll.classList.remove("is-rolling");
-  void els.creditsRoll.offsetWidth;
-  els.creditsRoll.classList.add("is-rolling");
   els.exportJson.href = `/api/projects/${project.project_id}/export/json`;
   els.exportMd.href = `/api/projects/${project.project_id}/export/markdown`;
+  // 字幕滚动只在新项目首次进入时触发，避免逐镜渲染/实时送达时反复重播。
+  if (state.creditsProjectId !== project.project_id) {
+    state.creditsProjectId = project.project_id;
+    els.creditsRoll.classList.remove("is-rolling");
+    void els.creditsRoll.offsetWidth;
+    els.creditsRoll.classList.add("is-rolling");
+  }
 }
 
 function updatePipelineForProject(project) {
@@ -785,7 +789,7 @@ function createLiveProject(event) {
 function stageStoryboard(shots) {
   const run = ++storyboardStageRun;
   state.project.storyboard = [];
-  renderWorkspace(state.project, { tab: "visual" });
+  renderManual(state.project, "visual");
   shots.forEach((shot, index) => {
     setTimeout(() => {
       if (run !== storyboardStageRun || !state.project) return;
@@ -809,7 +813,8 @@ function revealAsset(agent, event) {
   if (!item || !(item[0] in event)) return;
   state.project[item[0]] = event[item[0]];
   state.project.logs.push(`${AGENT_DEFS.find((definition) => definition.id === agent)?.name || agent} Agent：创作资产已实时送达。`);
-  renderWorkspace(state.project, { tab: item[1], animateManual: true });
+  // 只在集结期间预填制作手册，不提前把第三幕工作区显示出来。
+  renderManual(state.project, item[1]);
 }
 
 function handleCreateEvent(event) {
@@ -838,7 +843,7 @@ function handleCreateEvent(event) {
     state.project = event.project;
     state.pendingProjectId = null;
     els.crewMeta.textContent = "CREW ASSEMBLY · 剧组集结完毕";
-    renderWorkspace(state.project);
+    renderWorkspace(state.project, { entranceFrom: 0 });
     setBrowserActivity("idle", state.project);
     toast(`项目 ${state.project.project_id} 已完成并存档。`);
     setTimeout(() => els.actWorkspace.scrollIntoView({ behavior: "smooth", block: "start" }), 350);
@@ -905,6 +910,14 @@ function handleRenderEvent(event) {
   if (event.type === "render_progress") {
     els.renderRec.classList.add("live");
     if (event.project) applyProjectSnapshot(event.project);
+    // 直接用后端下发的逐镜进度，而不是用「已通过质检」的镜头数折算。
+    const total = event.total || 0;
+    const completed = event.completed || 0;
+    if (total) {
+      els.monitorShot.textContent = `SHOT ${completed}/${total}`;
+      els.monitorPct.textContent = `${Math.round((completed / total) * 100)}%`;
+      els.monitorBar.style.width = `${(completed / total) * 100}%`;
+    }
     els.monitorDesc.textContent = event.description || "生成中…";
   } else if (event.type === "done") {
     state.project = event.project;
@@ -1024,7 +1037,7 @@ async function loadSelectedProject() {
     markAllAgentsDone(payload);
     show(els.actCrew);
     els.crewMeta.textContent = `CREW ASSEMBLY · 已恢复 ${projectId}`;
-    renderWorkspace(payload);
+    renderWorkspace(payload, { entranceFrom: 0 });
     els.actCrew.scrollIntoView({ behavior: "smooth", block: "start" });
     toast(`已恢复项目 ${projectId}。`);
   } catch (error) {
@@ -1244,8 +1257,11 @@ function init() {
       closePremiere(false);
       return;
     }
-    if (event.key === "ArrowLeft") navigateShot(-1);
-    if (event.key === "ArrowRight") navigateShot(1);
+    if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+      // 仅在镜头抽屉已打开时响应方向键，避免劫持文本框/滑杆的光标键。
+      if (!els.drawer.classList.contains("open")) return;
+      navigateShot(event.key === "ArrowLeft" ? -1 : 1);
+    }
     if (
       event.key === "Enter"
       && currentView() === "studio"
