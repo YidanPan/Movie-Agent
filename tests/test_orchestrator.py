@@ -51,3 +51,5 @@ class MovieOrchestratorTests(unittest.TestCase):
             )
             with self.assertRaisesRegex(ValueError, "mock 模式"):
                 MovieOrchestrator(settings).render_project(project.project_id)
+            with self.assertRaisesRegex(ValueError, "mock 模式"):
+                MovieOrchestrator(settings).render_shot(project.project_id, 1)

@@ -46,6 +46,28 @@ class CreateProjectPayload(BaseModel):
         return cleaned
 
 
+class UpdateShotPayload(BaseModel):
+    """Editable fields exposed by the expanded Shot Workspace."""
+
+    duration_seconds: int | None = Field(default=None, ge=1, le=80)
+    framing: str | None = Field(default=None, min_length=1, max_length=120)
+    image_description: str | None = Field(default=None, min_length=1, max_length=4_000)
+    action: str | None = Field(default=None, min_length=1, max_length=2_000)
+    sound_design: str | None = Field(default=None, min_length=1, max_length=2_000)
+    generation_mode: str | None = Field(default=None, min_length=1, max_length=20)
+    prompt: str | None = Field(default=None, min_length=1, max_length=12_000)
+
+    @field_validator("framing", "image_description", "action", "sound_design", "generation_mode", "prompt")
+    @classmethod
+    def strip_optional_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("不能保存空文本。")
+        return cleaned
+
+
 def sse_chunk(payload: dict) -> str:
     return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
@@ -196,6 +218,54 @@ def regenerate_shot(project_id: str, shot_number: int):
         return project_not_found(project_id)
     except ValueError as error:
         return JSONResponse({"error": str(error)}, status_code=400)
+    return project.to_dict()
+
+
+@app.patch("/api/projects/{project_id}/shots/{shot_number}")
+async def update_shot(project_id: str, shot_number: int, request: Request):
+    try:
+        payload = UpdateShotPayload.model_validate(await request.json())
+    except (ValidationError, ValueError) as error:
+        if isinstance(error, ValidationError):
+            return invalid_payload(error)
+        return JSONResponse({"error": "请求必须是合法 JSON。"}, status_code=400)
+    try:
+        project = orchestrator.store.load(project_id)
+        if not 1 <= shot_number <= len(project.storyboard):
+            raise ValueError(f"镜头号必须在 1–{len(project.storyboard)} 之间。")
+        shot = project.storyboard[shot_number - 1]
+        updates = {
+            key: value
+            for key, value in payload.model_dump(exclude_unset=True).items()
+            if value is not None
+        }
+        for key, value in updates.items():
+            setattr(shot, key, value)
+        project.logs.append(f"场记：已保存镜头 {shot_number} 的 Inspector 编辑。")
+        orchestrator.store.save(project)
+    except FileNotFoundError:
+        return project_not_found(project_id)
+    except ValueError as error:
+        return JSONResponse({"error": str(error)}, status_code=400)
+    return project.to_dict()
+
+
+@app.post("/api/projects/{project_id}/shots/{shot_number}/render")
+def render_single_shot(project_id: str, shot_number: int):
+    if settings.video_generation_mode != "comfyui":
+        return JSONResponse(
+            {"error": "当前为 mock 模式。请在 Spark 的 .env 设置 VIDEO_GENERATION_MODE=comfyui 后再生成镜头。"},
+            status_code=400,
+        )
+    try:
+        with render_lock:
+            project = orchestrator.render_shot(project_id, shot_number)
+    except FileNotFoundError:
+        return project_not_found(project_id)
+    except ValueError as error:
+        return JSONResponse({"error": str(error)}, status_code=400)
+    except Exception as error:  # noqa: BLE001 - surface generation failures to the inspector
+        return JSONResponse({"error": str(error)}, status_code=502)
     return project.to_dict()
 
 

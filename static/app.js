@@ -154,6 +154,9 @@ const state = {
   crewMessages: [],
   crewArtifacts: [],
   crewRadioOpen: false,
+  drawerType: null,
+  activeAgentId: null,
+  inspectorExpanded: false,
 };
 
 let manualTypingRun = 0;
@@ -162,6 +165,8 @@ let premiereTimer = null;
 let projectorOscillator = null;
 let projectorGain = null;
 let faviconBlinkTimer = null;
+let drawerContentRun = 0;
+let drawerHideTimer = null;
 
 /* ── 小工具 ────────────────────────────────────────────────── */
 
@@ -611,6 +616,7 @@ function renderFilmstrip(project, entranceFrom = Number.POSITIVE_INFINITY) {
     els.filmstrip.appendChild(card);
   }
   attachShotPreviews(project);
+  syncInspectorSelection();
 }
 
 function renderTimeline(project) {
@@ -622,6 +628,7 @@ function renderTimeline(project) {
     const segment = document.createElement("button");
     segment.type = "button";
     segment.className = "timeline-segment";
+    segment.dataset.shot = shot.number;
     segment.dataset.status = shot.status || "planned";
     segment.style.flexGrow = String(Math.max(1, shot.duration_seconds || 1));
     segment.title = `镜头 ${shot.number} · ${shot.duration_seconds} 秒 · ${shotStatusInfo(shot.status)}`;
@@ -630,6 +637,7 @@ function renderTimeline(project) {
     segment.addEventListener("click", () => openDrawer(project, shot.number));
     els.editTimeline.appendChild(segment);
   }
+  syncInspectorSelection();
 }
 
 function attachShotPreviews(project) {
@@ -1069,67 +1077,224 @@ function applyProjectSnapshot(project) {
   renderMonitor(project, state.rendering);
 }
 
-/* ── 镜头抽屉 ──────────────────────────────────────────────── */
+/* ── Inspector：镜头 / 剧组详情 ───────────────────────────── */
 
-function openDrawer(project, shotNumber) {
-  const shot = (project.storyboard || []).find((s) => s.number === shotNumber);
-  if (!shot) return;
-  state.activeShotNumber = shotNumber;
-  els.drawer.innerHTML = `
-    <div class="drawer-head">
-      <span class="drawer-title">镜头 ${String(shot.number).padStart(2, "0")}</span>
-      <button class="drawer-close" type="button">✕ 关闭</button>
-    </div>
-    <span class="drawer-chip mono">${shotStatusInfo(shot.status)} · 尝试 ${shot.attempts} 次</span>
-    <dl>
-      <dt>时长</dt><dd>${shot.duration_seconds} 秒</dd>
-      <dt>景别</dt><dd>${esc(shot.framing)}</dd>
-      <dt>画面</dt><dd>${esc(shot.image_description)}</dd>
-      <dt>动作</dt><dd>${esc(shot.action)}</dd>
-      <dt>声音</dt><dd>${esc(shot.sound_design)}</dd>
-      <dt>生成方式</dt><dd>${esc(shot.generation_mode)}</dd>
-      <dt>输出</dt><dd class="mono" style="font-size:.72rem">${esc(shot.output_placeholder)}</dd>
-    </dl>
-    <div class="prompt-block">
-      <h3>FINAL PROMPT</h3>
-      <div class="prompt-box">${esc(shot.prompt)}<button class="prompt-copy" type="button">复制</button></div>
-    </div>
-    <div class="drawer-actions">
-      <button class="ghost" type="button" id="drawer-regenerate">↻ 重新规划这个镜头</button>
+function clearCrewCardSelection() {
+  document.querySelectorAll('.crew-card[aria-expanded="true"]').forEach((card) => {
+    card.setAttribute("aria-expanded", "false");
+  });
+}
+
+function syncInspectorSelection() {
+  const active = String(state.activeShotNumber ?? "");
+  document.querySelectorAll(".shot-card[data-shot], .timeline-segment[data-shot]").forEach((element) => {
+    element.classList.toggle("is-inspected", state.drawerType === "shot" && String(element.dataset.shot) === active);
+  });
+}
+
+function drawerIsOpen() {
+  return els.drawer.classList.contains("open");
+}
+
+function openDrawerShell() {
+  clearTimeout(drawerHideTimer);
+  els.drawerBackdrop.classList.remove("hidden");
+  els.drawer.classList.add("open");
+  requestAnimationFrame(() => els.drawerBackdrop.classList.add("open"));
+}
+
+function setInspectorExpanded(expanded) {
+  state.inspectorExpanded = Boolean(expanded);
+  els.drawer.classList.toggle("is-expanded", state.inspectorExpanded);
+  const button = els.drawer.querySelector("[data-inspector-expand]");
+  if (!button) return;
+  const targetName = state.drawerType === "shot" ? "Shot Workspace" : "Agent Inspector";
+  button.setAttribute("aria-expanded", String(state.inspectorExpanded));
+  button.setAttribute("aria-label", state.inspectorExpanded ? `收起 ${targetName}` : `展开 ${targetName}`);
+  const label = button.querySelector(".inspector-expand-label");
+  if (label) label.textContent = state.inspectorExpanded ? "COLLAPSE" : "EXPAND";
+}
+
+function renderDrawerContent(markup, { swap = false, onReady } = {}) {
+  const run = ++drawerContentRun;
+  const current = els.drawer.querySelector(".inspector-content");
+  const commit = () => {
+    if (run !== drawerContentRun) return;
+    els.drawer.innerHTML = markup;
+    setInspectorExpanded(state.inspectorExpanded);
+    const content = els.drawer.querySelector(".inspector-content");
+    if (!content) {
+      if (onReady) onReady();
+      return;
+    }
+    requestAnimationFrame(() => {
+      content.classList.add("is-ready");
+      if (onReady) onReady();
+    });
+  };
+  if (swap && current) {
+    current.classList.add("is-swapping");
+    window.setTimeout(commit, 120);
+  } else {
+    commit();
+  }
+}
+
+function inspectorShotPreviewMarkup(shot) {
+  const previewReady = ["approved_comfyui", "generated_comfyui"].includes(shot.status);
+  return `
+    <section class="inspector-preview-section">
+      <header class="inspector-section-head mono"><span>SHOT PREVIEW / 16:9</span><span class="inspector-preview-state ${previewReady ? "is-ready" : ""}">${previewReady ? "MEDIA READY" : "UNEXPOSED FRAME"}</span></header>
+      <div class="inspector-preview" data-inspector-preview="${esc(shot.number)}">
+        <div class="inspector-preview-empty"><span class="preview-code mono">${previewReady ? "LOADING MEDIA" : "UNEXPOSED FRAME"}</span><strong>${esc(shot.framing || "待定景别")}</strong><span>${previewReady ? "正在读取镜头媒体…" : "生成后首帧将在这里显影"}</span></div>
+        <div class="inspector-viewfinder" aria-hidden="true"><i class="vf tl"></i><i class="vf tr"></i><i class="vf bl"></i><i class="vf br"></i><i class="vf-safe"></i><i class="vf-cross"></i></div>
+        <span class="inspector-preview-stamp mono">${String(shot.number).padStart(2, "0")} · 24 FPS · ${esc(shot.generation_mode || "T2V")}</span>
+      </div>
+      <p class="inspector-preview-note mono">${previewReady ? "视频预览可播放 · 关键帧质检已归档" : "当前显示未冲洗胶片帧 · 完成真实生成后自动替换"}</p>
+    </section>`;
+}
+
+function buildShotInspectorMarkup(project, shot) {
+  const shots = project.storyboard || [];
+  const index = Math.max(0, shots.findIndex((item) => item.number === shot.number));
+  const previous = shots[(index - 1 + shots.length) % shots.length];
+  const next = shots[(index + 1) % shots.length];
+  const status = shotWorkflowState(shot.status);
+  const scene = String(shotSceneNumber(shot.number, shots.length)).padStart(2, "0");
+  const output = shot.output_placeholder || "生成后写入项目 outputs/";
+  return `
+    <div class="inspector-content inspector-content--shot" data-inspector-type="shot" data-shot-number="${esc(shot.number)}">
+      <header class="inspector-head">
+        <div class="inspector-head-main">
+          <p class="inspector-kicker mono">SHOT INSPECTOR / SCENE ${scene}</p>
+          <div class="inspector-title-row"><h2>镜头 ${String(shot.number).padStart(2, "0")}</h2><span class="inspector-status ${status.key} mono"><i>${status.symbol}</i>${status.label}</span></div>
+          <p class="inspector-subtitle">${esc(truncate(shot.image_description || "镜头尚未补充画面描述。", 180))}</p>
+        </div>
+        <div class="inspector-head-actions">
+          <button class="inspector-expand mono" data-inspector-expand type="button" aria-expanded="${String(state.inspectorExpanded)}" aria-label="${state.inspectorExpanded ? "收起 Shot Workspace" : "展开 Shot Workspace"}"><span aria-hidden="true">⤢</span><span class="inspector-expand-label">${state.inspectorExpanded ? "COLLAPSE" : "EXPAND"}</span></button>
+          <button class="drawer-close" type="button" aria-label="关闭 Inspector">×</button>
+        </div>
+      </header>
+
+      <nav class="inspector-shot-nav" aria-label="镜头导航">
+        <button class="inspector-nav-btn" type="button" data-shot-nav="-1" aria-label="上一镜头"><span aria-hidden="true">←</span><span>上一镜头</span><b class="mono">SHOT ${String(previous?.number || shot.number).padStart(2, "0")}</b></button>
+        <span class="inspector-nav-count mono">${String(index + 1).padStart(2, "0")} / ${String(shots.length).padStart(2, "0")}</span>
+        <button class="inspector-nav-btn inspector-nav-btn--next" type="button" data-shot-nav="1" aria-label="下一镜头"><b class="mono">SHOT ${String(next?.number || shot.number).padStart(2, "0")}</b><span>下一镜头</span><span aria-hidden="true">→</span></button>
+      </nav>
+
+      ${inspectorShotPreviewMarkup(shot)}
+
+      <dl class="inspector-facts">
+        <div><dt class="mono">DURATION</dt><dd>${esc(shot.duration_seconds)}<small>s</small></dd></div>
+        <div><dt class="mono">FRAMING</dt><dd>${esc(shot.framing || "—")}</dd></div>
+        <div><dt class="mono">GENERATION</dt><dd class="mono">${esc(shot.generation_mode || "T2V")}</dd></div>
+        <div><dt class="mono">TAKES</dt><dd class="mono">${esc(shot.attempts || 0)}<small>×</small></dd></div>
+      </dl>
+
+      <section class="inspector-copy-section">
+        <div class="inspector-copy-block inspector-copy-block--wide"><span class="inspector-label mono">IMAGE / 画面</span><p>${esc(shot.image_description || "—")}</p></div>
+        <div class="inspector-copy-block"><span class="inspector-label mono">ACTION / 动作</span><p>${esc(shot.action || "—")}</p></div>
+        <div class="inspector-copy-block"><span class="inspector-label mono">SOUND / 声音</span><p>${esc(shot.sound_design || "—")}</p></div>
+      </section>
+
+      <section class="inspector-prompt-block">
+        <header class="inspector-section-head mono"><span>FINAL PROMPT / 最终提示词</span><button class="inspector-copy-btn mono" data-copy-prompt type="button">复制</button></header>
+        <pre class="inspector-prompt-readonly">${esc(shot.prompt || "—")}</pre>
+        <p class="inspector-prompt-note mono">展开 Shot Workspace 后可编辑提示词与镜头字段。</p>
+      </section>
+
+      <section class="inspector-workspace-tools" aria-label="Shot Workspace 编辑区">
+        <header class="inspector-workspace-head"><div><span class="inspector-label mono">SHOT WORKSPACE / FULL REVIEW</span><h3>镜头编辑与生成控制</h3></div><span class="mono">DRAFT MODE</span></header>
+        <div class="inspector-editor-grid">
+          <label><span class="inspector-label mono">IMAGE / 画面</span><textarea data-shot-field="image_description" rows="4">${esc(shot.image_description || "")}</textarea></label>
+          <label><span class="inspector-label mono">ACTION / 动作</span><textarea data-shot-field="action" rows="4">${esc(shot.action || "")}</textarea></label>
+          <label><span class="inspector-label mono">SOUND / 声音</span><textarea data-shot-field="sound_design" rows="4">${esc(shot.sound_design || "")}</textarea></label>
+          <label class="inspector-editor-prompt"><span class="inspector-label mono">FINAL PROMPT / 最终提示词</span><textarea data-shot-field="prompt" rows="7">${esc(shot.prompt || "")}</textarea></label>
+        </div>
+        <div class="inspector-editor-actions"><button class="ghost" data-save-shot type="button">保存镜头编辑</button><span class="mono">保存后写入项目档案，可继续质检或生成。</span></div>
+      </section>
+
+      <div class="inspector-output"><span class="inspector-label mono">OUTPUT PATH</span><span class="mono">${esc(output)}</span></div>
+
+      <footer class="inspector-actions">
+        <button class="ghost" data-inspector-action="replan" type="button">↻ 重新规划</button>
+        <button class="cta inspector-action-primary" data-inspector-action="regenerate" type="button">重新生成素材 <span aria-hidden="true">→</span></button>
+      </footer>
     </div>`;
-  els.drawer.querySelector(".drawer-close").addEventListener("click", closeDrawer);
-  els.drawer.querySelector(".prompt-copy").addEventListener("click", async (event) => {
+}
+
+function bindShotInspector(project, shot, { initial = false } = {}) {
+  const closeButton = els.drawer.querySelector(".drawer-close");
+  closeButton?.addEventListener("click", closeDrawer);
+  els.drawer.querySelector("[data-inspector-expand]")?.addEventListener("click", () => {
+    setInspectorExpanded(!state.inspectorExpanded);
+  });
+  els.drawer.querySelectorAll("[data-shot-nav]").forEach((button) => {
+    button.addEventListener("click", () => navigateShot(Number(button.dataset.shotNav)));
+  });
+  els.drawer.querySelector("[data-copy-prompt]")?.addEventListener("click", async (event) => {
     try {
-      await navigator.clipboard.writeText(shot.prompt);
-      event.target.textContent = "已复制";
-      setTimeout(() => { event.target.textContent = "复制"; }, 1600);
+      await navigator.clipboard.writeText(shot.prompt || "");
+      event.currentTarget.textContent = "已复制";
+      setTimeout(() => { event.currentTarget.textContent = "复制"; }, 1600);
     } catch {
       toast("复制失败，请手动选择文本。", true);
     }
   });
-  els.drawer.querySelector("#drawer-regenerate").addEventListener("click", () => regenerateShot(shot.number));
-  if (["approved_comfyui", "generated_comfyui"].includes(shot.status)) {
-    const url = `/api/projects/${project.project_id}/shots/${shot.number}/video`;
-    fetch(url, { method: "HEAD" }).then((response) => {
-      if (!response.ok) return;
-      const video = document.createElement("video");
-      video.src = url;
-      video.controls = true;
-      video.playsInline = true;
-      els.drawer.appendChild(video);
-    }).catch(() => {});
-  }
-  els.drawer.classList.add("open");
-  els.drawerBackdrop.classList.remove("hidden");
-  requestAnimationFrame(() => els.drawerBackdrop.classList.add("open"));
+  els.drawer.querySelector('[data-inspector-action="replan"]')?.addEventListener("click", () => regenerateShot(shot.number, "replan"));
+  els.drawer.querySelector('[data-inspector-action="regenerate"]')?.addEventListener("click", () => renderSingleShot(shot.number));
+  els.drawer.querySelector("[data-save-shot]")?.addEventListener("click", () => saveShotEdits(shot.number));
+  attachInspectorPreview(project, shot);
+  if (initial) closeButton?.focus({ preventScroll: true });
+}
+
+function attachInspectorPreview(project, shot) {
+  if (!["approved_comfyui", "generated_comfyui"].includes(shot.status)) return;
+  const preview = els.drawer.querySelector(`[data-inspector-preview="${shot.number}"]`);
+  if (!preview) return;
+  const url = `/api/projects/${project.project_id}/shots/${shot.number}/video`;
+  fetch(url, { method: "HEAD" }).then((response) => {
+    if (!response.ok || !els.drawer.contains(preview)) return;
+    const video = document.createElement("video");
+    video.src = url;
+    video.controls = true;
+    video.playsInline = true;
+    video.preload = "metadata";
+    video.setAttribute("aria-label", `镜头 ${shot.number} 视频预览`);
+    preview.querySelector(".inspector-preview-empty")?.remove();
+    preview.appendChild(video);
+    preview.classList.add("has-media");
+  }).catch(() => {});
+}
+
+function openDrawer(project, shotNumber) {
+  const shot = (project.storyboard || []).find((s) => s.number === shotNumber);
+  if (!shot) return;
+  const wasOpen = drawerIsOpen();
+  state.drawerType = "shot";
+  state.activeAgentId = null;
+  state.activeShotNumber = shotNumber;
+  els.drawer.setAttribute("aria-label", `镜头 ${shotNumber} Inspector`);
+  clearCrewCardSelection();
+  syncInspectorSelection();
+  renderDrawerContent(buildShotInspectorMarkup(project, shot), {
+    swap: wasOpen,
+    onReady: () => bindShotInspector(project, shot, { initial: !wasOpen }),
+  });
+  if (!wasOpen) openDrawerShell();
 }
 
 function closeDrawer() {
-  els.drawer.classList.remove("open");
+  drawerContentRun += 1;
+  els.drawer.classList.remove("open", "is-expanded");
   els.drawerBackdrop.classList.remove("open");
-  const expanded = document.querySelector('.crew-card[aria-expanded="true"]');
-  if (expanded) expanded.setAttribute("aria-expanded", "false");
-  setTimeout(() => els.drawerBackdrop.classList.add("hidden"), 260);
+  clearCrewCardSelection();
+  state.drawerType = null;
+  state.activeAgentId = null;
+  state.inspectorExpanded = false;
+  syncInspectorSelection();
+  clearTimeout(drawerHideTimer);
+  drawerHideTimer = setTimeout(() => els.drawerBackdrop.classList.add("hidden"), 300);
 }
 
 function crewAssetMarkup(title, value) {
@@ -1146,11 +1311,10 @@ function crewAssetMarkup(title, value) {
   return `<section class="crew-drawer-section"><h3>${esc(title)}</h3><p>${esc(value)}</p></section>`;
 }
 
-function openCrewDrawer(agentId) {
+function buildCrewInspectorMarkup(agentId) {
   const def = AGENT_DEFS.find((item) => item.id === agentId);
-  if (!def) return;
+  if (!def) return "";
   const card = document.querySelector(`.crew-card[data-agent="${agentId}"]`);
-  if (card) card.setAttribute("aria-expanded", "true");
   const details = state.crewDetails[agentId] || {};
   const project = state.project || {};
   const asset = {
@@ -1174,24 +1338,121 @@ function openCrewDrawer(agentId) {
     : agentId === "storyboard" ? crewAssetMarkup("分镜资产", asset.storyboard)
     : agentId === "quality" ? crewAssetMarkup("质检报告", asset.quality_report)
       : agentId === "generation" ? crewAssetMarkup("逐镜任务", project.storyboard)
-        : agentId === "editor" ? crewAssetMarkup("交付结果", project.final_output_placeholder || "等待镜头素材")
+      : agentId === "editor" ? crewAssetMarkup("交付结果", project.final_output_placeholder || "等待镜头素材")
             : `<section class="crew-drawer-section"><h3>任务说明</h3><p>${esc(def.role)}。${esc(card?.querySelector(".crew-summary")?.textContent || "等待上游素材。")}</p></section>`;
-  els.drawer.innerHTML = `
-    <div class="drawer-head"><span class="drawer-title">${esc(def.name)} Agent</span><button class="drawer-close" type="button">✕ 关闭</button></div>
-    <span class="drawer-chip mono">${esc(def.en)} · ${esc(card?.querySelector(".crew-state-text")?.textContent || "候场")}</span>
-    <p class="crew-drawer-intro">${esc(def.role)} · 点击卡片即可查看实时产出、沟通和决策记录。</p>
-    ${assetMarkup || '<p class="empty-note">该成员还没有交付内容，正在等待上游信号。</p>'}
-    ${artifactMarkup}
-    ${messages ? `<section class="crew-drawer-section"><h3>现场沟通</h3>${messages}</section>` : ""}`;
-  els.drawer.querySelector(".drawer-close").addEventListener("click", closeDrawer);
-  els.drawer.classList.add("open");
-  els.drawerBackdrop.classList.remove("hidden");
-  requestAnimationFrame(() => els.drawerBackdrop.classList.add("open"));
+  return `
+    <div class="inspector-content inspector-content--agent" data-inspector-type="agent" data-agent-id="${esc(agentId)}">
+      <header class="inspector-head">
+        <div class="inspector-head-main">
+          <p class="inspector-kicker mono">AGENT INSPECTOR / ${esc(def.en)}</p>
+          <div class="inspector-title-row"><h2>${esc(def.name)} Agent</h2><span class="inspector-status ${card?.classList.contains("working") ? "active" : card?.classList.contains("failed") ? "failed" : "complete"} mono"><i>●</i>${esc(card?.querySelector(".crew-state-text")?.textContent || "候场")}</span></div>
+          <p class="inspector-subtitle">${esc(def.role)} · 点击卡片即可查看实时产出、沟通和决策记录。</p>
+        </div>
+        <div class="inspector-head-actions">
+          <button class="inspector-expand mono" data-inspector-expand type="button" aria-expanded="${String(state.inspectorExpanded)}" aria-label="${state.inspectorExpanded ? "收起 Agent Inspector" : "展开 Agent Inspector"}"><span aria-hidden="true">⤢</span><span class="inspector-expand-label">${state.inspectorExpanded ? "COLLAPSE" : "EXPAND"}</span></button>
+          <button class="drawer-close" type="button" aria-label="关闭 Inspector">×</button>
+        </div>
+      </header>
+      <div class="inspector-agent-meta"><div><span class="inspector-label mono">ROLE</span><strong>${esc(def.en)}</strong></div><div><span class="inspector-label mono">CHANNEL</span><strong class="mono">${esc(agentId.toUpperCase())}</strong></div><div><span class="inspector-label mono">ARTIFACTS</span><strong class="mono">${state.crewArtifacts.filter((item) => item.agent === agentId).length}</strong></div><div><span class="inspector-label mono">SIGNALS</span><strong class="mono">${state.crewMessages.filter((item) => item.from === agentId || item.to === agentId || item.to === "all").length}</strong></div></div>
+      <div class="inspector-agent-content">
+        ${assetMarkup || '<p class="empty-note">该成员还没有交付内容，正在等待上游信号。</p>'}
+        ${artifactMarkup}
+        ${messages ? `<section class="crew-drawer-section"><h3>现场沟通</h3>${messages}</section>` : ""}
+      </div>
+    </div>`;
+}
+
+function openCrewDrawer(agentId) {
+  const def = AGENT_DEFS.find((item) => item.id === agentId);
+  if (!def) return;
+  const wasOpen = drawerIsOpen();
+  state.drawerType = "agent";
+  state.activeAgentId = agentId;
+  state.activeShotNumber = null;
+  state.inspectorExpanded = false;
+  els.drawer.setAttribute("aria-label", `${def.name} Agent Inspector`);
+  clearCrewCardSelection();
+  syncInspectorSelection();
+  const card = document.querySelector(`.crew-card[data-agent="${agentId}"]`);
+  if (card) card.setAttribute("aria-expanded", "true");
+  renderDrawerContent(buildCrewInspectorMarkup(agentId), {
+    swap: wasOpen,
+    onReady: () => {
+      els.drawer.querySelector(".drawer-close")?.addEventListener("click", closeDrawer);
+      els.drawer.querySelector("[data-inspector-expand]")?.addEventListener("click", () => setInspectorExpanded(!state.inspectorExpanded));
+    },
+  });
+  if (!wasOpen) openDrawerShell();
 }
 
 /* ── 动作：创作 / 渲染 / 重新规划 ──────────────────────────── */
 
 let storyboardStageRun = 0;
+
+function refreshWorkspaceAfterShotUpdate(project) {
+  state.project = project;
+  renderWorkspace(project);
+}
+
+async function saveShotEdits(shotNumber) {
+  if (!state.project) return;
+  const fields = {};
+  els.drawer.querySelectorAll("[data-shot-field]").forEach((field) => {
+    fields[field.dataset.shotField] = field.value.trim();
+  });
+  if (!fields.prompt) {
+    toast("最终提示词不能为空。", true);
+    return;
+  }
+  const button = els.drawer.querySelector("[data-save-shot]");
+  if (button) {
+    button.disabled = true;
+    button.textContent = "保存中…";
+  }
+  try {
+    const response = await fetch(
+      `/api/projects/${state.project.project_id}/shots/${shotNumber}`,
+      { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(fields) }
+    );
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    refreshWorkspaceAfterShotUpdate(payload);
+    openDrawer(payload, shotNumber);
+    toast(`镜头 ${shotNumber} 的 Inspector 编辑已保存。`);
+  } catch (error) {
+    toast(`保存镜头失败：${error.message}`, true);
+    if (button) {
+      button.disabled = false;
+      button.textContent = "保存镜头编辑";
+    }
+  }
+}
+
+async function renderSingleShot(shotNumber) {
+  if (!state.project || state.rendering) return;
+  const button = els.drawer.querySelector('[data-inspector-action="regenerate"]');
+  if (button) {
+    button.disabled = true;
+    button.innerHTML = "提交生成中…";
+  }
+  try {
+    const response = await fetch(
+      `/api/projects/${state.project.project_id}/shots/${shotNumber}/render`,
+      { method: "POST" }
+    );
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    refreshWorkspaceAfterShotUpdate(payload);
+    openDrawer(payload, shotNumber);
+    toast(`镜头 ${shotNumber} 已生成并进入质检。`);
+  } catch (error) {
+    toast(`镜头生成失败：${error.message}`, true);
+    if (button) {
+      button.disabled = false;
+      button.innerHTML = "重新生成素材 <span aria-hidden=\"true\">→</span>";
+    }
+  }
+}
 
 function createLiveProject(event) {
   return {
@@ -1420,8 +1681,13 @@ async function startRender() {
   }
 }
 
-async function regenerateShot(shotNumber) {
+async function regenerateShot(shotNumber, action = "replan") {
   if (!state.project) return;
+  const button = els.drawer.querySelector(`[data-inspector-action="${action}"]`);
+  if (button) {
+    button.disabled = true;
+    button.textContent = action === "replan" ? "重新规划中…" : "处理中…";
+  }
   try {
     const response = await fetch(
       `/api/projects/${state.project.project_id}/shots/${shotNumber}/regenerate`,
@@ -1429,16 +1695,15 @@ async function regenerateShot(shotNumber) {
     );
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
-    state.project = payload;
-    renderFilmstrip(payload);
-    renderShotMap(payload);
-    renderManual(payload);
-    renderDelivery(payload);
-    updatePipelineForProject(payload);
+    refreshWorkspaceAfterShotUpdate(payload);
+    openDrawer(payload, shotNumber);
     toast(`镜头 ${shotNumber} 已重新规划。`);
-    closeDrawer();
   } catch (error) {
     toast(`重新规划失败：${error.message}`, true);
+    if (button) {
+      button.disabled = false;
+      button.textContent = "↻ 重新规划";
+    }
   }
 }
 
@@ -1803,6 +2068,11 @@ function init() {
     if (button) renderManual(state.project, button.dataset.tab);
   });
   els.drawerBackdrop.addEventListener("click", closeDrawer);
+  document.addEventListener("click", (event) => {
+    if (!drawerIsOpen() || event.target.closest("#drawer")) return;
+    if (event.target.closest(".shot-card, .timeline-segment, .crew-card")) return;
+    closeDrawer();
+  });
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
       closeDrawer();
@@ -1811,7 +2081,7 @@ function init() {
     }
     if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
       // 仅在镜头抽屉已打开时响应方向键，避免劫持文本框/滑杆的光标键。
-      if (!els.drawer.classList.contains("open")) return;
+      if (!els.drawer.classList.contains("open") || event.target.closest("textarea, input, select, [contenteditable=\"true\"]")) return;
       navigateShot(event.key === "ArrowLeft" ? -1 : 1);
     }
     if (

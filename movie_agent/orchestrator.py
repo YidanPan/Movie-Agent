@@ -374,6 +374,44 @@ class MovieOrchestrator:
             progress_callback(total_shots, total_shots, "FFmpeg 合成完成")
         return project
 
+    def render_shot(self, project_id: str, shot_number: int) -> MovieProject:
+        """Regenerate one shot from the Inspector without assembling the full film."""
+        if self.settings.video_generation_mode != "comfyui":
+            raise ValueError("当前为 mock 模式。请在 Spark 的 .env 设置 VIDEO_GENERATION_MODE=comfyui 后再生成镜头。")
+        project = self.store.load(project_id)
+        if not 1 <= shot_number <= len(project.storyboard):
+            raise ValueError(f"镜头号必须在 1–{len(project.storyboard)} 之间。")
+        shot = project.storyboard[shot_number - 1]
+        if shot.generation_mode != "T2V":
+            raise ValueError(
+                f"镜头 {shot.number} 标记为 {shot.generation_mode}，但当前 MiniMax-H3 工作流仅支持 T2V。"
+            )
+
+        shot.status = "replanned"
+        project.status = "rendering_comfyui"
+        project.final_output_placeholder = None
+        project.logs.append(f"生成调度 Agent：Inspector 已提交镜头 {shot_number} 的单镜重生成。")
+        self.store.save(project)
+        try:
+            project.logs.append(self.generation_agent.generate(project.project_id, shot))
+            project.logs.append(
+                self.reviewer.review_generated(
+                    shot,
+                    project_id=project.project_id,
+                    visual_bible=project.visual_bible,
+                )
+            )
+        except Exception as error:
+            project.status = "render_failed"
+            project.logs.append(f"生成调度 Agent：镜头 {shot_number} 单镜生成失败：{error}")
+            self.store.save(project)
+            raise
+
+        project.status = "ready_for_comfyui_render"
+        project.logs.append(f"质检 Agent：镜头 {shot_number} 已通过单镜检查，可继续合成完整成片。")
+        self.store.save(project)
+        return project
+
     def regenerate_shot(self, project_id: str, shot_number: int) -> MovieProject:
         project = self.store.load(project_id)
         if not 1 <= shot_number <= len(project.storyboard):
