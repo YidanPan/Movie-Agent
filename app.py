@@ -269,6 +269,17 @@ textarea, input, .wrap-inner, button { font-size: 1rem !important; }
 .file-delivery { padding: 30px; }.file-delivery h3 { font-size: 1.7rem; }.file-delivery p { font-size: 1rem; }
 .prose p, .markdown p, .prose li, .markdown li { font-size: 1rem; }
 @media (max-width: 760px) { .app-topbar { margin-left: -2px; margin-right: -2px; }.movie-hero { min-height: 0; margin-bottom: 40px; }.panel { padding: 22px !important; }.stage-strip { grid-template-columns: 1fr 1fr; }.stage-strip span { padding: 14px 12px; font-size: .82rem; }.panel-kicker { display: none; } }
+
+/* Keep the canvas continuous: no hard-edged decorative colour blocks, and one
+   shared centred grid for the navigation, cover, and vertical workspace. */
+html, body, #root, .gradio-container, .gradio-container > .main { background: var(--paper) !important; }
+html, body { width: 100%; min-width: 0; }
+.gradio-container { width: 100% !important; max-width: none !important; margin: 0 !important; }
+.gradio-container::before, .gradio-container::after { display: none !important; }
+.app-topbar, .movie-hero, #studio-layout { width: min(100%, 1420px) !important; margin-left: auto !important; margin-right: auto !important; }
+.app-topbar { padding-left: 18px; padding-right: 18px; }
+.movie-hero { padding-left: clamp(32px, 5vw, 84px); padding-right: clamp(32px, 5vw, 84px); }
+@media (max-width: 760px) { .app-topbar { width: 100% !important; padding-left: 0; padding-right: 0; }.movie-hero { padding-left: 8px; padding-right: 8px; } }
 """
 
 
