@@ -490,6 +490,16 @@ main {
 
 .crew-card.done { opacity: 1; border-color: var(--line); }
 
+.crew-card.failed {
+  opacity: 1;
+  border-color: rgba(229, 72, 77, 0.55);
+  box-shadow: 0 0 0 1px rgba(229, 72, 77, 0.16);
+}
+
+.crew-card.failed .crew-state { color: var(--err); }
+
+.crew-card.failed .crew-state-icon::before { content: "✕"; }
+
 @keyframes crew-pulse {
   0%, 100% { box-shadow: 0 0 0 1px rgba(232, 163, 76, 0.18), 0 0 22px rgba(232, 163, 76, 0.08); }
   50% { box-shadow: 0 0 0 1px rgba(232, 163, 76, 0.4), 0 0 34px rgba(232, 163, 76, 0.2); }

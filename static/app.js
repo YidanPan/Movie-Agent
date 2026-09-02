@@ -130,6 +130,7 @@ const state = {
   manualTab: "brief",
   hasFinalVideo: false,
   creditsProjectId: null,
+  workingAgent: null,
 };
 
 let manualTypingRun = 0;
@@ -379,25 +380,55 @@ function buildCrewBoard() {
 function setAgentState(agentId, agentState, data) {
   const card = document.querySelector(`.crew-card[data-agent="${agentId}"]`);
   if (!card) return;
-  card.classList.remove("idle", "working", "done");
+  card.classList.remove("idle", "working", "done", "failed");
   card.classList.add(agentState);
   const text = card.querySelector(".crew-state-text");
   const summary = card.querySelector(".crew-summary");
   if (agentState === "working") {
-    text.textContent = "工作中";
+    card.dataset.startedAt = String(Date.now());
+    text.textContent = "工作中 · 00:00";
     summary.innerHTML = '<span class="sk sk-1"></span><span class="sk sk-2"></span>';
   } else if (agentState === "done") {
+    delete card.dataset.startedAt;
     text.textContent = "完成";
     const def = AGENT_DEFS.find((d) => d.id === agentId);
     summary.textContent = def ? def.summarize(data || {}) : "";
     playUiSound("done");
+  } else if (agentState === "failed") {
+    delete card.dataset.startedAt;
+    text.textContent = "中断";
+    summary.textContent = "这一棒没有跑完，可重新开机再试。";
   } else {
+    delete card.dataset.startedAt;
     text.textContent = "候场";
     summary.textContent = "";
   }
 }
 
+/* 集结期间的现场感：给"工作中"的成员卡实时计时 */
+let crewTicker = null;
+
+function startCrewTicker() {
+  if (crewTicker) return;
+  crewTicker = setInterval(() => {
+    for (const card of document.querySelectorAll(".crew-card.working[data-started-at]")) {
+      const text = card.querySelector(".crew-state-text");
+      if (text) {
+        const elapsed = (Date.now() - Number(card.dataset.startedAt)) / 1000;
+        text.textContent = `工作中 · ${timecode(elapsed)}`;
+      }
+    }
+  }, 1000);
+}
+
+function failWorkingAgent() {
+  if (!state.workingAgent) return;
+  setAgentState(state.workingAgent, "failed");
+  state.workingAgent = null;
+}
+
 function markAllAgentsDone(project) {
+  state.workingAgent = null;
   const dataset = {
     brief: project.brief,
     script: project.script,
@@ -789,7 +820,7 @@ function createLiveProject(event) {
 function stageStoryboard(shots) {
   const run = ++storyboardStageRun;
   state.project.storyboard = [];
-  renderManual(state.project, "visual");
+  renderWorkspace(state.project, { tab: "visual" });
   shots.forEach((shot, index) => {
     setTimeout(() => {
       if (run !== storyboardStageRun || !state.project) return;
@@ -813,8 +844,8 @@ function revealAsset(agent, event) {
   if (!item || !(item[0] in event)) return;
   state.project[item[0]] = event[item[0]];
   state.project.logs.push(`${AGENT_DEFS.find((definition) => definition.id === agent)?.name || agent} Agent：创作资产已实时送达。`);
-  // 只在集结期间预填制作手册，不提前把第三幕工作区显示出来。
-  renderManual(state.project, item[1]);
+  // 集结期间就让第三幕工作区可见，页面随时可以往下翻看实时填充的面板。
+  renderWorkspace(state.project, { tab: item[1], animateManual: true });
 }
 
 function handleCreateEvent(event) {
@@ -824,8 +855,10 @@ function handleCreateEvent(event) {
     els.crewMeta.textContent = `CREW ASSEMBLY · ${event.project_id}`;
     els.modeNote.textContent = `文案引擎：${event.text_mode === "modelscope" ? "ModelScope AI" : "mock"} · 视频引擎：${event.video_mode === "comfyui" ? "Spark 真实生成" : "mock 流程"}`;
   } else if (event.type === "agent_start") {
+    state.workingAgent = event.agent;
     setAgentState(event.agent, "working");
   } else if (event.type === "agent_done") {
+    state.workingAgent = null;
     setAgentState(event.agent, "done", event);
     revealAsset(event.agent, event);
     if (event.agent === "storyboard") {
@@ -849,6 +882,7 @@ function handleCreateEvent(event) {
     setTimeout(() => els.actWorkspace.scrollIntoView({ behavior: "smooth", block: "start" }), 350);
   } else if (event.type === "error") {
     els.crewMeta.textContent = "CREW ASSEMBLY · 中断";
+    failWorkingAgent();
     toast(`创作失败：${event.message}`, true);
   }
 }
@@ -865,6 +899,7 @@ async function startCreation() {
   state.project = null;
   state.pendingProjectId = null;
   state.hasFinalVideo = false;
+  state.workingAgent = null;
   els.btnStart.disabled = true;
   buildCrewBoard();
   show(els.actCrew);
@@ -883,6 +918,7 @@ async function startCreation() {
   } catch (error) {
     toast(`创作失败：${error.message}`, true);
     els.crewMeta.textContent = "CREW ASSEMBLY · 中断";
+    failWorkingAgent();
   } finally {
     state.busy = false;
     els.btnStart.disabled = false;
@@ -1237,6 +1273,7 @@ function init() {
   buildStyleCards();
   startTypewriter();
   startClock();
+  startCrewTicker();
   loadHealth();
   refreshLibrary();
   els.duration.addEventListener("input", () => {
