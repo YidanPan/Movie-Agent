@@ -227,7 +227,19 @@ textarea, input, .wrap-inner { border-radius: 9px !important; }
 .tabs > .tab-nav { gap: 7px !important; border-bottom: 0 !important; }.tabs > .tab-nav button { padding: 9px 15px !important; border: 1px solid transparent !important; border-radius: 999px !important; color: var(--ink-soft) !important; font-size: .78rem !important; font-weight: 400 !important; }.tabs > .tab-nav button.selected { border-color: var(--line) !important; color: var(--accent-deep) !important; background: var(--accent-soft) !important; }.tabs > .tab-nav button:hover { color: var(--accent-deep) !important; background: var(--surface-muted) !important; }
 .asset-card { border-radius: 12px; background: var(--surface-muted); transition: transform .2s ease, box-shadow .2s ease; }.asset-card:nth-child(2) { background: var(--lavender); }.asset-card:nth-child(3) { background: #f7f4f7; }.asset-card:hover { transform: translateY(-2px); box-shadow: 0 2px 8px rgba(61,64,79,.06); }.asset-card b { font-family: "Playfair Display", "Noto Serif SC", serif; font-size: .93rem; }.asset-card span { color: var(--ink-soft); line-height: 1.6; }
 .file-delivery { border: 1px solid var(--line); border-radius: 14px; background: linear-gradient(135deg, var(--surface-muted), var(--lavender)); }.file-delivery h3 { font-family: "Playfair Display", "Noto Serif SC", serif; color: var(--ink); }.file-delivery p { color: var(--ink-soft); line-height: 1.8; }
-@media (max-width: 760px) { .gradio-container { padding: 16px !important; }.app-topbar { min-height: 54px; margin-bottom: 38px; }.topbar-nav, .topbar-meta { display: none; }.movie-hero { grid-template-columns: 1fr; margin-bottom: 40px; padding: 0 5%; }.movie-hero h1 { font-size: 2.5rem; letter-spacing: -.02em; }.movie-hero::after { right: -9%; top: 24%; opacity: .55; }.panel { padding: 18px !important; } }
+
+/* Gradio's default columns have a desktop-sized minimum width. Switch the
+   production layout to one full-width column before they begin to overflow. */
+#studio-layout { align-items: flex-start !important; }
+#studio-layout > * { min-width: 0 !important; }
+@media (max-width: 1100px) {
+  .gradio-container { width: 100% !important; max-width: none !important; }
+  #studio-layout { display: flex !important; flex-direction: column !important; flex-wrap: nowrap !important; width: 100% !important; }
+  #studio-layout > * { flex: 0 0 auto !important; width: 100% !important; max-width: 100% !important; min-width: 0 !important; }
+  .movie-hero { grid-template-columns: 1fr; margin-bottom: 42px; padding: 0 3%; }
+  .hero-status { width: min(100%, 420px); }
+}
+@media (max-width: 760px) { .gradio-container { padding: 16px !important; }.app-topbar { min-height: 54px; margin-bottom: 38px; }.topbar-nav, .topbar-meta { display: none; }.movie-hero { margin-bottom: 40px; padding: 0 5%; }.movie-hero h1 { font-size: 2.5rem; letter-spacing: -.02em; }.movie-hero::after { right: -9%; top: 24%; opacity: .55; }.panel { padding: 18px !important; } }
 """
 
 
@@ -331,7 +343,7 @@ with gr.Blocks(title="Movie-Agent · 流影制片台", css=APP_CSS) as demo:
         </section>
         """
     )
-    with gr.Row(equal_height=False):
+    with gr.Row(equal_height=False, elem_id="studio-layout"):
         with gr.Column(scale=1):
             with gr.Group(elem_classes="panel"):
                 gr.HTML("<div class='panel-heading'><div class='panel-title'>01 / 新建项目</div><div class='panel-kicker'>从创意开始</div></div>")
