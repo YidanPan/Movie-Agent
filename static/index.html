@@ -16,10 +16,10 @@
 <header class="topbar">
   <button class="brand" id="brand-home" type="button" title="返回首页"><span class="brand-mark" aria-hidden="true">▮▮</span><span class="brand-name">MOVIE·AGENT</span></button>
   <nav class="pipeline" id="pipeline" aria-label="制作阶段">
-    <span class="step" data-step="plan"><b>01</b>PLAN</span><i class="sep" aria-hidden="true"></i>
-    <span class="step" data-step="previs"><b>02</b>PREVIS</span><i class="sep" aria-hidden="true"></i>
-    <span class="step" data-step="render"><b>03</b>RENDER</span><i class="sep" aria-hidden="true"></i>
-    <span class="step" data-step="deliver"><b>04</b>DELIVER</span>
+    <span class="step" data-step="plan"><b>01</b><span>PLAN</span><small class="step-state mono">当前</small></span><i class="sep" aria-hidden="true"></i>
+    <span class="step" data-step="previs"><b>02</b><span>PREVIS</span><small class="step-state mono">未开始</small></span><i class="sep" aria-hidden="true"></i>
+    <span class="step" data-step="render"><b>03</b><span>RENDER</span><small class="step-state mono">未开始</small></span><i class="sep" aria-hidden="true"></i>
+    <span class="step" data-step="deliver"><b>04</b><span>DELIVER</span><small class="step-state mono">未开始</small></span>
   </nav>
   <button class="sound-toggle mono" id="btn-sound" type="button" aria-label="切换界面音效" title="界面音效">♪ OFF</button>
   <div class="rec-clock mono"><span class="rec-dot" aria-hidden="true"></span>REC <span id="clock">00:00:00</span></div>
@@ -89,23 +89,40 @@
 
     <!-- 第一幕 · 开机 -->
     <section class="act hero" id="act-hero">
-      <h1 class="hero-title">一句话，<em>开机</em>。</h1>
+      <h1 class="hero-title">一句话，<em>开机。</em></h1>
       <p class="hero-sub">把一句原创科幻创意交给一支 AI 剧组：导演定调、编剧落笔、美术立规矩、分镜拆镜头，随后逐镜生成、质检、合片。每一步可审阅、可恢复、可导出。</p>
 
-      <div class="slate">
-        <div class="slugline mono" id="slugline">INT. 未命名的科幻短片 — 夜</div>
-        <textarea id="idea" rows="3" placeholder="" aria-label="原创科幻创意"></textarea>
-        <div class="spec-row">
+      <div class="slate" id="slate">
+        <div class="slate-header">
+          <div class="slugline mono" id="slugline"><span class="slate-rec" aria-hidden="true"></span>INT. 未命名的科幻短片 — 夜</div>
+          <span class="slate-index mono">CREATIVE INPUT / 01</span>
+        </div>
+        <div class="idea-console">
+          <div class="idea-console-head">
+            <span class="idea-console-label mono">ORIGINAL PREMISE / 原创科幻创意</span>
+            <span class="idea-counter mono" id="idea-counter">0 / 2000</span>
+          </div>
+          <textarea id="idea" rows="3" maxlength="2000" placeholder="" aria-label="原创科幻创意" aria-describedby="idea-error" aria-required="true" aria-invalid="false"></textarea>
+          <p class="idea-helper mono">一句话即可。剧组会把它扩写成可拍摄的电影方案。</p>
+        </div>
+        <p class="form-error mono" id="idea-error" role="alert" aria-live="polite"></p>
+        <div class="slate-controlbar">
           <label class="timecode-control">
-            <span class="tc-caption mono">时长</span>
-            <span class="tc-value mono" id="tc-value">00:00:48</span>
+            <span class="control-heading"><span class="tc-caption mono">目标时长</span><span class="tc-value mono" id="tc-value">00:00:48</span></span>
             <input type="range" id="duration" min="30" max="80" value="48" aria-label="目标时长（秒）">
           </label>
-          <div class="style-cards" id="style-cards" role="radiogroup" aria-label="视觉风格"></div>
-        </div>
-        <div class="slate-actions">
-          <button class="cta" id="btn-start" type="button">🎬 开 机</button>
-          <p class="mode-note mono" id="mode-note">正在确认制作引擎状态…</p>
+          <div class="style-control">
+            <div class="control-heading"><span class="tc-caption mono">视觉预设</span><span class="style-current mono" id="style-current">写实近未来</span></div>
+            <div class="style-cards" id="style-cards" role="radiogroup" aria-label="视觉风格"></div>
+          </div>
+          <div class="slate-actions">
+            <button class="cta" id="btn-start" type="button">开机 <span class="cta-arrow" aria-hidden="true">→</span></button>
+            <div class="engine-state">
+              <span class="engine-lamp is-pending" aria-hidden="true"></span>
+              <p class="mode-note mono" id="mode-note">正在确认制作引擎状态…</p>
+            </div>
+            <p class="form-error form-error--action mono" id="creation-error" role="alert" aria-live="polite"></p>
+          </div>
         </div>
       </div>
 

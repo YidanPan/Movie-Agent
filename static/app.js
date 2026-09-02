@@ -27,9 +27,15 @@ const els = {
   btnPremiereSkip: $("#btn-premiere-skip"),
   favicon: $("#favicon"),
   idea: $("#idea"),
+  slate: $("#slate"),
+  ideaError: $("#idea-error"),
+  creationError: $("#creation-error"),
+  ideaCounter: $("#idea-counter"),
+  engineLamp: $(".engine-lamp"),
   duration: $("#duration"),
   tcValue: $("#tc-value"),
   styleCards: $("#style-cards"),
+  styleCurrent: $("#style-current"),
   btnStart: $("#btn-start"),
   modeNote: $("#mode-note"),
   librarySelect: $("#library-select"),
@@ -200,6 +206,32 @@ function toast(message, isError = false) {
   toastTimer = setTimeout(() => els.toast.classList.remove("show"), 4200);
 }
 
+function setIdeaError(message = "", actionMessage = "") {
+  const inputMessage = String(message || "");
+  const buttonMessage = String(actionMessage || "");
+  if (els.ideaError) els.ideaError.textContent = inputMessage;
+  if (els.creationError) els.creationError.textContent = buttonMessage;
+  const hasError = Boolean(inputMessage || buttonMessage);
+  els.slate?.classList.toggle("has-error", hasError);
+  els.idea?.setAttribute("aria-invalid", String(hasError));
+}
+
+function updateIdeaCounter() {
+  if (!els.ideaCounter || !els.idea) return;
+  els.ideaCounter.textContent = `${els.idea.value.length} / 2000`;
+}
+
+function validateIdea({ focus = false } = {}) {
+  const length = els.idea.value.trim().length;
+  if (length < 10) {
+    setIdeaError("请先写下至少 10 个字的原创科幻创意。", "开机前需要一条完整的创意句子。");
+    if (focus) els.idea.focus();
+    return false;
+  }
+  setIdeaError();
+  return true;
+}
+
 function show(el) { el.classList.remove("hidden"); }
 function hide(el) { el.classList.add("hidden"); }
 
@@ -351,17 +383,42 @@ function createPacedHandler(onEvent) {
 
 /* ── 制片轨（顶部四步） ────────────────────────────────────── */
 
-function setPipeline(states) {
+function setPipeline(states = {}) {
   const order = ["plan", "previs", "render", "deliver"];
-  let activeAssigned = false;
+  const stateLabels = { active: "当前", done: "已完成", todo: "未开始" };
+  const separators = $$("#pipeline .sep");
+  const hasExplicitActive = order.some((key) => states[key] === "active");
+  const resolvedStates = {};
+  let inferredActive = !hasExplicitActive;
   for (const key of order) {
+    const requested = states[key] === "done" || states[key] === "active" ? states[key] : "todo";
+    if (requested === "todo" && inferredActive) {
+      resolvedStates[key] = "active";
+      inferredActive = false;
+    } else {
+      resolvedStates[key] = requested;
+    }
+  }
+  for (const [index, key] of order.entries()) {
     const el = els.pipeline.querySelector(`[data-step="${key}"]`);
+    const currentState = resolvedStates[key];
     el.classList.remove("is-active", "is-done");
-    if (states[key] === "done") {
-      el.classList.add("is-done");
-    } else if (!activeAssigned) {
+    el.dataset.state = currentState;
+    el.setAttribute("aria-label", `${key.toUpperCase()} · ${stateLabels[currentState]}`);
+    const stateLabel = el.querySelector(".step-state");
+    if (stateLabel) stateLabel.textContent = stateLabels[currentState];
+    if (currentState === "active") {
       el.classList.add("is-active");
-      activeAssigned = true;
+      el.setAttribute("aria-current", "step");
+    } else if (currentState === "done") {
+      el.classList.add("is-done");
+      el.removeAttribute("aria-current");
+    } else {
+      el.removeAttribute("aria-current");
+    }
+    if (separators[index]) {
+      const nextState = order[index + 1] ? resolvedStates[order[index + 1]] : "todo";
+      separators[index].dataset.state = currentState === "done" ? "done" : nextState === "active" ? "active" : "todo";
     }
   }
 }
@@ -1547,18 +1604,15 @@ function handleCreateEvent(event) {
   } else if (event.type === "error") {
     els.crewMeta.textContent = "INTERRUPTED · RETRY AVAILABLE";
     failWorkingAgent();
-    toast(`创作失败：${event.message}`, true);
+    setIdeaError("创作暂时中断，请检查创意后重试。", `制作未完成：${event.message || "服务暂时不可用"}`);
   }
 }
 
 async function startCreation() {
   if (state.busy) return;
   const idea = els.idea.value.trim();
-  if (idea.length < 10) {
-    toast("请输入至少 10 个字的原创科幻创意。", true);
-    els.idea.focus();
-    return;
-  }
+  if (!validateIdea({ focus: true })) return;
+  setIdeaError();
   state.busy = true;
   state.assemblyLocked = true;
   state.project = null;
@@ -1570,7 +1624,7 @@ async function startCreation() {
   state.hasFinalVideo = false;
   state.workingAgent = null;
   els.btnStart.disabled = true;
-  els.btnStart.textContent = "🎬 拍摄中…";
+  els.btnStart.textContent = "拍摄中…";
   buildCrewBoard();
   show(els.actCrew);
   hide(els.actWorkspace);
@@ -1586,13 +1640,13 @@ async function startCreation() {
       paced
     );
   } catch (error) {
-    toast(`创作失败：${error.message}`, true);
+    setIdeaError("创作暂时中断，请检查创意后重试。", `制作未完成：${error.message}`);
     els.crewMeta.textContent = "INTERRUPTED · RETRY AVAILABLE";
     failWorkingAgent();
   } finally {
     state.busy = false;
     els.btnStart.disabled = false;
-    els.btnStart.textContent = "🎬 开 机";
+    els.btnStart.innerHTML = '开机 <span class="cta-arrow" aria-hidden="true">→</span>';
   }
 }
 
@@ -1807,6 +1861,7 @@ function buildStyleCards() {
     if (style === state.selectedStyle) button.classList.add("selected");
     button.addEventListener("click", () => {
       state.selectedStyle = style;
+      if (els.styleCurrent) els.styleCurrent.textContent = style;
       $$(".style-card").forEach((el) => {
         const isSelected = el === button;
         el.classList.toggle("selected", isSelected);
@@ -2022,16 +2077,20 @@ async function loadHealth() {
   try {
     const response = await fetch("/api/health");
     state.health = await response.json();
+    els.engineLamp?.classList.remove("is-pending", "is-error");
     const text = state.health.text_mode === "modelscope" ? "ModelScope AI 文案" : "mock 文案";
     const video = state.health.video_mode === "comfyui" ? "Spark 真实视频" : "mock 视频流程";
     els.modeNote.textContent = `制作引擎就绪 · ${text} + ${video}`;
   } catch {
+    els.engineLamp?.classList.remove("is-pending");
+    els.engineLamp?.classList.add("is-error");
     els.modeNote.textContent = "无法连接后端服务。";
   }
 }
 
 function init() {
   applyView(currentView());
+  setPipeline({ plan: "active" });
   setBrowserActivity("idle");
   updateSoundToggle();
   els.btnEnter.addEventListener("click", () => { playUiSound("slate"); gotoView("studio"); });
@@ -2058,6 +2117,13 @@ function init() {
   refreshLibrary();
   els.duration.addEventListener("input", () => {
     els.tcValue.textContent = timecode(Number(els.duration.value));
+  });
+  els.idea.addEventListener("input", () => {
+    updateIdeaCounter();
+    if (els.idea.value.trim().length >= 10) setIdeaError();
+  });
+  els.idea.addEventListener("blur", () => {
+    if (els.idea.value.trim()) validateIdea();
   });
   els.btnStart.addEventListener("click", startCreation);
   els.btnLoad.addEventListener("click", loadSelectedProject);
@@ -2091,6 +2157,7 @@ function init() {
       && !state.busy
     ) startCreation();
   });
+  updateIdeaCounter();
 }
 
 init();
