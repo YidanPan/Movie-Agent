@@ -28,7 +28,8 @@ class MovieOrchestrator:
         self.using_creative_llm = creative_llm is not None
         self.director = DirectorAgent(creative_llm)
         self.writer = WriterAgent(creative_llm)
-        self.storyboard_agent = StoryboardAgent(creative_llm)
+        supported_modes = {"T2V"} if settings.video_generation_mode == "comfyui" else None
+        self.storyboard_agent = StoryboardAgent(creative_llm, supported_modes)
         self.visual_bible_agent = VisualBibleAgent(creative_llm)
         self.generation_agent = GenerationAgent(settings)
         self.reviewer = ReviewerAgent(settings)
@@ -164,6 +165,15 @@ class MovieOrchestrator:
         if self.settings.video_generation_mode != "comfyui":
             raise ValueError("当前为 mock 模式。请在 Spark 的 .env 设置 VIDEO_GENERATION_MODE=comfyui 后再渲染。")
         project = self.store.load(project_id)
+        unsupported_modes = sorted(
+            {shot.generation_mode for shot in project.storyboard if shot.generation_mode != "T2V"}
+        )
+        if unsupported_modes:
+            modes = "、".join(unsupported_modes)
+            raise ValueError(
+                f"当前 Spark 已验证工作流仅支持 T2V，项目中仍有 {modes} 镜头。"
+                "请重新规划这些镜头后再提交真实生成。"
+            )
         project.status = "rendering_comfyui"
         project.logs.append("生成调度 Agent：开始提交 Spark ComfyUI 逐镜任务。")
         self.store.save(project)

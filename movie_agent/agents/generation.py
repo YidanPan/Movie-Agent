@@ -24,6 +24,10 @@ class GenerationAgent:
 
     def generate(self, project_id: str, shot: Shot) -> str:
         """Submit one planned shot and copy its MP4 into the project output folder."""
+        if shot.generation_mode != "T2V":
+            raise ComfyUIError(
+                f"镜头 {shot.number} 标记为 {shot.generation_mode}，但当前 MiniMax-H3 工作流仅支持 T2V。"
+            )
         existing_output = Path(shot.output_placeholder)
         if shot.status == "approved_comfyui" and existing_output.is_file():
             return f"生成 Agent：镜头 {shot.number} 已有通过质检的结果，跳过重复生成。"

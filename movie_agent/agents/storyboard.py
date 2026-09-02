@@ -6,8 +6,13 @@ from movie_agent.services.llm import CreativeLLM
 
 
 class StoryboardAgent:
-    def __init__(self, llm: CreativeLLM | None = None) -> None:
+    def __init__(
+        self,
+        llm: CreativeLLM | None = None,
+        allowed_generation_modes: set[str] | None = None,
+    ) -> None:
         self.llm = llm
+        self.allowed_generation_modes = allowed_generation_modes or {"T2V", "I2V", "R2V"}
 
     def create(
         self,
@@ -22,7 +27,8 @@ class StoryboardAgent:
         if self.llm:
             result = self.llm.complete_json(
                 "你是电影分镜师。将故事拆成独立、可生成的原创科幻镜头。"
-                "每镜 4–8 秒，镜头数 6–10，避免复杂多人互动与现有影视 IP。",
+                "每镜 4–8 秒，镜头数 6–10，避免复杂多人互动与现有影视 IP。"
+                f"当前可用生成方式仅为：{'、'.join(sorted(self.allowed_generation_modes))}。",
                 (
                     f"创意：{idea}\n总时长：{duration_seconds} 秒\n风格：{visual_style}\n"
                     f"导演设定：{brief}\n剧本：{script}\n视觉设定：{visual_bible}\n"
@@ -42,8 +48,9 @@ class StoryboardAgent:
                 if not 4 <= shot_duration <= 8:
                     raise ValueError("分镜 Agent 生成了不在 4–8 秒范围内的镜头。")
                 mode = str(raw_shot["generation_mode"]).upper()
-                if mode not in {"T2V", "I2V", "R2V"}:
-                    raise ValueError("分镜 Agent 使用了不支持的生成方式。")
+                if mode not in self.allowed_generation_modes:
+                    allowed = "、".join(sorted(self.allowed_generation_modes))
+                    raise ValueError(f"分镜 Agent 使用了当前工作流不支持的生成方式：{mode}（仅支持 {allowed}）。")
                 shots.append(
                     Shot(
                         number=number,
@@ -58,7 +65,11 @@ class StoryboardAgent:
                     )
                 )
             return shots
-        return build_storyboard(idea, duration_seconds, visual_style, project_id)
+        shots = build_storyboard(idea, duration_seconds, visual_style, project_id)
+        if self.allowed_generation_modes == {"T2V"}:
+            for shot in shots:
+                shot.generation_mode = "T2V"
+        return shots
 
     def revise(self, shot: Shot, visual_bible: dict[str, str]) -> Shot:
         """Refresh one render prompt while retaining its assigned story beat and duration."""

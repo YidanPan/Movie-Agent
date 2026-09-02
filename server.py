@@ -18,6 +18,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from movie_agent.config import Settings
 from movie_agent.orchestrator import MovieOrchestrator
@@ -31,12 +32,38 @@ render_lock = threading.Lock()
 app = FastAPI(title="Movie-Agent · AI 片场")
 
 
+class CreateProjectPayload(BaseModel):
+    idea: str = Field(min_length=10, max_length=2_000)
+    duration: int = Field(ge=30, le=80)
+    visual_style: str = Field(min_length=2, max_length=80)
+
+    @field_validator("idea", "visual_style")
+    @classmethod
+    def strip_required_text(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("不能为空。")
+        return cleaned
+
+
 def sse_chunk(payload: dict) -> str:
     return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
 def project_not_found(project_id: str) -> JSONResponse:
     return JSONResponse({"error": f"找不到项目 {project_id}。"}, status_code=404)
+
+
+def invalid_project_id(error: ValueError) -> JSONResponse:
+    return JSONResponse({"error": str(error)}, status_code=400)
+
+
+def invalid_payload(error: ValidationError) -> JSONResponse:
+    first = error.errors()[0]
+    field = "、".join(str(part) for part in first.get("loc", ()))
+    return JSONResponse(
+        {"error": f"提交内容不正确：{field} {first.get('msg', '无效')}"}, status_code=400
+    )
 
 
 def run_with_sse(
@@ -102,17 +129,23 @@ def get_project(project_id: str) -> dict:
         return orchestrator.store.load(project_id).to_dict()
     except FileNotFoundError:
         return project_not_found(project_id)  # type: ignore[return-value]
+    except ValueError as error:
+        return invalid_project_id(error)  # type: ignore[return-value]
 
 
 @app.post("/api/projects/stream")
 async def create_project_stream(request: Request) -> StreamingResponse:
-    body = await request.json()
-    idea = str(body.get("idea", ""))
-    duration = int(body.get("duration", 48))
-    visual_style = str(body.get("visual_style", "写实近未来"))
+    try:
+        payload = CreateProjectPayload.model_validate(await request.json())
+    except (ValidationError, ValueError) as error:
+        if isinstance(error, ValidationError):
+            return invalid_payload(error)  # type: ignore[return-value]
+        return JSONResponse({"error": "请求必须是合法 JSON。"}, status_code=400)  # type: ignore[return-value]
 
     def work(emit: Callable[[dict], None]) -> None:
-        project = orchestrator.create_project(idea, duration, visual_style, event_callback=emit)
+        project = orchestrator.create_project(
+            payload.idea, payload.duration, payload.visual_style, event_callback=emit
+        )
         emit({"type": "done", "project": project.to_dict()})
 
     return run_with_sse(request, work)
@@ -129,6 +162,8 @@ async def render_project_stream(project_id: str, request: Request) -> StreamingR
         orchestrator.store.load(project_id)
     except FileNotFoundError:
         return project_not_found(project_id)
+    except ValueError as error:
+        return invalid_project_id(error)
 
     def work(emit: Callable[[dict], None]) -> None:
         with render_lock:
@@ -170,6 +205,8 @@ def export_json(project_id: str):
         paths = orchestrator.store.export(project_id)
     except FileNotFoundError:
         return project_not_found(project_id)
+    except ValueError as error:
+        return invalid_project_id(error)
     return FileResponse(paths[0], filename=f"{project_id}-project.json", media_type="application/json")
 
 
@@ -179,6 +216,8 @@ def export_markdown(project_id: str):
         paths = orchestrator.store.export(project_id)
     except FileNotFoundError:
         return project_not_found(project_id)
+    except ValueError as error:
+        return invalid_project_id(error)
     return FileResponse(
         paths[1], filename=f"{project_id}-movie-plan.md", media_type="text/markdown"
     )
@@ -189,6 +228,8 @@ def _resolve_final_video(project_id: str) -> Path:
         project = orchestrator.store.load(project_id)
     except FileNotFoundError as error:
         raise HTTPException(status_code=404, detail=f"找不到项目 {project_id}。") from error
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
     path = Path(project.final_output_placeholder or "")
     if not path.is_file():
         raise HTTPException(status_code=404, detail="成片尚未生成。")
@@ -200,6 +241,8 @@ def _resolve_shot_video(project_id: str, shot_number: int) -> Path:
         project = orchestrator.store.load(project_id)
     except FileNotFoundError as error:
         raise HTTPException(status_code=404, detail=f"找不到项目 {project_id}。") from error
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
     if not 1 <= shot_number <= len(project.storyboard):
         raise HTTPException(status_code=400, detail="镜头号超出范围。")
     path = Path(project.storyboard[shot_number - 1].output_placeholder)
