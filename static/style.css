@@ -85,21 +85,21 @@ body {
   z-index: 50;
   display: flex;
   align-items: center;
-  gap: 26px;
-  height: 58px;
+  gap: 34px;
+  height: 70px;
   padding: 0 clamp(18px, 3.5vw, 44px);
   background: rgba(13, 12, 10, 0.88);
   backdrop-filter: blur(12px) saturate(140%);
   border-bottom: 1px solid var(--line-soft);
 }
 
-.brand { display: flex; align-items: center; gap: 10px; }
+.brand { display: flex; align-items: center; gap: 12px; }
 
-.brand-mark { color: var(--amber); font-size: 0.72rem; letter-spacing: -0.12em; }
+.brand-mark { color: var(--amber); font-size: 0.88rem; letter-spacing: -0.12em; }
 
 .brand-name {
   font-family: var(--mono);
-  font-size: 0.78rem;
+  font-size: 0.92rem;
   font-weight: 600;
   letter-spacing: 0.22em;
   color: var(--text);
@@ -108,20 +108,20 @@ body {
 .pipeline {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 14px;
   margin-inline: auto;
 }
 
 .pipeline .step {
   font-family: var(--mono);
-  font-size: 0.66rem;
+  font-size: 0.8rem;
   letter-spacing: 0.16em;
   color: var(--faint);
   transition: color 0.3s ease, text-shadow 0.3s ease;
 }
 
 .pipeline .step b {
-  margin-right: 6px;
+  margin-right: 8px;
   font-weight: 500;
   color: inherit;
   opacity: 0.7;
@@ -135,7 +135,7 @@ body {
 .pipeline .step.is-done { color: var(--dim); }
 
 .pipeline .sep {
-  width: 26px;
+  width: 34px;
   height: 1px;
   background: var(--line);
 }
@@ -143,16 +143,16 @@ body {
 .rec-clock {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 0.68rem;
+  gap: 10px;
+  font-size: 0.82rem;
   letter-spacing: 0.12em;
   color: var(--dim);
 }
 
 .rec-dot {
   display: inline-block;
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
   background: var(--rec);
   box-shadow: 0 0 10px rgba(229, 72, 77, 0.8);
@@ -241,19 +241,13 @@ main {
   display: flex;
   flex-direction: column;
   align-items: center;
-  min-height: calc(100vh - 58px);
+  min-height: calc(100vh - 70px);
   text-align: center;
   padding-top: clamp(56px, 9vh, 110px);
 }
 
-.eyebrow {
-  font-size: 0.68rem;
-  letter-spacing: 0.34em;
-  color: var(--amber);
-}
-
 .hero-title {
-  margin-top: 22px;
+  margin-top: 0;
   font-family: var(--serif);
   font-size: clamp(2.9rem, 6.4vw, 5.2rem);
   font-weight: 700;
