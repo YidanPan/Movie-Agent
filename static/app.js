@@ -78,21 +78,31 @@ const SAMPLE_IDEAS = [
 ];
 
 const AGENT_DEFS = [
-  { id: "director", name: "导演", en: "DIRECTOR", role: "主题与叙事边界", primary: true,
+  { id: "director", index: "01", name: "导演", en: "DIRECTOR", role: "主题与叙事边界", primary: true,
     summarize: (d) => (d.brief && d.brief["主题"]) || "项目设定已确认" },
-  { id: "writer", name: "编剧", en: "WRITER", role: "剧本与旁白", primary: true,
+  { id: "writer", index: "02", name: "编剧", en: "WRITER", role: "剧本与旁白", primary: true,
     summarize: (d) => truncate(d.script && d.script.story, 90) || "剧本已交付" },
-  { id: "visual_bible", name: "美术指导", en: "ART DIRECTOR", role: "角色 · 场景 · 风格 · 声音", primary: true,
+  { id: "visual_bible", index: "03", name: "美术指导", en: "ART DIRECTOR", role: "角色 · 场景 · 风格 · 声音", primary: true,
     summarize: () => "四张视觉规范卡已锁定" },
-  { id: "storyboard", name: "分镜师", en: "STORYBOARD", role: "可渲染镜头拆解", primary: true,
+  { id: "storyboard", index: "04", name: "分镜师", en: "STORYBOARD", role: "可渲染镜头拆解", primary: true,
     summarize: (d) => `${(d.storyboard || []).length} 个镜头已就位` },
-  { id: "quality", name: "质检", en: "QC GATE", role: "结构与版权风险", primary: false,
+  { id: "quality", index: "05", name: "质检", en: "QC GATE", role: "结构与版权风险", primary: false,
     summarize: (d) => `${(d.quality_report || []).length} 项检查完成` },
-  { id: "generation", name: "生成调度", en: "GENERATION", role: "逐镜生成与重试", primary: false,
+  { id: "generation", index: "06", name: "生成调度", en: "GENERATION", role: "逐镜生成与重试", primary: false,
     summarize: () => "逐镜任务队列就绪" },
-  { id: "editor", name: "剪辑", en: "EDITOR", role: "合片成片", primary: false,
+  { id: "editor", index: "07", name: "剪辑", en: "EDITOR", role: "合片成片", primary: false,
     summarize: (d) => (d.final_output ? "成片已交付" : "等待镜头素材") },
 ];
+
+const AGENT_STATUS_COPY = {
+  director: { idle: "WAITING", working: "DIRECTING", done: "DIRECTION LOCKED" },
+  writer: { idle: "WAITING", working: "WRITING", done: "SCRIPT LOCKED" },
+  visual_bible: { idle: "WAITING", working: "DESIGNING", done: "VISUAL LOCKED" },
+  storyboard: { idle: "WAITING", working: "BOARDING", done: "STORYBOARD READY" },
+  quality: { idle: "QUEUED", next: "NEXT · QC GATE", working: "REVIEWING", done: "QC APPROVED" },
+  generation: { idle: "QUEUED", working: "RENDERING", done: "ASSETS READY" },
+  editor: { idle: "QUEUED", working: "ASSEMBLING", done: "CUT COMPLETE" },
+};
 
 const SHOT_STATUS = {
   planned: "待拍",
@@ -364,7 +374,7 @@ function buildCrewBoard() {
       if (index > 0) {
         const arrow = document.createElement("span");
         arrow.className = "crew-arrow mono";
-        arrow.textContent = "→";
+        arrow.innerHTML = "<i></i>";
         container.appendChild(arrow);
       }
       const card = document.createElement("div");
@@ -375,9 +385,9 @@ function buildCrewBoard() {
       card.setAttribute("aria-expanded", "false");
       card.setAttribute("aria-label", `${def.name} Agent 详情`);
       card.innerHTML = `
-        <div class="crew-head"><span class="crew-name">${esc(def.name)}</span><span class="crew-en mono">${esc(def.en)}</span></div>
-        <p class="crew-role">${esc(def.role)}</p>
-        <div class="crew-state mono"><span class="crew-state-icon" aria-hidden="true"></span><span class="crew-state-text">候场</span></div>
+        <div class="crew-indexline mono"><span>${esc(def.index)} / NODE</span><span>${esc(def.en)}</span></div>
+        <div class="crew-head"><span class="crew-name">${esc(def.name)}</span><span class="crew-en mono">${esc(def.role)}</span></div>
+        <div class="crew-state mono"><span class="crew-state-icon" aria-hidden="true"></span><span class="crew-state-text">${AGENT_STATUS_COPY[def.id]?.idle || "WAITING"}</span></div>
         <p class="crew-summary"></p>`;
       card.addEventListener("click", () => openCrewDrawer(def.id));
       card.addEventListener("keydown", (event) => {
@@ -391,38 +401,62 @@ function buildCrewBoard() {
   };
   render(els.crewPrimary, AGENT_DEFS.filter((d) => d.primary));
   render(els.crewSecondary, AGENT_DEFS.filter((d) => !d.primary));
+  refreshCrewConnectors();
+  renderCrewRadio();
 }
 
 function setAgentState(agentId, agentState, data) {
   const card = document.querySelector(`.crew-card[data-agent="${agentId}"]`);
   if (!card) return;
-  card.classList.remove("idle", "working", "done", "failed");
+  card.classList.remove("idle", "next", "working", "done", "failed");
   card.classList.add(agentState);
   const text = card.querySelector(".crew-state-text");
   const summary = card.querySelector(".crew-summary");
   card.setAttribute("aria-expanded", "false");
   if (agentState === "working") {
     card.dataset.startedAt = String(Date.now());
-    text.textContent = "工作中 · 00:00";
+    text.textContent = `${AGENT_STATUS_COPY[agentId]?.working || "WORKING"} · 00:00`;
     summary.innerHTML = '<span class="sk sk-1"></span><span class="sk sk-2"></span>';
   } else if (agentState === "done") {
     delete card.dataset.startedAt;
-    text.textContent = "完成";
+    text.textContent = AGENT_STATUS_COPY[agentId]?.done || "COMPLETE";
     const def = AGENT_DEFS.find((d) => d.id === agentId);
     const baseSummary = def ? def.summarize(data || {}) : "";
     card.dataset.summary = baseSummary;
     summary.textContent = baseSummary;
     renderCrewCardExtras(agentId);
     playUiSound("done");
+  } else if (agentState === "next") {
+    delete card.dataset.startedAt;
+    text.textContent = AGENT_STATUS_COPY[agentId]?.next || "NEXT";
+    summary.textContent = "上游资产已到位，等待这一棒开始。";
   } else if (agentState === "failed") {
     delete card.dataset.startedAt;
-    text.textContent = "中断";
+    text.textContent = "INTERRUPTED";
     summary.textContent = "这一棒没有跑完，可重新开机再试。";
   } else {
     delete card.dataset.startedAt;
-    text.textContent = "候场";
+    text.textContent = AGENT_STATUS_COPY[agentId]?.idle || "WAITING";
     summary.textContent = "";
   }
+  refreshCrewConnectors();
+}
+
+function refreshCrewConnectors() {
+  for (const row of [els.crewPrimary, els.crewSecondary]) {
+    const cards = Array.from(row.querySelectorAll(".crew-card"));
+    const arrows = Array.from(row.querySelectorAll(".crew-arrow"));
+    arrows.forEach((arrow, index) => {
+      const previous = cards[index]?.classList;
+      const next = cards[index + 1]?.classList;
+      arrow.dataset.state = previous?.contains("done") && next?.contains("done") ? "done"
+        : previous?.contains("working") || next?.contains("working") || next?.contains("next") ? "active" : "waiting";
+    });
+  }
+  const bridge = document.querySelector(".crew-bridge");
+  const board = document.querySelector('.crew-card[data-agent="storyboard"]');
+  const qc = document.querySelector('.crew-card[data-agent="quality"]');
+  if (bridge) bridge.dataset.state = board?.classList.contains("done") && (qc?.classList.contains("working") || qc?.classList.contains("next")) ? "active" : board?.classList.contains("done") ? "ready" : "waiting";
 }
 
 function rememberCrewEvent(agentId, event) {
@@ -441,7 +475,12 @@ function renderCrewCardExtras(agentId) {
 
 function appendCrewArtifact(event) {
   if (!event.agent || !event.content) return;
-  state.crewArtifacts.push({ agent: event.agent, title: event.title || "现场产出", content: event.content });
+  state.crewArtifacts.push({
+    agent: event.agent,
+    title: event.title || "现场产出",
+    content: event.content,
+    time: new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
+  });
   rememberCrewEvent(event.agent, { artifacts: state.crewArtifacts.filter((item) => item.agent === event.agent) });
   renderCrewCardExtras(event.agent);
   renderCrewRadio();
@@ -449,7 +488,12 @@ function appendCrewArtifact(event) {
 
 function appendCrewMessage(event) {
   if (!event.message) return;
-  state.crewMessages.push({ from: event.from || "crew", to: event.to || "all", message: event.message });
+  state.crewMessages.push({
+    from: event.from || "crew",
+    to: event.to || "all",
+    message: event.message,
+    time: new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
+  });
   rememberCrewEvent(event.from, { messages: state.crewMessages.filter((item) => item.from === event.from) });
   renderCrewRadio();
 }
@@ -461,12 +505,16 @@ function renderCrewRadio() {
     ...state.crewMessages.map((item) => ({ type: "chat", ...item })),
     ...state.crewArtifacts.map((item) => ({ type: "artifact", ...item })),
   ].slice(-18);
+  if (!entries.length) {
+    els.crewRadio.innerHTML = '<div class="radio-msg radio-system"><span class="radio-time">--:--:--</span><span class="radio-from">SYSTEM</span><span class="radio-to"> · STANDBY</span><br>Waiting for the first creative signal…</div>';
+    return;
+  }
   for (const item of entries) {
     const row = document.createElement("div");
     row.className = item.type === "chat" ? "radio-msg" : "radio-msg radio-artifact";
     row.innerHTML = item.type === "chat"
-      ? `<span class="radio-from">${esc(item.from)}</span><span class="radio-to"> → ${esc(item.to)}</span><br>${esc(item.message)}`
-      : `<span class="radio-from">✦ ${esc(item.title)}</span><span class="radio-to"> · ${esc(item.agent)}</span><br>${esc(truncate(item.content, 180))}`;
+      ? `<span class="radio-time">${esc(item.time || "--:--:--")}</span><span class="radio-from">${esc(item.from)}</span><span class="radio-to"> → ${esc(item.to)}</span><br>${esc(item.message)}`
+      : `<span class="radio-time">${esc(item.time || "--:--:--")}</span><span class="radio-from">✦ ${esc(item.title)}</span><span class="radio-to"> · ${esc(item.agent)}</span><br>${esc(truncate(item.content, 180))}`;
     els.crewRadio.appendChild(row);
   }
   els.crewRadio.scrollTop = els.crewRadio.scrollHeight;
@@ -482,7 +530,7 @@ function startCrewTicker() {
       const text = card.querySelector(".crew-state-text");
       if (text) {
         const elapsed = (Date.now() - Number(card.dataset.startedAt)) / 1000;
-        text.textContent = `工作中 · ${timecode(elapsed)}`;
+        text.textContent = `${AGENT_STATUS_COPY[card.dataset.agent]?.working || "WORKING"} · ${timecode(elapsed)}`;
       }
     }
   }, 1000);
@@ -899,7 +947,7 @@ function openCrewDrawer(agentId) {
     .join("");
   const messages = state.crewMessages
     .filter((item) => item.from === agentId || item.to === agentId || item.to === "all")
-    .map((item) => `<p class="crew-drawer-message"><span class="radio-from">${esc(item.from)}</span><span class="radio-to"> → ${esc(item.to)}</span><br>${esc(item.message)}</p>`)
+    .map((item) => `<p class="crew-drawer-message"><span class="radio-time">${esc(item.time || "--:--:--")}</span><span class="radio-from">${esc(item.from)}</span><span class="radio-to"> → ${esc(item.to)}</span><br>${esc(item.message)}</p>`)
     .join("");
   const assetMarkup = agentId === "director" ? crewAssetMarkup("项目设定", asset.brief)
     : agentId === "writer" ? crewAssetMarkup("剧本与旁白", asset.script)
@@ -978,7 +1026,7 @@ function handleCreateEvent(event) {
   if (event.type === "project") {
     state.project = createLiveProject(event);
     state.pendingProjectId = event.project_id;
-    els.crewMeta.textContent = `CREW ASSEMBLY · ${event.project_id}`;
+    els.crewMeta.textContent = `PRODUCTION / 01 · ${String(event.project_id || "").replace(/^film-/, "").toUpperCase()}`;
     els.modeNote.textContent = `文案引擎：${event.text_mode === "modelscope" ? "ModelScope AI" : "mock"} · 视频引擎：${event.video_mode === "comfyui" ? "Spark 真实生成" : "mock 流程"}`;
   } else if (event.type === "agent_start") {
     state.workingAgent = event.agent;
@@ -992,6 +1040,7 @@ function handleCreateEvent(event) {
     if (event.agent === "storyboard") {
       state.project.logs.push("分镜师：开始逐张冲印镜头。 ");
       stageStoryboard(event.storyboard || []);
+      setAgentState("quality", "next");
       setPipeline({ plan: "done", previs: "active" });
     }
   } else if (event.type === "artifact") {
@@ -1007,7 +1056,7 @@ function handleCreateEvent(event) {
     storyboardStageRun += 1;
     state.project = event.project;
     state.pendingProjectId = null;
-    els.crewMeta.textContent = "CREW ASSEMBLY · 剧组集结完毕";
+    els.crewMeta.textContent = `PRODUCTION / 01 · ${String(event.project?.project_id || "").replace(/^film-/, "").toUpperCase()} · LOCKED`;
     renderWorkspace(state.project, { entranceFrom: 0 });
     setBrowserActivity("idle", state.project);
     toast(`项目 ${state.project.project_id} 已完成并存档。`);
