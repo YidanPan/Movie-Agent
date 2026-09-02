@@ -178,17 +178,29 @@
       </div>
 
       <div class="panel manual-panel">
-        <div class="panel-head">
-          <h2>制作手册</h2>
+        <div class="panel-head manual-panel-head">
+          <div>
+            <p class="manual-kicker mono">PRODUCTION BIBLE / 01</p>
+            <h2>制作手册</h2>
+          </div>
           <span class="panel-meta mono">PRODUCTION BIBLE</span>
         </div>
+        <div class="manual-summary" id="manual-summary" aria-label="项目摘要"></div>
         <div class="tabs" id="manual-tabs" role="tablist">
-          <button class="tab active" data-tab="brief" type="button" role="tab">项目设定</button>
-          <button class="tab" data-tab="script" type="button" role="tab">剧本与旁白</button>
-          <button class="tab" data-tab="visual" type="button" role="tab">视觉规范</button>
-          <button class="tab" data-tab="quality" type="button" role="tab">场记单</button>
+          <button class="tab active" id="manual-tab-brief" data-tab="brief" type="button" role="tab" aria-controls="manual-body" aria-selected="true">项目设定</button>
+          <button class="tab" id="manual-tab-script" data-tab="script" type="button" role="tab" aria-controls="manual-body" aria-selected="false">剧本与旁白</button>
+          <button class="tab" id="manual-tab-visual" data-tab="visual" type="button" role="tab" aria-controls="manual-body" aria-selected="false">视觉规范</button>
+          <button class="tab" id="manual-tab-quality" data-tab="quality" type="button" role="tab" aria-controls="manual-body" aria-selected="false">场记单</button>
         </div>
-        <div class="tab-body" id="manual-body" role="tabpanel"></div>
+        <div class="tab-body" id="manual-body" role="tabpanel" aria-live="polite" aria-labelledby="manual-tab-brief"></div>
+        <details class="agent-activity" id="agent-activity">
+          <summary>
+            <span class="activity-title mono">AGENT ACTIVITY</span>
+            <span class="activity-summary mono" id="activity-summary">等待片场信号</span>
+            <span class="activity-chevron" aria-hidden="true">⌄</span>
+          </summary>
+          <div class="activity-body" id="activity-body"></div>
+        </details>
       </div>
 
       <div class="panel screening-panel">

@@ -56,6 +56,9 @@ const els = {
   logFeed: $("#log-feed"),
   manualTabs: $("#manual-tabs"),
   manualBody: $("#manual-body"),
+  manualSummary: $("#manual-summary"),
+  activitySummary: $("#activity-summary"),
+  activityBody: $("#activity-body"),
   screen: $("#screen"),
   finalVideo: $("#final-video"),
   posterTitle: $("#poster-title"),
@@ -139,6 +142,7 @@ const state = {
   activeShotNumber: 1,
   renderStartedAt: 0,
   manualTab: "brief",
+  manualShotNumber: 1,
   hasFinalVideo: false,
   creditsProjectId: null,
   workingAgent: null,
@@ -690,7 +694,7 @@ function renderMonitor(project, live = false) {
 
 function typewriteManualBody() {
   const run = ++manualTypingRun;
-  const nodes = Array.from(els.manualBody.querySelectorAll("dd, .story p, .narration, .checklist li"));
+  const nodes = Array.from(els.manualBody.querySelectorAll(".manual-type, dd, .story p, .narration, .checklist li"));
   let nodeIndex = 0;
   const typeNext = () => {
     if (run !== manualTypingRun || nodeIndex >= nodes.length) return;
@@ -719,6 +723,211 @@ function typewriteManualBody() {
   typeNext();
 }
 
+const MANUAL_FIELD_EN = {
+  主题: "THEME",
+  原始创意: "ORIGINAL IDEA",
+  核心冲突: "CORE CONFLICT",
+  叙事弧线: "NARRATIVE ARC",
+  视觉风格: "VISUAL STYLE",
+  目标时长: "TARGET DURATION",
+  角色卡: "CHARACTER CARD",
+  场景卡: "SCENE CARD",
+  风格卡: "STYLE CARD",
+  声音卡: "SOUND CARD",
+};
+
+function compactDuration(seconds) {
+  const total = Math.max(0, Math.round(Number(seconds) || 0));
+  return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+}
+
+function manualProductionStatus(project) {
+  const status = String(project?.status || "");
+  const shots = project?.storyboard || [];
+  if (status.startsWith("completed")) return { key: "complete", symbol: "✓", label: "DELIVERED", copy: "成片已交付" };
+  if (status.includes("render")) return { key: "active", symbol: "●", label: "RENDERING", copy: "正在生成" };
+  if (shots.length >= 6 && (project?.quality_report || []).length) return { key: "complete", symbol: "✓", label: "READY FOR GENERATION", copy: "已通过策划质检" };
+  if (shots.length) return { key: "active", symbol: "●", label: "BOARDING", copy: "分镜正在生长" };
+  return { key: "active", symbol: "●", label: "PLANNING", copy: "剧组正在策划" };
+}
+
+function renderManualSummary(project) {
+  if (!project) {
+    els.manualSummary.innerHTML = '<p class="empty-note">等待项目进入制作手册。</p>';
+    return;
+  }
+  const shots = project.storyboard || [];
+  const total = shots.reduce((sum, shot) => sum + Number(shot.duration_seconds || 0), 0) || Number(project.duration_seconds || 0);
+  const status = manualProductionStatus(project);
+  const filmId = String(project.project_id || "film-01").replace(/^film-/, "").toUpperCase();
+  els.manualSummary.innerHTML = `
+    <div class="manual-project-line">
+      <div>
+        <span class="manual-project-id mono">FILM ${esc(filmId)} / ${shots.length ? "CUT 01" : "PREP"}</span>
+        <h3>${esc(projectTitle(project))}</h3>
+      </div>
+      <span class="manual-project-status ${status.key} mono"><i>${status.symbol}</i>${status.label}</span>
+    </div>
+    <div class="manual-stats" role="list" aria-label="项目摘要">
+      <div role="listitem"><span class="mono">SHOTS</span><strong>${shots.length || "—"}</strong></div>
+      <div role="listitem"><span class="mono">DURATION</span><strong>${shots.length ? compactDuration(total) : "—"}</strong></div>
+      <div role="listitem"><span class="mono">FRAME</span><strong>16:9</strong></div>
+      <div role="listitem"><span class="mono">STATUS</span><strong>${esc(status.copy)}</strong></div>
+    </div>`;
+}
+
+function uniqueLogEntries(project) {
+  const entries = [...(project?.logs || [])];
+  if (!entries.length && (project?.quality_report || []).length) entries.push(...project.quality_report);
+  const seen = new Set();
+  return entries.filter((entry) => {
+    const clean = String(entry || "").replace(/\s+/g, " ").trim();
+    if (!clean || seen.has(clean)) return false;
+    seen.add(clean);
+    return true;
+  });
+}
+
+function renderAgentActivity(project) {
+  if (!project) {
+    els.activitySummary.textContent = "等待片场信号";
+    els.activityBody.innerHTML = '<p class="activity-empty">项目创建后，剧组沟通和检查记录会归档在这里。</p>';
+    return;
+  }
+  const entries = uniqueLogEntries(project);
+  const assets = [project.brief, project.script, project.visual_bible, project.storyboard, project.quality_report]
+    .filter((value) => (Array.isArray(value) ? value.length : value && Object.keys(value).length)).length;
+  const agentsDone = String(project.status || "").startsWith("completed") ? 7 : Math.min(7, assets + (project.final_output_placeholder ? 2 : 0));
+  const checks = (project.quality_report || []).length;
+  els.activitySummary.textContent = `${checks || 0} CHECKS · ${agentsDone}/7 AGENTS`;
+  els.activityBody.innerHTML = entries.length
+    ? `<ol class="activity-list">${entries.map((entry) => `<li><span class="activity-mark">✓</span><span>${esc(entry)}</span></li>`).join("")}</ol>`
+    : '<p class="activity-empty">暂无活动记录。</p>';
+}
+
+function manualFieldLabel(key) {
+  return MANUAL_FIELD_EN[key] ? `${MANUAL_FIELD_EN[key]} / ${key}` : String(key).toUpperCase();
+}
+
+function shotSceneNumber(number, total) {
+  if (!total) return 1;
+  return Math.min(3, Math.max(1, Math.ceil((Number(number) / total) * 3)));
+}
+
+function shotWorkflowState(status) {
+  const value = String(status || "planned");
+  if (["approved_mock", "approved_comfyui"].includes(value)) return { key: "complete", symbol: "✓", label: "COMPLETE" };
+  if (["generating_mock", "generating_comfyui", "generated_comfyui"].includes(value)) return { key: "active", symbol: "●", label: "ACTIVE" };
+  if (value === "generation_failed") return { key: "failed", symbol: "!", label: "FAILED" };
+  return { key: "queued", symbol: "○", label: "QUEUED" };
+}
+
+function shotCameraAngle(shot) {
+  return String(shot.framing || "").includes("低机位") ? "LOW ANGLE / 低机位" : "EYE LEVEL / 视线平齐";
+}
+
+function shotMovement(shot) {
+  const text = `${shot.image_description || ""} ${shot.action || ""} ${shot.prompt || ""}`;
+  if (/推进|推近|靠近/.test(text)) return "SLOW PUSH-IN / 缓慢推进";
+  if (/拉远|后退/.test(text)) return "SLOW PULL-BACK / 缓慢拉远";
+  if (/横移|平移/.test(text)) return "LATERAL TRACK / 横向移动";
+  if (/环绕|旋转/.test(text)) return "ORBIT / 环绕";
+  return "STABLE HOLD / 稳定保持";
+}
+
+function shotChecks(shot) {
+  const stateInfo = shotWorkflowState(shot.status);
+  const complete = stateInfo.key === "complete";
+  const failed = stateInfo.key === "failed";
+  const promptReady = String(shot.prompt || "").trim().length >= 20;
+  return [
+    { label: "CHARACTER CONSISTENCY", status: failed ? "FAILED" : complete ? "COMPLETE" : "QUEUED", symbol: failed ? "!" : complete ? "✓" : "○" },
+    { label: "SCENE CONSISTENCY", status: failed ? "FAILED" : complete ? "COMPLETE" : "QUEUED", symbol: failed ? "!" : complete ? "✓" : "○" },
+    { label: "PROMPT INTEGRITY", status: promptReady ? "COMPLETE" : "QUEUED", symbol: promptReady ? "✓" : "○" },
+    { label: "IP / COPYRIGHT CHECK", status: complete ? "COMPLETE" : "QUEUED", symbol: complete ? "✓" : "○" },
+  ];
+}
+
+function renderBriefTab(project) {
+  const entries = Object.entries(project.brief || {});
+  const rows = [
+    ["ORIGINAL IDEA", "原始创意", project.idea],
+    ["TARGET DURATION", "目标时长", `${project.duration_seconds || "—"} 秒`],
+    ["VISUAL STYLE", "视觉风格", project.visual_style],
+    ...entries.map(([key, value]) => [manualFieldLabel(key), key, value]),
+  ];
+  const unique = rows.filter((row, index, list) => row[2] && list.findIndex((item) => item[1] === row[1]) === index);
+  return `
+    <section class="manual-intro">
+      <span class="manual-section-kicker mono">DIRECTOR'S NOTE / 导演定调</span>
+      <h3>先确定这部电影为何存在。</h3>
+      <p class="manual-type">从创意、主题到叙事边界，导演 Agent 将每一个上游决定交给后续剧组。</p>
+    </section>
+    <div class="brief-sheet">${unique.map(([en, key, value]) => `
+      <div class="brief-row"><span class="manual-label mono">${esc(en)}</span><span class="brief-key">${esc(key)}</span><p class="manual-type">${esc(value)}</p></div>`).join("") || '<p class="empty-note">暂无项目设定。</p>'}</div>`;
+}
+
+function renderScriptTab(project) {
+  const story = String((project.script || {}).story || "").split(/\n+/).filter(Boolean);
+  const narration = String((project.script || {}).narration || "").trim();
+  return `
+    <section class="screenplay-reader">
+      <header class="screenplay-head mono"><span>SCREENPLAY / DRAFT 01</span><span>${story.length ? `${story.length} SCENES` : "AWAITING DRAFT"}</span></header>
+      <div class="screenplay-body">${story.map((para, index) => `<p><span class="screenplay-line-no mono">${String(index + 1).padStart(2, "0")}</span><span class="manual-type">${esc(para)}</span></p>`).join("") || '<p class="empty-note">暂无剧本。</p>'}</div>
+      ${narration ? `<aside class="screenplay-narration"><span class="manual-label mono">NARRATION / 旁白</span><p class="manual-type">${esc(narration)}</p></aside>` : ""}
+    </section>`;
+}
+
+function renderVisualTab(project) {
+  const entries = Object.entries(project.visual_bible || {});
+  const palette = [
+    ["SHADOW", "#080706"],
+    ["PANEL", "#17140f"],
+    ["AMBER", "#d7a64a"],
+    ["HIGHLIGHT", "#eee8dd"],
+  ];
+  return `
+    <section class="manual-intro visual-intro">
+      <span class="manual-section-kicker mono">ART DEPARTMENT / 美术部门</span>
+      <h3>所有镜头共享同一套世界规则。</h3>
+      <p class="manual-type">角色、场景、风格与声音被锁定为可复用的视觉连续性约束。</p>
+    </section>
+    <div class="visual-board">${entries.map(([key, value]) => `
+      <section class="visual-spec"><header><span class="manual-label mono">${esc(manualFieldLabel(key))}</span><span class="visual-lock mono">LOCKED ✓</span></header><h4>${esc(key)}</h4><p class="manual-type">${esc(value)}</p></section>`).join("") || '<p class="empty-note">暂无视觉规范。</p>'}</div>
+    <div class="visual-palette"><span class="manual-label mono">STUDIO PALETTE / 片场参考色</span><div>${palette.map(([label, color]) => `<span class="palette-chip"><i style="--chip:${color}"></i><b class="mono">${label}</b></span>`).join("")}</div></div>`;
+}
+
+function renderShotSheet(project) {
+  const shots = project.storyboard || [];
+  if (!shots.length) return '<p class="empty-note">分镜师完成拆解后，Shot Sheet 会在这里逐张冲印。</p>';
+  if (!shots.some((shot) => shot.number === state.manualShotNumber)) state.manualShotNumber = shots[0].number;
+  const active = shots.find((shot) => shot.number === state.manualShotNumber) || shots[0];
+  const activeState = shotWorkflowState(active.status);
+  const nav = [];
+  let lastScene = 0;
+  for (const shot of shots) {
+    const scene = shotSceneNumber(shot.number, shots.length);
+    if (scene !== lastScene) {
+      lastScene = scene;
+      nav.push(`<div class="shot-scene-label mono">SCENE ${String(scene).padStart(2, "0")}</div>`);
+    }
+    const status = shotWorkflowState(shot.status);
+    nav.push(`<button class="shot-nav-item${shot.number === active.number ? " is-active" : ""}" type="button" data-manual-shot="${shot.number}" aria-label="打开镜头 ${shot.number}"><span class="shot-nav-no mono">${String(shot.number).padStart(2, "0")}</span><span class="shot-nav-copy"><b>${esc(truncate(shot.image_description, 30))}</b><small class="mono">${esc(status.label)}</small></span><span class="shot-nav-duration mono">${shot.duration_seconds}s</span><span class="shot-nav-state ${status.key}" aria-label="${status.label}">${status.symbol}</span></button>`);
+  }
+  const qc = shotChecks(active);
+  return `
+    <div class="shot-sheet">
+      <aside class="shot-nav"><header class="shot-nav-head"><span class="manual-label mono">SHOT LIST</span><span class="mono">${shots.length} SHOTS</span></header><div class="shot-nav-list">${nav.join("")}</div></aside>
+      <article class="shot-detail">
+        <header class="shot-detail-head"><div><span class="manual-section-kicker mono">SCENE ${String(shotSceneNumber(active.number, shots.length)).padStart(2, "0")} / SHOT ${String(active.number).padStart(2, "0")}</span><h3>镜头 ${String(active.number).padStart(2, "0")}</h3><p class="manual-type">${esc(active.image_description)}</p></div><span class="shot-detail-status ${activeState.key} mono"><i>${activeState.symbol}</i>${activeState.label}</span></header>
+        <div class="shot-facts"><div><span class="manual-label mono">DURATION</span><strong>${active.duration_seconds}s</strong></div><div><span class="manual-label mono">FRAMING</span><strong>${esc(active.framing)}</strong></div><div><span class="manual-label mono">CAMERA</span><strong>${esc(shotCameraAngle(active))}</strong></div><div><span class="manual-label mono">MOVEMENT</span><strong>${esc(shotMovement(active))}</strong></div></div>
+        <div class="shot-detail-grid"><section><span class="manual-label mono">ACTION / 动作</span><p class="manual-type">${esc(active.action)}</p></section><section><span class="manual-label mono">SOUND / 声音</span><p class="manual-type">${esc(active.sound_design)}</p></section></div>
+        <section class="shot-prompt"><header><span class="manual-label mono">VISUAL PROMPT / 最终提示词</span><span class="mono">${esc(active.generation_mode)}</span></header><p class="manual-type">${esc(active.prompt)}</p></section>
+        <section class="shot-qc"><header><span class="manual-label mono">QC GATE / 质检门</span><span class="mono">${active.attempts ? `TAKE ${active.attempts}` : "TAKE 01"}</span></header><div class="shot-qc-grid">${qc.map((item) => `<div class="shot-qc-item ${item.status === "COMPLETE" ? "complete" : item.status === "FAILED" ? "failed" : "queued"}"><i>${item.symbol}</i><span>${item.label}</span><b class="mono">${item.status}</b></div>`).join("")}</div></section>
+      </article>
+    </div>`;
+}
+
 function renderManual(project, tab = state.manualTab, animate = false) {
   manualTypingRun += 1;
   state.manualTab = tab;
@@ -731,40 +940,36 @@ function renderManual(project, tab = state.manualTab, animate = false) {
   $$("#manual-tabs .tab").forEach((button) => {
     button.classList.toggle("active", button.dataset.tab === tab);
     button.classList.toggle("is-live", Boolean(liveTabs[button.dataset.tab]));
+    button.setAttribute("aria-selected", String(button.dataset.tab === tab));
   });
   const body = els.manualBody;
   if (!project) {
     body.innerHTML = '<p class="empty-note">制作手册会在项目创建后生成。</p>';
+    body.setAttribute("aria-labelledby", "manual-tab-brief");
+    renderManualSummary(null);
+    renderAgentActivity(null);
     return;
   }
-  if (animate) typewriteManualBody();
   if (tab === "brief") {
-    const rows = Object.entries(project.brief || {})
-      .map(([key, value]) => `<dt>${esc(key)}</dt><dd>${esc(value)}</dd>`)
-      .join("");
-    body.innerHTML = rows ? `<dl>${rows}</dl>` : '<p class="empty-note">暂无项目设定。</p>';
+    body.innerHTML = renderBriefTab(project);
   } else if (tab === "script") {
-    const story = String((project.script || {}).story || "")
-      .split(/\n+/).filter(Boolean)
-      .map((para) => `<p>${esc(para)}</p>`)
-      .join("");
-    const narration = (project.script || {}).narration
-      ? `<div class="narration">旁白 —— ${esc(project.script.narration)}</div>`
-      : "";
-    body.innerHTML = `<div class="story">${story || '<p class="empty-note">暂无剧本。</p>'}</div>${narration}`;
+    body.innerHTML = renderScriptTab(project);
   } else if (tab === "visual") {
-    const rows = Object.entries(project.visual_bible || {})
-      .map(([key, value]) => `<dt>${esc(key)}</dt><dd>${esc(value)}</dd>`)
-      .join("");
-    body.innerHTML = rows ? `<dl>${rows}</dl>` : '<p class="empty-note">暂无视觉规范。</p>';
+    body.innerHTML = renderVisualTab(project);
   } else {
-    const quality = (project.quality_report || [])
-      .map((item) => `<li>${esc(item)}</li>`).join("");
-    const logs = (project.logs || [])
-      .map((item) => `<li>${esc(item)}</li>`).join("");
-    body.innerHTML = `
-      <ul class="checklist">${quality || "<li>暂无质检记录。</li>"}</ul>
-      <ul class="checklist" style="margin-top:18px">${logs || "<li>暂无任务日志。</li>"}</ul>`;
+    body.innerHTML = renderShotSheet(project);
+  }
+  body.setAttribute("aria-labelledby", `manual-tab-${tab}`);
+  renderManualSummary(project);
+  renderAgentActivity(project);
+  if (animate) typewriteManualBody();
+  if (tab === "quality") {
+    body.querySelectorAll("[data-manual-shot]").forEach((button) => {
+      button.addEventListener("click", () => {
+        state.manualShotNumber = Number(button.dataset.manualShot);
+        renderManual(project, "quality");
+      });
+    });
   }
 }
 
@@ -846,6 +1051,7 @@ function applyProjectSnapshot(project) {
   renderTimeline(project);
   renderShotMap(project);
   renderLogFeed(project);
+  renderManual(project, state.manualTab);
   renderDelivery(project);
   renderMonitor(project, state.rendering);
 }
@@ -1002,6 +1208,9 @@ function stageStoryboard(shots) {
       renderFilmstrip(state.project, index);
       renderTimeline(state.project);
       renderShotMap(state.project);
+      renderManualSummary(state.project);
+      renderAgentActivity(state.project);
+      if (state.manualTab === "quality") renderManual(state.project, "quality");
     }, index * 125);
   });
 }
