@@ -240,6 +240,35 @@ textarea, input, .wrap-inner { border-radius: 9px !important; }
   .hero-status { width: min(100%, 420px); }
 }
 @media (max-width: 760px) { .gradio-container { padding: 16px !important; }.app-topbar { min-height: 54px; margin-bottom: 38px; }.topbar-nav, .topbar-meta { display: none; }.movie-hero { margin-bottom: 40px; padding: 0 5%; }.movie-hero h1 { font-size: 2.5rem; letter-spacing: -.02em; }.movie-hero::after { right: -9%; top: 24%; opacity: .55; }.panel { padding: 18px !important; } }
+
+/* Reading-first production flow: a stable cover, then one generous vertical
+   workspace instead of competing left/right columns. */
+.app-topbar { position: sticky; top: 0; z-index: 20; margin-left: -8px; margin-right: -8px; padding: 0 10px; background: rgba(252,250,249,.92); backdrop-filter: blur(14px) saturate(150%); }
+.movie-hero { min-height: min(620px, calc(100vh - 88px)); margin-bottom: 64px; }
+#studio-layout { display: flex !important; flex-direction: column !important; flex-wrap: nowrap !important; gap: 32px !important; width: 100% !important; }
+#studio-layout > .column { flex: 0 0 auto !important; width: 100% !important; max-width: 100% !important; min-width: 0 !important; }
+.workspace-status { grid-template-columns: 1fr !important; }
+.project-meta-row { flex-direction: column !important; }
+.project-meta-row > * { width: 100% !important; }
+.history-actions { flex-direction: column !important; }
+.history-actions > * { width: 100% !important; }
+.asset-grid { grid-template-columns: 1fr !important; gap: 16px; }
+.gradio-container { font-size: 18px !important; }
+.panel { padding: clamp(26px, 3vw, 38px) !important; }
+.panel-title { font-size: .8rem; }
+.panel-kicker, .panel-note { font-size: 1rem; }
+label span { font-size: 1rem !important; }
+textarea, input, .wrap-inner, button { font-size: 1rem !important; }
+.render-note { margin-top: 14px; font-size: .9rem; line-height: 1.75; }
+.stage-strip { gap: 12px; margin-bottom: 26px; }
+.stage-strip span { padding: 18px 16px; font-size: .95rem; }
+.stage-strip b { margin-bottom: 7px; font-size: .7rem; }
+.status-meta__label { font-size: .7rem; }.status-meta__copy { font-size: 1rem; }.status-meta__copy span { font-size: .88rem; }
+.tabs > .tab-nav { gap: 10px !important; }.tabs > .tab-nav button { padding: 12px 20px !important; font-size: 1rem !important; }
+.asset-card { min-height: 118px; padding: 22px; }.asset-card b { font-size: 1.2rem; }.asset-card span { font-size: .92rem; }
+.file-delivery { padding: 30px; }.file-delivery h3 { font-size: 1.7rem; }.file-delivery p { font-size: 1rem; }
+.prose p, .markdown p, .prose li, .markdown li { font-size: 1rem; }
+@media (max-width: 760px) { .app-topbar { margin-left: -2px; margin-right: -2px; }.movie-hero { min-height: 0; margin-bottom: 40px; }.panel { padding: 22px !important; }.stage-strip { grid-template-columns: 1fr 1fr; }.stage-strip span { padding: 14px 12px; font-size: .82rem; }.panel-kicker { display: none; } }
 """
 
 
@@ -367,7 +396,7 @@ with gr.Blocks(title="Movie-Agent · 流影制片台", css=APP_CSS) as demo:
                 history = gr.Dropdown(
                     choices=orchestrator.store.list_project_ids(), label="已保存项目", interactive=True
                 )
-                with gr.Row():
+                with gr.Row(elem_classes="history-actions"):
                     refresh = gr.Button("刷新历史")
                     load = gr.Button("打开项目")
                 shot_number = gr.Slider(1, 10, value=1, step=1, label="要重新规划的镜头号")
@@ -379,7 +408,7 @@ with gr.Blocks(title="Movie-Agent · 流影制片台", css=APP_CSS) as demo:
                 with gr.Row(elem_classes="workspace-status"):
                     status = gr.Textbox(label="当前制作状态", interactive=False, elem_id="status", placeholder="输入创意后，制作状态会显示在这里。")
                     gr.HTML("<div class='status-meta'><div class='status-meta__label'>Render policy</div><div class='status-meta__copy'>先策划，后渲染<span>仅在你点击“提交 Spark 生成”后，才会启动逐镜生成与合片。</span></div></div>")
-                with gr.Row():
+                with gr.Row(elem_classes="project-meta-row"):
                     project_id = gr.Textbox(label="项目 ID", interactive=False, placeholder="尚未创建项目")
                     final_output = gr.Textbox(label="成片输出路径", interactive=False, elem_id="final-output", placeholder="成片完成后显示")
                 render = gr.Button("提交 Spark 真实生成", variant="primary", elem_id="render-button")
