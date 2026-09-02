@@ -10,9 +10,11 @@
   --panel-2: #17140f;
   --line: #2b261c;
   --line-soft: #201d17;
-  --text: #eee8dd;
-  --dim: #b8afa0;
-  --faint: #756d61;
+  /* 四级文字层级：暖高亮白 / 正文暖灰 / 辅助中灰 / 装饰 metadata */
+  --text: #f7f1e8;
+  --dim: #c9c0b3;
+  --faint: #92887c;
+  --meta: #655d53;
   --amber: #d7a64a;
   --amber-deep: #b78532;
   --amber-glow: rgba(215, 166, 74, 0.14);
@@ -128,7 +130,7 @@ body {
   font-family: var(--mono);
   font-size: 0.8rem;
   letter-spacing: 0.16em;
-  color: var(--faint);
+  color: var(--dim);
   transition: color 0.3s ease, text-shadow 0.3s ease, opacity 0.3s ease;
 }
 
@@ -158,7 +160,7 @@ body {
 
 .pipeline .step[data-state="active"] .step-state { color: var(--amber); opacity: 0.95; }
 .pipeline .step[data-state="done"] .step-state { color: var(--ok); opacity: 0.82; }
-.pipeline .step[data-state="todo"] { opacity: 0.72; }
+.pipeline .step[data-state="todo"] { color: var(--faint); opacity: 0.9; }
 
 .pipeline .sep {
   width: 34px;
@@ -237,10 +239,10 @@ main {
 }
 
 .act-kicker { color: var(--amber); }
-.act-phase { margin-top: 4px; color: var(--faint); }
+.act-phase { margin-top: 4px; color: var(--meta); }
 .act-title-block h2 { margin-top: 9px; }
 
-.act-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; font-size: 0.62rem; letter-spacing: 0.14em; color: var(--dim); text-align: right; }
+.act-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; font-size: 0.62rem; letter-spacing: 0.14em; color: var(--meta); text-align: right; }
 .act-meta-label { color: var(--amber); font-size: 0.5rem; letter-spacing: 0.2em; }
 
 .panel {
@@ -364,7 +366,7 @@ main {
 }
 
 .slate-index {
-  color: var(--faint);
+  color: var(--meta);
   font-size: 0.58rem;
   letter-spacing: 0.16em;
 }
@@ -391,7 +393,7 @@ main {
 
 .idea-console-label,
 .idea-counter,
-.idea-helper { color: var(--faint); font-size: 0.58rem; letter-spacing: 0.13em; }
+.idea-helper { color: var(--faint); font-size: 0.62rem; letter-spacing: 0.13em; }
 .idea-counter { color: var(--dim); letter-spacing: 0.08em; }
 
 #idea {
@@ -411,9 +413,9 @@ main {
 
 #idea:focus { outline: none; }
 
-#idea::placeholder { color: var(--faint); }
+#idea::placeholder { color: var(--faint); opacity: 1; }
 
-.idea-helper { padding: 0 14px 10px; letter-spacing: 0.04em; }
+.idea-helper { padding: 0 14px 10px; color: var(--faint); letter-spacing: 0.04em; }
 
 .form-error {
   min-height: 1.35em;
@@ -476,7 +478,7 @@ main {
   border-radius: 3px;
   color: var(--dim);
   font-family: var(--mono);
-  font-size: 0.68rem;
+  font-size: 0.72rem;
   letter-spacing: 0.05em;
   cursor: pointer;
   transition: border-color 0.18s ease, color 0.18s ease, background 0.18s ease;
@@ -552,7 +554,7 @@ main {
 .engine-lamp { flex: 0 0 auto; width: 6px; height: 6px; margin-top: 5px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 7px rgba(133, 185, 140, 0.5); }
 .engine-lamp.is-pending { background: var(--amber); box-shadow: 0 0 7px rgba(215, 166, 74, 0.5); }
 .engine-lamp.is-error { background: var(--err); box-shadow: 0 0 7px rgba(229, 72, 77, 0.5); }
-.mode-note { font-size: 0.61rem; letter-spacing: 0.04em; line-height: 1.45; color: var(--faint); }
+.mode-note { font-size: 0.64rem; letter-spacing: 0.04em; line-height: 1.45; color: var(--faint); }
 .form-error--action { min-height: 0; margin: 0; font-size: 0.56rem; }
 
 /* 片库 */
@@ -569,7 +571,7 @@ main {
 
 .library:hover, .library:focus-within { opacity: 1; }
 
-.library-label { font-size: 0.64rem; letter-spacing: 0.24em; color: var(--faint); }
+.library-label { font-size: 0.64rem; letter-spacing: 0.24em; color: var(--meta); }
 
 #library-select {
   min-width: 220px;
@@ -2551,6 +2553,39 @@ body[data-view="landing"] .pipeline { display: none; }
 .sound-toggle.is-on { border-color: rgba(232, 163, 76, 0.5); color: var(--amber); }
 
 .cta:active { transform: translateY(0) scale(0.98); }
+
+/* 装饰性 metadata 使用独立低亮度层，和正文保持清晰距离 */
+.panel-meta,
+.crew-en,
+.radio-summary,
+.crew-radio .radio-time,
+.manual-stats span,
+.screenplay-head,
+.shot-prompt header,
+.shot-qc header,
+.screenplay-line-no,
+.shot-nav-head,
+.shot-scene-label,
+.shot-nav-copy small,
+.shot-nav-duration,
+.shot-nav-state.queued,
+.poster-meta,
+.inspector-status.queued,
+.inspector-preview-state,
+.inspector-preview-note,
+.inspector-facts dt,
+.inspector-prompt-note,
+.inspector-editor-actions,
+.activity-summary,
+.activity-empty,
+.landing-hud,
+.marquee-group span,
+.feature-node,
+.feature-en,
+.premiere-meta,
+.premiere-skip {
+  color: var(--meta);
+}
 
 /* ── 响应式 ────────────────────────────────────────────────── */
 
