@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from collections.abc import Callable
 from uuid import uuid4
 
 from movie_agent.agents.director import DirectorAgent
@@ -99,16 +100,23 @@ class MovieOrchestrator:
         self.store.save(project)
         return project
 
-    def render_project(self, project_id: str) -> MovieProject:
+    def render_project(
+        self,
+        project_id: str,
+        progress_callback: Callable[[int, int, str], None] | None = None,
+    ) -> MovieProject:
         if self.settings.video_generation_mode != "comfyui":
             raise ValueError("当前为 mock 模式。请在 Spark 的 .env 设置 VIDEO_GENERATION_MODE=comfyui 后再渲染。")
         project = self.store.load(project_id)
         project.status = "rendering_comfyui"
         project.logs.append("生成调度 Agent：开始提交 Spark ComfyUI 逐镜任务。")
         self.store.save(project)
-        for shot in project.storyboard:
+        total_shots = len(project.storyboard)
+        for index, shot in enumerate(project.storyboard, start=1):
             if shot.status == "approved_comfyui" and Path(shot.output_placeholder).is_file():
                 project.logs.append(f"生成调度 Agent：镜头 {shot.number} 已完成，断点续跑时跳过。")
+                if progress_callback:
+                    progress_callback(index, total_shots, f"镜头 {shot.number} 已完成，跳过")
                 continue
             last_error: Exception | None = None
             for attempt in range(1, self.settings.comfy_max_retries + 1):
@@ -116,6 +124,8 @@ class MovieOrchestrator:
                     project.logs.append(self.generation_agent.generate(project.project_id, shot))
                     project.logs.append(self.reviewer.review_generated(shot))
                     self.store.save(project)
+                    if progress_callback:
+                        progress_callback(index, total_shots, f"镜头 {shot.number} 已生成并通过完整性质检")
                     last_error = None
                     break
                 except Exception as error:
@@ -134,6 +144,8 @@ class MovieOrchestrator:
         project.status = "completed_comfyui"
         project.logs.append(f"项目完成：真实成片已输出到 {project.final_output_placeholder}。")
         self.store.save(project)
+        if progress_callback:
+            progress_callback(total_shots, total_shots, "FFmpeg 合成完成")
         return project
 
     def regenerate_shot(self, project_id: str, shot_number: int) -> MovieProject:

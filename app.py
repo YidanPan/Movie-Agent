@@ -51,9 +51,15 @@ def regenerate_shot(project_id: str, shot_number: int):
     return _project_outputs(project, f"已重新规划镜头 {int(shot_number)}", gr.update(value=project.project_id))
 
 
-def render_project(project_id: str):
+def render_project(project_id: str, progress=gr.Progress()):
     try:
-        project = orchestrator.render_project(project_id)
+        progress(0, desc="正在连接 Spark ComfyUI")
+        project = orchestrator.render_project(
+            project_id,
+            progress_callback=lambda completed, total, description: progress(
+                completed / total, desc=description
+            ),
+        )
     except Exception as error:
         return ("", "", "", "", "", f"## 任务日志\n- 失败：{error}", f"渲染失败：{error}", "", None, gr.update())
     return _project_outputs(
@@ -156,4 +162,4 @@ with gr.Blocks(title="Movie-Agent") as demo:
 
 
 if __name__ == "__main__":
-    demo.launch(server_name="0.0.0.0", server_port=settings.port)
+    demo.queue(default_concurrency_limit=1).launch(server_name="0.0.0.0", server_port=settings.port)
