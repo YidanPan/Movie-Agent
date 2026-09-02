@@ -20,6 +20,9 @@ class Shot:
     status: str = "planned"
     attempts: int = 0
 
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
 
 @dataclass
 class MovieProject:

@@ -32,12 +32,24 @@ MODELSCOPE_MODEL=Qwen/Qwen3-30B-A3B-Instruct-2507
 
 ## 本地启动
 
+### AI 片场前端（推荐，完整体验）
+
 ```bash
 python -m venv .venv
 .venv\Scripts\activate
 python -m pip install -r requirements.txt
+python server.py
+```
+
+访问 `http://127.0.0.1:9071`。这是「黑场放映室」风格的三幕式界面：第一幕输入创意并开机，第二幕实时观看七位 Agent 剧组成员集结交付，第三幕在分镜墙审阅每个镜头、在监视器跟踪逐镜生成进度、在放映室预览成片并导出档案。创作与渲染过程通过 SSE 流式推送，进度与镜头状态实时刷新。
+
+### Gradio 简版（创空间保底）
+
+```bash
 python app.py
 ```
+
+创空间部署仍以 `app.py` 为入口（见 docs/DEPLOYMENT.md）；本地演示、录屏与 Spark 真实生成建议使用 `python server.py`。两者共享同一套 orchestrator、项目存档与导出逻辑。
 
 Windows 上启动后访问 `http://127.0.0.1:9071`。其他系统请按其终端语法激活 `.venv`。
 
@@ -64,6 +76,9 @@ python app.py
 
 ## 项目结构
 
+- `server.py`：AI 片场前端服务（FastAPI + SSE + 静态托管）。
+- `static/`：三幕式前端（零构建的 HTML/CSS/JS）。
+- `app.py`：创空间 Gradio 保底入口。
 - `movie_agent/agents`：后续的导演、编剧、分镜、质检等 Agent 实现。
 - `movie_agent/services`：外部能力适配层；当前为 mock，后续加入 ComfyUI 与 FFmpeg。
 - `workflows/`：存放已验证的 ComfyUI API 工作流 JSON 模板；见其中 README。

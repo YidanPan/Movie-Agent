@@ -1,0 +1,860 @@
+/* ═══════════════════════════════════════════════════════════════
+   Movie-Agent · AI 片场 — 交互层
+   第一幕 开机 / 第二幕 剧组集结 / 第三幕 制片工作区
+   ═══════════════════════════════════════════════════════════════ */
+
+"use strict";
+
+const $ = (sel) => document.querySelector(sel);
+const $$ = (sel) => Array.from(document.querySelectorAll(sel));
+
+const els = {
+  clock: $("#clock"),
+  idea: $("#idea"),
+  duration: $("#duration"),
+  tcValue: $("#tc-value"),
+  styleCards: $("#style-cards"),
+  btnStart: $("#btn-start"),
+  modeNote: $("#mode-note"),
+  librarySelect: $("#library-select"),
+  btnLoad: $("#btn-load"),
+  btnRefresh: $("#btn-refresh"),
+  actCrew: $("#act-crew"),
+  actWorkspace: $("#act-workspace"),
+  crewPrimary: $("#crew-primary"),
+  crewSecondary: $("#crew-secondary"),
+  crewMeta: $("#crew-meta"),
+  pipeline: $("#pipeline"),
+  filmstrip: $("#filmstrip"),
+  filmstripMeta: $("#filmstrip-meta"),
+  projectIdLabel: $("#project-id-label"),
+  shotMap: $("#shot-map"),
+  monitorBar: $("#monitor-bar"),
+  monitorShot: $("#monitor-shot"),
+  monitorPct: $("#monitor-pct"),
+  monitorDesc: $("#monitor-desc"),
+  renderRec: $("#render-rec"),
+  btnRender: $("#btn-render"),
+  renderNote: $("#render-note"),
+  logFeed: $("#log-feed"),
+  manualTabs: $("#manual-tabs"),
+  manualBody: $("#manual-body"),
+  screen: $("#screen"),
+  finalVideo: $("#final-video"),
+  posterTitle: $("#poster-title"),
+  posterMeta: $("#poster-meta"),
+  deliveryInfo: $("#delivery-info"),
+  exportJson: $("#export-json"),
+  exportMd: $("#export-md"),
+  drawer: $("#drawer"),
+  drawerBackdrop: $("#drawer-backdrop"),
+  toast: $("#toast"),
+};
+
+/* ── 常量 ──────────────────────────────────────────────────── */
+
+const STYLE_OPTIONS = ["写实近未来", "胶片科幻", "极简冷色", "梦境超现实"];
+
+const SAMPLE_IDEAS = [
+  "最后一位城市值班员每天点亮空城，直到发现整座城市都在等待他下班。",
+  "一颗只在雨天醒来的废弃卫星，开始给地面上的守塔人写信。",
+  "回收站的机器人收藏了人类丢弃的最后一封信，决定替她送出去。",
+];
+
+const AGENT_DEFS = [
+  { id: "director", name: "导演", en: "DIRECTOR", role: "主题与叙事边界", primary: true,
+    summarize: (d) => (d.brief && d.brief["主题"]) || "项目设定已确认" },
+  { id: "writer", name: "编剧", en: "WRITER", role: "剧本与旁白", primary: true,
+    summarize: (d) => truncate(d.script && d.script.story, 90) || "剧本已交付" },
+  { id: "visual_bible", name: "美术指导", en: "ART DIRECTOR", role: "角色 · 场景 · 风格 · 声音", primary: true,
+    summarize: () => "四张视觉规范卡已锁定" },
+  { id: "storyboard", name: "分镜师", en: "STORYBOARD", role: "可渲染镜头拆解", primary: true,
+    summarize: (d) => `${(d.storyboard || []).length} 个镜头已就位` },
+  { id: "quality", name: "质检", en: "QC GATE", role: "结构与版权风险", primary: false,
+    summarize: (d) => `${(d.quality_report || []).length} 项检查完成` },
+  { id: "generation", name: "生成调度", en: "GENERATION", role: "逐镜生成与重试", primary: false,
+    summarize: () => "逐镜任务队列就绪" },
+  { id: "editor", name: "剪辑", en: "EDITOR", role: "合片成片", primary: false,
+    summarize: (d) => (d.final_output ? "成片已交付" : "等待镜头素材") },
+];
+
+const SHOT_STATUS = {
+  planned: "待拍",
+  replanned: "已重排",
+  generating_mock: "生成中",
+  generating_comfyui: "生成中",
+  generated_comfyui: "待质检",
+  approved_mock: "已通过",
+  approved_comfyui: "已通过",
+  generation_failed: "失败",
+};
+
+const PROJECT_STATUS = {
+  planned_mock: "策划完成（mock 文案）",
+  planned_text_ai: "策划完成（AI 文案）",
+  ready_for_comfyui_render: "待真实生成",
+  generating_video_mock: "mock 生成中",
+  rendering_comfyui: "真实生成中",
+  render_failed: "生成中断（可续跑）",
+  completed_mock: "mock 流程完成",
+  completed_text_ai_video_mock: "AI 文案 + mock 视频流程完成",
+  completed_comfyui: "真实成片已交付",
+};
+
+const state = {
+  project: null,
+  selectedStyle: STYLE_OPTIONS[0],
+  health: null,
+  busy: false,
+  rendering: false,
+  manualTab: "brief",
+  hasFinalVideo: false,
+};
+
+/* ── 小工具 ────────────────────────────────────────────────── */
+
+function esc(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
+function timecode(seconds) {
+  const s = Math.max(0, Math.round(seconds));
+  const hh = String(Math.floor(s / 3600)).padStart(2, "0");
+  const mm = String(Math.floor((s % 3600) / 60)).padStart(2, "0");
+  const ss = String(s % 60).padStart(2, "0");
+  return `${hh}:${mm}:${ss}`;
+}
+
+function truncate(text, max = 56) {
+  const clean = String(text || "").replace(/\s+/g, " ").trim();
+  return clean.length > max ? `${clean.slice(0, max)}…` : clean;
+}
+
+let toastTimer = null;
+function toast(message, isError = false) {
+  els.toast.textContent = message;
+  els.toast.classList.toggle("error", isError);
+  els.toast.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => els.toast.classList.remove("show"), 4200);
+}
+
+function show(el) { el.classList.remove("hidden"); }
+function hide(el) { el.classList.add("hidden"); }
+
+/* ── SSE 流读取（fetch + 手动解析） ────────────────────────── */
+
+async function streamPost(url, body, onEvent) {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body || {}),
+  });
+  if (!response.ok) {
+    let message = `HTTP ${response.status}`;
+    try {
+      const payload = await response.json();
+      if (payload.error) message = payload.error;
+    } catch { /* keep default message */ }
+    throw new Error(message);
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let split;
+    while ((split = buffer.indexOf("\n\n")) >= 0) {
+      const chunk = buffer.slice(0, split);
+      buffer = buffer.slice(split + 2);
+      for (const line of chunk.split("\n")) {
+        if (!line.startsWith("data: ")) continue;
+        try {
+          onEvent(JSON.parse(line.slice(6)));
+        } catch (error) {
+          console.error("SSE 事件解析失败", error);
+        }
+      }
+    }
+  }
+}
+
+/* 让 mock 模式下瞬间完成的流水线，以可观看的节奏逐帧呈现 */
+function createPacedHandler(onEvent) {
+  const delays = { project: 80, agent_start: 260, agent_done: 620, shot_update: 70, archived: 120 };
+  const queue = [];
+  let draining = false;
+  let lastApply = 0;
+  function drain() {
+    if (draining) return;
+    draining = true;
+    const step = () => {
+      const next = queue.shift();
+      if (!next) {
+        draining = false;
+        return;
+      }
+      const wait = Math.max(0, lastApply + (delays[next.type] ?? 0) - Date.now());
+      setTimeout(() => {
+        lastApply = Date.now();
+        try {
+          onEvent(next);
+        } catch (error) {
+          console.error("事件处理失败", error);
+        }
+        step();
+      }, wait);
+    };
+    step();
+  }
+  return (event) => {
+    queue.push(event);
+    drain();
+  };
+}
+
+/* ── 制片轨（顶部四步） ────────────────────────────────────── */
+
+function setPipeline(states) {
+  const order = ["plan", "previs", "render", "deliver"];
+  let activeAssigned = false;
+  for (const key of order) {
+    const el = els.pipeline.querySelector(`[data-step="${key}"]`);
+    el.classList.remove("is-active", "is-done");
+    if (states[key] === "done") {
+      el.classList.add("is-done");
+    } else if (!activeAssigned) {
+      el.classList.add("is-active");
+      activeAssigned = true;
+    }
+  }
+}
+
+function pipelineFromProject(project, hasVideo) {
+  const states = { plan: "todo", previs: "todo", render: "todo", deliver: "todo" };
+  if (!project) return states;
+  states.plan = "done";
+  if ((project.storyboard || []).length > 0) states.previs = "done";
+  const anyApproved = (project.storyboard || []).some((shot) => String(shot.status || "").startsWith("approved"));
+  const status = project.status || "";
+  if (anyApproved || status.startsWith("completed")) states.render = "done";
+  if (status === "completed_comfyui" && hasVideo) states.deliver = "done";
+  return states;
+}
+
+/* ── 第二幕 · 剧组看板 ─────────────────────────────────────── */
+
+function buildCrewBoard() {
+  const render = (container, defs) => {
+    container.innerHTML = "";
+    defs.forEach((def, index) => {
+      if (index > 0) {
+        const arrow = document.createElement("span");
+        arrow.className = "crew-arrow mono";
+        arrow.textContent = "→";
+        container.appendChild(arrow);
+      }
+      const card = document.createElement("div");
+      card.className = "crew-card idle";
+      card.dataset.agent = def.id;
+      card.innerHTML = `
+        <div class="crew-head"><span class="crew-name">${esc(def.name)}</span><span class="crew-en mono">${esc(def.en)}</span></div>
+        <p class="crew-role">${esc(def.role)}</p>
+        <div class="crew-state mono"><span class="crew-state-icon" aria-hidden="true"></span><span class="crew-state-text">候场</span></div>
+        <p class="crew-summary"></p>`;
+      container.appendChild(card);
+    });
+  };
+  render(els.crewPrimary, AGENT_DEFS.filter((d) => d.primary));
+  render(els.crewSecondary, AGENT_DEFS.filter((d) => !d.primary));
+}
+
+function setAgentState(agentId, agentState, data) {
+  const card = document.querySelector(`.crew-card[data-agent="${agentId}"]`);
+  if (!card) return;
+  card.classList.remove("idle", "working", "done");
+  card.classList.add(agentState);
+  const text = card.querySelector(".crew-state-text");
+  const summary = card.querySelector(".crew-summary");
+  if (agentState === "working") {
+    text.textContent = "工作中";
+    summary.textContent = "";
+  } else if (agentState === "done") {
+    text.textContent = "完成";
+    const def = AGENT_DEFS.find((d) => d.id === agentId);
+    summary.textContent = def ? def.summarize(data || {}) : "";
+  } else {
+    text.textContent = "候场";
+    summary.textContent = "";
+  }
+}
+
+function markAllAgentsDone(project) {
+  const dataset = {
+    brief: project.brief,
+    script: project.script,
+    visual_bible: project.visual_bible,
+    storyboard: project.storyboard,
+    quality_report: project.quality_report,
+    final_output: project.final_output_placeholder,
+  };
+  for (const def of AGENT_DEFS) setAgentState(def.id, "done", dataset);
+}
+
+/* ── 第三幕 · 工作区渲染 ───────────────────────────────────── */
+
+function shotStatusInfo(status) {
+  return SHOT_STATUS[status] || status || "待拍";
+}
+
+function renderFilmstrip(project) {
+  const shots = project.storyboard || [];
+  els.filmstripMeta.textContent = `${shots.length} 镜 · 共 ${shots.reduce((sum, s) => sum + (s.duration_seconds || 0), 0)} 秒 · ${esc(project.visual_style)}`;
+  els.filmstrip.innerHTML = "";
+  if (!shots.length) {
+    els.filmstrip.innerHTML = '<p class="empty-note">片场尚未开机。</p>';
+    return;
+  }
+  for (const shot of shots) {
+    const card = document.createElement("article");
+    card.className = "shot-card";
+    card.dataset.shot = shot.number;
+    card.dataset.status = shot.status || "planned";
+    card.tabIndex = 0;
+    card.setAttribute("role", "button");
+    card.setAttribute("aria-label", `镜头 ${shot.number} 详情`);
+    card.innerHTML = `
+      <header class="shot-head mono"><span>SHOT ${String(shot.number).padStart(2, "0")}</span><span>${shot.duration_seconds}s</span></header>
+      <div class="shot-frame"><span class="shot-framing">${esc(shot.framing)}</span><span class="shot-mode mono">${esc(shot.generation_mode)}</span></div>
+      <footer class="shot-foot mono">
+        <span class="shot-status"><i class="dot" aria-hidden="true"></i>${shotStatusInfo(shot.status)}</span>
+        <span class="shot-attempts">${shot.attempts > 0 ? `↻${shot.attempts}` : ""}</span>
+      </footer>`;
+    card.addEventListener("click", () => openDrawer(project, shot.number));
+    card.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        openDrawer(project, shot.number);
+      }
+    });
+    els.filmstrip.appendChild(card);
+  }
+  attachShotPreviews(project);
+}
+
+function attachShotPreviews(project) {
+  for (const shot of project.storyboard || []) {
+    if (!["approved_comfyui", "generated_comfyui"].includes(shot.status)) continue;
+    const url = `/api/projects/${project.project_id}/shots/${shot.number}/video`;
+    fetch(url, { method: "HEAD" }).then((response) => {
+      if (!response.ok) return;
+      const card = els.filmstrip.querySelector(`.shot-card[data-shot="${shot.number}"] .shot-frame`);
+      if (!card || card.querySelector("video")) return;
+      const video = document.createElement("video");
+      video.src = url;
+      video.muted = true;
+      video.loop = true;
+      video.playsInline = true;
+      video.preload = "metadata";
+      card.appendChild(video);
+      const shotCard = card.closest(".shot-card");
+      shotCard.addEventListener("mouseenter", () => video.play().catch(() => {}));
+      shotCard.addEventListener("mouseleave", () => {
+        video.pause();
+        video.currentTime = 0;
+      });
+    }).catch(() => {});
+  }
+}
+
+function renderShotMap(project) {
+  els.shotMap.innerHTML = "";
+  for (const shot of project.storyboard || []) {
+    const cell = document.createElement("i");
+    cell.dataset.status = shot.status || "planned";
+    cell.title = `镜头 ${shot.number} · ${shotStatusInfo(shot.status)}`;
+    els.shotMap.appendChild(cell);
+  }
+}
+
+function renderLogFeed(project) {
+  els.logFeed.textContent = (project.logs || []).join("\n");
+  els.logFeed.scrollTop = els.logFeed.scrollHeight;
+}
+
+function renderMonitor(project, live = false) {
+  els.projectIdLabel.textContent = project.project_id;
+  els.renderRec.classList.toggle("live", live);
+  const shots = project.storyboard || [];
+  const approved = shots.filter((s) => String(s.status || "").startsWith("approved")).length;
+  if (live) {
+    els.monitorShot.textContent = `SHOT ${approved}/${shots.length}`;
+    els.monitorPct.textContent = shots.length ? `${Math.round((approved / shots.length) * 100)}%` : "";
+    els.monitorBar.style.width = shots.length ? `${(approved / shots.length) * 100}%` : "0%";
+  } else {
+    els.monitorShot.textContent = "STANDBY";
+    els.monitorPct.textContent = "";
+    els.monitorBar.style.width = "0%";
+    els.monitorDesc.textContent = `${PROJECT_STATUS[project.status] || project.status} · ${shots.length} 个镜头，${approved} 个已通过。`;
+  }
+}
+
+function renderManual(project, tab = state.manualTab) {
+  state.manualTab = tab;
+  $$("#manual-tabs .tab").forEach((button) => button.classList.toggle("active", button.dataset.tab === tab));
+  const body = els.manualBody;
+  if (!project) {
+    body.innerHTML = '<p class="empty-note">制作手册会在项目创建后生成。</p>';
+    return;
+  }
+  if (tab === "brief") {
+    const rows = Object.entries(project.brief || {})
+      .map(([key, value]) => `<dt>${esc(key)}</dt><dd>${esc(value)}</dd>`)
+      .join("");
+    body.innerHTML = rows ? `<dl>${rows}</dl>` : '<p class="empty-note">暂无项目设定。</p>';
+  } else if (tab === "script") {
+    const story = String((project.script || {}).story || "")
+      .split(/\n+/).filter(Boolean)
+      .map((para) => `<p>${esc(para)}</p>`)
+      .join("");
+    const narration = (project.script || {}).narration
+      ? `<div class="narration">旁白 —— ${esc(project.script.narration)}</div>`
+      : "";
+    body.innerHTML = `<div class="story">${story || '<p class="empty-note">暂无剧本。</p>'}</div>${narration}`;
+  } else if (tab === "visual") {
+    const rows = Object.entries(project.visual_bible || {})
+      .map(([key, value]) => `<dt>${esc(key)}</dt><dd>${esc(value)}</dd>`)
+      .join("");
+    body.innerHTML = rows ? `<dl>${rows}</dl>` : '<p class="empty-note">暂无视觉规范。</p>';
+  } else {
+    const quality = (project.quality_report || [])
+      .map((item) => `<li>${esc(item)}</li>`).join("");
+    const logs = (project.logs || [])
+      .map((item) => `<li>${esc(item)}</li>`).join("");
+    body.innerHTML = `
+      <ul class="checklist">${quality || "<li>暂无质检记录。</li>"}</ul>
+      <ul class="checklist" style="margin-top:18px">${logs || "<li>暂无任务日志。</li>"}</ul>`;
+  }
+}
+
+async function renderScreening(project) {
+  state.hasFinalVideo = false;
+  els.screen.classList.remove("has-video");
+  els.finalVideo.removeAttribute("src");
+  els.posterTitle.textContent = truncate(
+    (project.brief && (project.brief["主题"] || project.brief["原始创意"])) || project.idea,
+    34
+  );
+  els.posterMeta.textContent = `${project.visual_style} · ${project.duration_seconds}S · ${project.project_id}`;
+  // 只有真实生成完成的项目才探测成片文件；mock 模式不把占位路径当真实成片。
+  if (project.status === "completed_comfyui") {
+    try {
+      const response = await fetch(`/api/projects/${project.project_id}/final-video`, { method: "HEAD" });
+      if (response.ok) {
+        state.hasFinalVideo = true;
+        els.finalVideo.src = `/api/projects/${project.project_id}/final-video`;
+        els.screen.classList.add("has-video");
+      }
+    } catch { /* offline / not generated */ }
+  }
+  updatePipelineForProject(project);
+}
+
+function renderDelivery(project) {
+  const lines = [
+    `PROJECT  ${project.project_id}`,
+    `STATUS   ${PROJECT_STATUS[project.status] || project.status}`,
+    `FINAL    ${project.final_output_placeholder || "尚未合成"}`,
+  ];
+  els.deliveryInfo.textContent = lines.join("\n");
+  els.exportJson.href = `/api/projects/${project.project_id}/export/json`;
+  els.exportMd.href = `/api/projects/${project.project_id}/export/markdown`;
+}
+
+function updatePipelineForProject(project) {
+  setPipeline(pipelineFromProject(project, state.hasFinalVideo));
+}
+
+function renderWorkspace(project) {
+  show(els.actWorkspace);
+  renderFilmstrip(project);
+  renderShotMap(project);
+  renderMonitor(project, state.rendering);
+  renderLogFeed(project);
+  renderManual(project);
+  renderScreening(project);
+  renderDelivery(project);
+  updatePipelineForProject(project);
+  const videoMode = state.health ? state.health.video_mode : "mock";
+  if (videoMode === "comfyui") {
+    els.btnRender.disabled = state.rendering;
+    els.renderNote.textContent = "逐镜提交已验证的 MiniMax-H3 工作流；已通过质检的镜头会自动跳过，失败镜头按重试策略重新提交。";
+  } else {
+    els.btnRender.disabled = true;
+    els.renderNote.textContent = "当前为 mock 视频流程：在 Spark 的 .env 设置 VIDEO_GENERATION_MODE=comfyui 后，这里会变成真实逐镜生成与 FFmpeg 合片。";
+  }
+}
+
+function applyProjectSnapshot(project) {
+  state.project = project;
+  renderFilmstrip(project);
+  renderShotMap(project);
+  renderLogFeed(project);
+  renderDelivery(project);
+  const shots = project.storyboard || [];
+  const approved = shots.filter((s) => String(s.status || "").startsWith("approved")).length;
+  els.monitorShot.textContent = `SHOT ${approved}/${shots.length}`;
+  els.monitorPct.textContent = shots.length ? `${Math.round((approved / shots.length) * 100)}%` : "";
+  els.monitorBar.style.width = shots.length ? `${(approved / shots.length) * 100}%` : "0%";
+}
+
+/* ── 镜头抽屉 ──────────────────────────────────────────────── */
+
+function openDrawer(project, shotNumber) {
+  const shot = (project.storyboard || []).find((s) => s.number === shotNumber);
+  if (!shot) return;
+  els.drawer.innerHTML = `
+    <div class="drawer-head">
+      <span class="drawer-title">镜头 ${String(shot.number).padStart(2, "0")}</span>
+      <button class="drawer-close" type="button">✕ 关闭</button>
+    </div>
+    <span class="drawer-chip mono">${shotStatusInfo(shot.status)} · 尝试 ${shot.attempts} 次</span>
+    <dl>
+      <dt>时长</dt><dd>${shot.duration_seconds} 秒</dd>
+      <dt>景别</dt><dd>${esc(shot.framing)}</dd>
+      <dt>画面</dt><dd>${esc(shot.image_description)}</dd>
+      <dt>动作</dt><dd>${esc(shot.action)}</dd>
+      <dt>声音</dt><dd>${esc(shot.sound_design)}</dd>
+      <dt>生成方式</dt><dd>${esc(shot.generation_mode)}</dd>
+      <dt>输出</dt><dd class="mono" style="font-size:.72rem">${esc(shot.output_placeholder)}</dd>
+    </dl>
+    <div class="prompt-block">
+      <h3>FINAL PROMPT</h3>
+      <div class="prompt-box">${esc(shot.prompt)}<button class="prompt-copy" type="button">复制</button></div>
+    </div>
+    <div class="drawer-actions">
+      <button class="ghost" type="button" id="drawer-regenerate">↻ 重新规划这个镜头</button>
+    </div>`;
+  els.drawer.querySelector(".drawer-close").addEventListener("click", closeDrawer);
+  els.drawer.querySelector(".prompt-copy").addEventListener("click", async (event) => {
+    try {
+      await navigator.clipboard.writeText(shot.prompt);
+      event.target.textContent = "已复制";
+      setTimeout(() => { event.target.textContent = "复制"; }, 1600);
+    } catch {
+      toast("复制失败，请手动选择文本。", true);
+    }
+  });
+  els.drawer.querySelector("#drawer-regenerate").addEventListener("click", () => regenerateShot(shot.number));
+  if (["approved_comfyui", "generated_comfyui"].includes(shot.status)) {
+    const url = `/api/projects/${project.project_id}/shots/${shot.number}/video`;
+    fetch(url, { method: "HEAD" }).then((response) => {
+      if (!response.ok) return;
+      const video = document.createElement("video");
+      video.src = url;
+      video.controls = true;
+      video.playsInline = true;
+      els.drawer.appendChild(video);
+    }).catch(() => {});
+  }
+  els.drawer.classList.add("open");
+  els.drawerBackdrop.classList.remove("hidden");
+  requestAnimationFrame(() => els.drawerBackdrop.classList.add("open"));
+}
+
+function closeDrawer() {
+  els.drawer.classList.remove("open");
+  els.drawerBackdrop.classList.remove("open");
+  setTimeout(() => els.drawerBackdrop.classList.add("hidden"), 260);
+}
+
+/* ── 动作：创作 / 渲染 / 重新规划 ──────────────────────────── */
+
+function handleCreateEvent(event) {
+  if (event.type === "project") {
+    els.crewMeta.textContent = `CREW ASSEMBLY · ${event.project_id}`;
+    els.modeNote.textContent = `文案引擎：${event.text_mode === "modelscope" ? "ModelScope AI" : "mock"} · 视频引擎：${event.video_mode === "comfyui" ? "Spark 真实生成" : "mock 流程"}`;
+  } else if (event.type === "agent_start") {
+    setAgentState(event.agent, "working");
+  } else if (event.type === "agent_done") {
+    setAgentState(event.agent, "done", event);
+    if (event.agent === "storyboard") {
+      setPipeline({ plan: "done", previs: "active" });
+    }
+  } else if (event.type === "shot_update") {
+    const card = document.querySelector('.crew-card[data-agent="generation"] .crew-summary');
+    if (card && event.shot) {
+      card.textContent = `镜头 ${event.shot.number} · ${shotStatusInfo(event.shot.status)}`;
+    }
+  } else if (event.type === "done") {
+    state.project = event.project;
+    els.crewMeta.textContent = "CREW ASSEMBLY · 剧组集结完毕";
+    renderWorkspace(state.project);
+    toast(`项目 ${state.project.project_id} 已完成并存档。`);
+    setTimeout(() => els.actWorkspace.scrollIntoView({ behavior: "smooth", block: "start" }), 350);
+  } else if (event.type === "error") {
+    els.crewMeta.textContent = "CREW ASSEMBLY · 中断";
+    toast(`创作失败：${event.message}`, true);
+  }
+}
+
+async function startCreation() {
+  if (state.busy) return;
+  const idea = els.idea.value.trim();
+  if (idea.length < 10) {
+    toast("请输入至少 10 个字的原创科幻创意。", true);
+    els.idea.focus();
+    return;
+  }
+  state.busy = true;
+  state.project = null;
+  state.hasFinalVideo = false;
+  els.btnStart.disabled = true;
+  buildCrewBoard();
+  show(els.actCrew);
+  hide(els.actWorkspace);
+  setPipeline({ plan: "active" });
+  els.crewMeta.textContent = "CREW ASSEMBLY · 开机中…";
+  els.actCrew.scrollIntoView({ behavior: "smooth", block: "start" });
+  const paced = createPacedHandler(handleCreateEvent);
+  try {
+    await streamPost(
+      "/api/projects/stream",
+      { idea, duration: Number(els.duration.value), visual_style: state.selectedStyle },
+      paced
+    );
+  } catch (error) {
+    toast(`创作失败：${error.message}`, true);
+    els.crewMeta.textContent = "CREW ASSEMBLY · 中断";
+  } finally {
+    state.busy = false;
+    els.btnStart.disabled = false;
+  }
+}
+
+function handleRenderEvent(event) {
+  if (event.type === "render_progress") {
+    els.renderRec.classList.add("live");
+    if (event.project) applyProjectSnapshot(event.project);
+    els.monitorDesc.textContent = event.description || "生成中…";
+  } else if (event.type === "done") {
+    state.project = event.project;
+    applyProjectSnapshot(event.project);
+    els.renderRec.classList.remove("live");
+    renderMonitor(event.project, false);
+    renderScreening(event.project);
+    renderManual(event.project);
+    state.rendering = false;
+    els.btnRender.disabled = false;
+    els.btnRender.textContent = "提交 Spark 真实生成";
+    toast("真实成片已生成，可在放映室预览。");
+  } else if (event.type === "error") {
+    els.renderRec.classList.remove("live");
+    state.rendering = false;
+    els.btnRender.disabled = false;
+    els.btnRender.textContent = "提交 Spark 真实生成";
+    els.monitorDesc.textContent = `生成中断：${event.message}`;
+    toast(`渲染失败：${event.message}`, true);
+    if (state.project) updatePipelineForProject(state.project);
+  }
+}
+
+async function startRender() {
+  if (!state.project || state.rendering) return;
+  state.rendering = true;
+  els.btnRender.disabled = true;
+  els.btnRender.textContent = "生成中…（可断点续跑）";
+  els.monitorDesc.textContent = "正在连接 Spark ComfyUI…";
+  setPipeline({ plan: "done", previs: "done", render: "active" });
+  try {
+    await streamPost(
+      `/api/projects/${state.project.project_id}/render/stream`,
+      {},
+      handleRenderEvent
+    );
+  } catch (error) {
+    els.renderRec.classList.remove("live");
+    state.rendering = false;
+    els.btnRender.disabled = false;
+    els.btnRender.textContent = "提交 Spark 真实生成";
+    els.monitorDesc.textContent = `生成中断：${error.message}`;
+    toast(`渲染失败：${error.message}`, true);
+  }
+}
+
+async function regenerateShot(shotNumber) {
+  if (!state.project) return;
+  try {
+    const response = await fetch(
+      `/api/projects/${state.project.project_id}/shots/${shotNumber}/regenerate`,
+      { method: "POST" }
+    );
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    state.project = payload;
+    renderFilmstrip(payload);
+    renderShotMap(payload);
+    renderManual(payload);
+    renderDelivery(payload);
+    updatePipelineForProject(payload);
+    toast(`镜头 ${shotNumber} 已重新规划。`);
+    closeDrawer();
+  } catch (error) {
+    toast(`重新规划失败：${error.message}`, true);
+  }
+}
+
+/* ── 片库 ──────────────────────────────────────────────────── */
+
+async function refreshLibrary() {
+  try {
+    const response = await fetch("/api/projects");
+    const payload = await response.json();
+    els.librarySelect.innerHTML = "";
+    if (!payload.projects.length) {
+      const option = document.createElement("option");
+      option.textContent = "（暂无已保存项目）";
+      option.value = "";
+      els.librarySelect.appendChild(option);
+      return;
+    }
+    for (const id of payload.projects) {
+      const option = document.createElement("option");
+      option.value = id;
+      option.textContent = id;
+      els.librarySelect.appendChild(option);
+    }
+  } catch {
+    toast("无法读取片库，请确认服务正在运行。", true);
+  }
+}
+
+async function loadSelectedProject() {
+  const projectId = els.librarySelect.value;
+  if (!projectId) {
+    toast("请先选择一个项目。");
+    return;
+  }
+  try {
+    const response = await fetch(`/api/projects/${projectId}`);
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    state.project = payload;
+    state.hasFinalVideo = false;
+    buildCrewBoard();
+    markAllAgentsDone(payload);
+    show(els.actCrew);
+    els.crewMeta.textContent = `CREW ASSEMBLY · 已恢复 ${projectId}`;
+    renderWorkspace(payload);
+    els.actCrew.scrollIntoView({ behavior: "smooth", block: "start" });
+    toast(`已恢复项目 ${projectId}。`);
+  } catch (error) {
+    toast(`读取失败：${error.message}`, true);
+  }
+}
+
+/* ── 第一幕细节：打字机 / 时间码 / 时钟 ────────────────────── */
+
+function startTypewriter() {
+  let ideaIndex = 0;
+  let charIndex = 0;
+  let deleting = false;
+  function tick() {
+    const sample = SAMPLE_IDEAS[ideaIndex];
+    if (!deleting) {
+      charIndex += 1;
+      els.idea.placeholder = sample.slice(0, charIndex);
+      if (charIndex >= sample.length) {
+        deleting = true;
+        setTimeout(tick, 2600);
+        return;
+      }
+      setTimeout(tick, 62);
+    } else {
+      charIndex -= 1;
+      els.idea.placeholder = sample.slice(0, Math.max(0, charIndex));
+      if (charIndex <= 0) {
+        deleting = false;
+        ideaIndex = (ideaIndex + 1) % SAMPLE_IDEAS.length;
+        setTimeout(tick, 500);
+        return;
+      }
+      setTimeout(tick, 24);
+    }
+  }
+  tick();
+}
+
+function startClock() {
+  const startedAt = Date.now();
+  setInterval(() => {
+    els.clock.textContent = timecode((Date.now() - startedAt) / 1000);
+  }, 1000);
+}
+
+function buildStyleCards() {
+  els.styleCards.innerHTML = "";
+  for (const style of STYLE_OPTIONS) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "style-card";
+    button.textContent = style;
+    button.setAttribute("role", "radio");
+    button.setAttribute("aria-checked", String(style === state.selectedStyle));
+    if (style === state.selectedStyle) button.classList.add("selected");
+    button.addEventListener("click", () => {
+      state.selectedStyle = style;
+      $$(".style-card").forEach((el) => {
+        const isSelected = el === button;
+        el.classList.toggle("selected", isSelected);
+        el.setAttribute("aria-checked", String(isSelected));
+      });
+    });
+    els.styleCards.appendChild(button);
+  }
+}
+
+/* ── 初始化 ────────────────────────────────────────────────── */
+
+async function loadHealth() {
+  try {
+    const response = await fetch("/api/health");
+    state.health = await response.json();
+    const text = state.health.text_mode === "modelscope" ? "ModelScope AI 文案" : "mock 文案";
+    const video = state.health.video_mode === "comfyui" ? "Spark 真实视频" : "mock 视频流程";
+    els.modeNote.textContent = `制作引擎就绪 · ${text} + ${video}`;
+  } catch {
+    els.modeNote.textContent = "无法连接后端服务。";
+  }
+}
+
+function init() {
+  buildStyleCards();
+  startTypewriter();
+  startClock();
+  loadHealth();
+  refreshLibrary();
+  els.duration.addEventListener("input", () => {
+    els.tcValue.textContent = timecode(Number(els.duration.value));
+  });
+  els.btnStart.addEventListener("click", startCreation);
+  els.btnLoad.addEventListener("click", loadSelectedProject);
+  els.btnRefresh.addEventListener("click", refreshLibrary);
+  els.btnRender.addEventListener("click", startRender);
+  els.manualTabs.addEventListener("click", (event) => {
+    const button = event.target.closest(".tab");
+    if (button) renderManual(state.project, button.dataset.tab);
+  });
+  els.drawerBackdrop.addEventListener("click", closeDrawer);
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closeDrawer();
+  });
+}
+
+init();
