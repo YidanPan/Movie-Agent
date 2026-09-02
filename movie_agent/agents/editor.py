@@ -43,6 +43,29 @@ class EditorAgent:
             str(final_cut),
         ]
         completed = subprocess.run(command, capture_output=True, text=True, check=False)
+        if completed.returncode != 0:
+            command = [
+                self.settings.ffmpeg_bin,
+                "-y",
+                "-f",
+                "concat",
+                "-safe",
+                "0",
+                "-i",
+                str(concat_file),
+                "-c:v",
+                "libx264",
+                "-preset",
+                "medium",
+                "-crf",
+                "18",
+                "-c:a",
+                "aac",
+                "-movflags",
+                "+faststart",
+                str(final_cut),
+            ]
+            completed = subprocess.run(command, capture_output=True, text=True, check=False)
         concat_file.unlink(missing_ok=True)
         if completed.returncode != 0:
             raise RuntimeError(f"FFmpeg 合成失败：{completed.stderr[-500:]}")

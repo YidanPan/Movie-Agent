@@ -24,6 +24,9 @@ class GenerationAgent:
 
     def generate(self, project_id: str, shot: Shot) -> str:
         """Submit one planned shot and copy its MP4 into the project output folder."""
+        existing_output = Path(shot.output_placeholder)
+        if shot.status == "approved_comfyui" and existing_output.is_file():
+            return f"生成 Agent：镜头 {shot.number} 已有通过质检的结果，跳过重复生成。"
         template_path = self.settings.workflows_dir / self.settings.comfy_workflow_template
         if not template_path.is_file():
             raise ComfyUIError(f"未找到已验证工作流：{template_path}。")
@@ -37,13 +40,17 @@ class GenerationAgent:
             template_path,
             WorkflowOverrides(prompt=shot.prompt, seed=seed, duration_seconds=shot.duration_seconds),
         )
-        prompt_id = self.client.submit(workflow)
-        result = self.client.wait_for_completion(prompt_id)
-        source = self._resolve_video(result)
-        destination_dir = self.settings.outputs_dir / project_id / "shots"
-        destination_dir.mkdir(parents=True, exist_ok=True)
-        destination = destination_dir / f"shot-{shot.number:02d}.mp4"
-        shutil.copy2(source, destination)
+        try:
+            prompt_id = self.client.submit(workflow)
+            result = self.client.wait_for_completion(prompt_id)
+            source = self._resolve_video(result)
+            destination_dir = self.settings.outputs_dir / project_id / "shots"
+            destination_dir.mkdir(parents=True, exist_ok=True)
+            destination = destination_dir / f"shot-{shot.number:02d}.mp4"
+            shutil.copy2(source, destination)
+        except (ComfyUIError, OSError) as error:
+            shot.status = "generation_failed"
+            raise ComfyUIError(f"镜头 {shot.number} 生成失败：{error}") from error
         shot.output_placeholder = str(destination)
         shot.status = "generated_comfyui"
         return f"生成 Agent：镜头 {shot.number} 已完成（ComfyUI 任务 {prompt_id}）。"

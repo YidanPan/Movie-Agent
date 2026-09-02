@@ -31,6 +31,8 @@ class Settings:
     comfy_output_dir: Path = Path("./comfy-output")
     outputs_dir: Path = Path("./outputs")
     ffmpeg_bin: str = "ffmpeg"
+    ffprobe_bin: str = "ffprobe"
+    comfy_max_retries: int = 2
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -51,4 +53,6 @@ class Settings:
             comfy_output_dir=Path(os.getenv("COMFY_OUTPUT_DIR", "./comfy-output")),
             outputs_dir=Path(os.getenv("OUTPUTS_DIR", "./outputs")),
             ffmpeg_bin=os.getenv("FFMPEG_BIN", "ffmpeg"),
+            ffprobe_bin=os.getenv("FFPROBE_BIN", "ffprobe"),
+            comfy_max_retries=max(1, int(os.getenv("COMFY_MAX_RETRIES", "2"))),
         )

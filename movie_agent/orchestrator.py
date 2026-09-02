@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from uuid import uuid4
 
 from movie_agent.agents.director import DirectorAgent
@@ -29,7 +30,7 @@ class MovieOrchestrator:
         self.storyboard_agent = StoryboardAgent(creative_llm)
         self.visual_bible_agent = VisualBibleAgent(creative_llm)
         self.generation_agent = GenerationAgent(settings)
-        self.reviewer = ReviewerAgent()
+        self.reviewer = ReviewerAgent(settings)
         self.editor = EditorAgent(settings)
         self.quality_gate = PlanningQualityGate()
 
@@ -106,9 +107,28 @@ class MovieOrchestrator:
         project.logs.append("生成调度 Agent：开始提交 Spark ComfyUI 逐镜任务。")
         self.store.save(project)
         for shot in project.storyboard:
-            project.logs.append(self.generation_agent.generate(project.project_id, shot))
-            project.logs.append(self.reviewer.review_generated(shot))
-            self.store.save(project)
+            if shot.status == "approved_comfyui" and Path(shot.output_placeholder).is_file():
+                project.logs.append(f"生成调度 Agent：镜头 {shot.number} 已完成，断点续跑时跳过。")
+                continue
+            last_error: Exception | None = None
+            for attempt in range(1, self.settings.comfy_max_retries + 1):
+                try:
+                    project.logs.append(self.generation_agent.generate(project.project_id, shot))
+                    project.logs.append(self.reviewer.review_generated(shot))
+                    self.store.save(project)
+                    last_error = None
+                    break
+                except Exception as error:
+                    last_error = error
+                    project.logs.append(
+                        f"生成调度 Agent：镜头 {shot.number} 第 {attempt}/{self.settings.comfy_max_retries} 次失败：{error}"
+                    )
+                    self.store.save(project)
+            if last_error is not None:
+                project.status = "render_failed"
+                project.logs.append("生成调度 Agent：可再次点击真实生成按钮，从未完成镜头继续。")
+                self.store.save(project)
+                raise RuntimeError(f"镜头 {shot.number} 多次生成失败：{last_error}") from last_error
 
         project.logs.append(self.editor.assemble(project))
         project.status = "completed_comfyui"

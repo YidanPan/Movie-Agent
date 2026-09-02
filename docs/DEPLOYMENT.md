@@ -42,6 +42,7 @@ COMFY_BASE_URL=http://127.0.0.1:8188
 COMFY_WORKFLOW_TEMPLATE=minimax_h3_t2v_api.json
 COMFY_OUTPUT_DIR=/path/to/ComfyUI/output
 OUTPUTS_DIR=/path/to/Movie-Agent/outputs
+COMFY_MAX_RETRIES=2
 ```
 
-点击页面的“Spark 真实生成并合成”后，应用会逐镜调用固定 API 工作流；每个镜头完成即保存 `project.json`，全部完成后由 FFmpeg 合成 `final-cut.mp4`。
+点击页面的“Spark 真实生成并合成”后，应用会逐镜调用固定 API 工作流；每个镜头完成即保存 `project.json`，全部完成后由 FFmpeg 合成 `final-cut.mp4`。已通过质检的镜头会在再次点击后跳过；单镜生成或媒体完整性质检失败时，会按 `COMFY_MAX_RETRIES` 自动重试。
