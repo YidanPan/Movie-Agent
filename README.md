@@ -10,9 +10,13 @@
 
 `MovieOrchestrator` 负责共享状态和任务顺序；导演、编剧、分镜、视觉设定、生成、质检和剪辑均为独立 Agent。流程支持实时事件推送、项目断点保存和单镜头重试：
 
-`创意输入 → 导演定调 → 编剧成稿 + 台词本/字幕轨 → 分镜拆解 → 视觉设定 → 逐镜生成 → 关键帧质检 → 6/6 SHOTS READY → AI Edit Rough Cut → 预览/重剪 → 批准交付`
+`创意输入 → 导演定调 → 编剧成稿 + 台词本/字幕轨 → 分镜拆解 → 视觉设定 → 逐镜生成 → 关键帧质检 → 6/6 SHOTS READY → Picture Cut → Voice → Music → SFX → Subtitles → Mix → Final Encode`
 
 编剧 Agent 会在剧本完成时同步生成按镜头拆分的 `dialogue_book` 与 `subtitle_track`。用户可在“剧本与旁白”页逐镜编辑并锁定；锁定前不会启动 AI Edit，后续配音、字幕和剪辑只读取这版内容。字幕默认开启，项目可导出 SRT/VTT，并在最终批准时选择无字幕、软字幕（MP4 可选字幕轨 + SRT/VTT）或烧录字幕。
+
+Deliver 页是 Final Cut Screening Room：项目未剪辑时显示项目摘要与 `N/N SHOTS READY`，AI Edit 进行时展示镜头合成、旁白、字幕、BGM、SFX 和 FFmpeg 编码进度；批准真实成片后才显示播放器、时长/分辨率/画幅/编码/音频元数据与可跳转 Shot Timeline。播放器右侧的 `FINAL LOOK / COLOR FINISH` 是导出前的全片最终润色台：提供原片、胶片叙事、冷灰未来、梦境超现实、纪实去饱和、赛博夜色六种预设，支持强度、颗粒、暗角和高光柔化，点击预设即可在播放器中即时试听；默认锁定 `WHOLE FILM`，点击应用后才写入交付配置。`导出成片` 支持 MP4/MOV/WebM、720P/1080P、16:9/9:16/1:1 和三种字幕模式，默认 MP4 + H.264 + 1080P + 16:9；JSON、制作手册 Markdown 和 SRT/VTT 收纳在 `更多导出`。
+
+AI Edit 的声音部门是正式的后期模块：导演设定、剧本情绪、视觉风格、镜头节奏和总时长会生成可审阅的 `Music Brief` 与 `Emotional Arc`。配乐支持 `AI 自动配乐`、`素材库音乐`、`用户上传音乐` 三种来源；后两者可在页面切换，用户上传文件会保存到项目输出目录。混音明确拆分为 `Voice / Music / SFX / Ambience` 四轨，Smart Ducking 会在 Dialogue Book 的语音区间自动降低 Music 并平滑恢复。没有真实音频文件时，项目仍会保存完整的声音设计计划，方便未来替换为 Spark 音频生成器。
 
 ## 启用魔搭文本 API
 
@@ -49,8 +53,10 @@ VISION_KEYFRAMES_PER_SHOT=3
 - 视频质检：抽取可追溯关键帧；可选视觉模型复核角色、场景一致性与版权风险。
 - 项目自动保存、历史恢复、单镜头重新规划、JSON / Markdown 导出。
 - 真实视频模式逐镜同步运行，支持已完成镜头跳过和失败镜头重试；长项目建议先用 mock 模式验证规划结果。
-- AI Edit 工作流：自动生成镜头排序、Trim、转场、旁白、BGM、SFX、字幕和 FFmpeg Rough Cut；用户预览粗剪后再批准最终成片。
+- AI Edit 工作流：按 `Picture Cut → Voice → Music → SFX → Subtitles → Mix → Final Encode` 顺序生成可审阅 Rough Cut；用户预览粗剪后再批准最终成片。已交付项目可从放映室重新剪辑并重新生成 Rough Cut。
+- 声音设计工作流：生成 Music Brief、BPM/乐器/进入与高潮位置/淡出位置、逐镜情绪曲线；提供 AI、素材库、用户上传三种配乐模式，以及 Voice / Music / SFX / Ambience 四轨、试听、开关、重规划和 Smart Ducking 状态。
 - 字幕工作流：编剧阶段审阅/编辑/锁定 Dialogue Book 与 Subtitle Track；支持默认烧录字幕、软字幕和无字幕交付，以及 SRT/VTT 导出。
+- Final Look 工作流：仅在 Deliver / Final Cut Screening Room 开放；对真实成片提供六种整片色彩预设、强度与颗粒/暗角/高光柔化控制。浏览器预览不会改变原文件，确认“应用 Final Look”后，真实模式由 FFmpeg 渲染带版本号的润色母版，mock 模式只保存可复现的交付方案，不伪造视频媒体。
 
 ## 本地启动
 
@@ -63,7 +69,7 @@ python -m pip install -r requirements.txt
 python server.py
 ```
 
-访问 `http://127.0.0.1:9071`。这是「黑场放映室」风格的三幕式界面：第一幕输入创意并开机，第二幕实时观看七位 Agent 剧组成员集结交付，第三幕在分镜墙审阅每个镜头、在制作手册编辑并锁定台词、在监视器看到 `SHOTS READY` 后启动 AI Edit，并在放映室预览 Rough Cut、选择字幕模式、批准最终成片和导出档案。创作、渲染和粗剪过程通过 SSE 流式推送，进度与镜头状态实时刷新。
+访问 `http://127.0.0.1:9071`。这是「黑场放映室」风格的三幕式界面：第一幕输入创意并开机，第二幕实时观看七位 Agent 剧组成员集结交付，第三幕在分镜墙审阅每个镜头、在制作手册编辑并锁定台词、在监视器看到 `SHOTS READY` 后启动 AI Edit，并在 Final Cut Screening Room 预览 Rough Cut、审片、跳转镜头、选择字幕模式、批准最终成片和导出档案。创作、渲染和粗剪过程通过 SSE 流式推送，进度与镜头状态实时刷新。
 
 ### Gradio 简版（创空间保底）
 
@@ -100,7 +106,7 @@ Windows 上启动后访问 `http://127.0.0.1:9071`。其他系统请按其终端
 - `static/`：三幕式前端（零构建的 HTML/CSS/JS）。
 - `app.py`：创空间 Gradio 保底入口。
 - `movie_agent/agents`：导演、编剧、分镜、视觉设定、生成、质检和剪辑 Agent。
-- `movie_agent/services`：ModelScope、ComfyUI、字幕导出、FFmpeg、项目质量门等外部能力适配层。
+- `movie_agent/services`：ModelScope、ComfyUI、字幕导出、声音设计、Final Look、FFmpeg、项目质量门等外部能力适配层。
 - `workflows/`：存放已验证的 ComfyUI API 工作流 JSON 模板；见其中 README。
 - `projects/`：运行时项目数据，不纳入 Git。
 
@@ -114,7 +120,7 @@ Movie-Agent is a multi-agent film production workspace for the ModelScope “AI 
 
 ### Workflow
 
-`Idea → Director → Writer + Dialogue Book → Storyboard → Visual Bible → Shot Generation → Keyframe QA → SHOTS READY → AI Edit Rough Cut → Review/Re-cut → Approve Delivery`
+`Idea → Director → Writer + Dialogue Book → Storyboard → Visual Bible → Shot Generation → Keyframe QA → SHOTS READY → Picture Cut → Voice → Music → SFX → Subtitles → Mix → Final Encode`
 
 `MovieOrchestrator` coordinates shared project state and event delivery. Director, writer, storyboard, visual bible, generation, reviewer, and editor are independent modules. Projects are persisted as JSON and can resume from completed shots.
 
@@ -125,6 +131,10 @@ Movie-Agent is a multi-agent film production workspace for the ModelScope “AI 
 - **Spark ComfyUI mode** submits the verified MiniMax-H3 T2V workflow one shot at a time. When every shot passes QA, AI Edit creates a Rough Cut; final FFmpeg assembly happens only after approval.
 
 The writer emits one editable `dialogue_book` and timed `subtitle_track` cue per shot. Users can revise and lock these assets in the screenplay tab. Voiceover, subtitle exports, and AI Edit read the locked revision only. Subtitles are enabled by default, with `none`, `soft` (selectable MP4 track plus SRT/VTT sidecars), and `burned` delivery modes.
+
+Deliver also includes a dedicated `FINAL LOOK / COLOR FINISH` inspector after Final Cut preview and before export. It offers six whole-film presets — Original, Film Narrative, Cool Gray Future, Dream Surreal, Documentary Desat, and Cyber Night — plus intensity, grain, vignette, and highlight-softening controls. Clicking a preset immediately auditions a browser preview; only an explicit Apply action persists the look. Real media is rendered by FFmpeg into a revisioned master, while mock mode stores the reproducible export plan without inventing a video file. Whole-film scope is the default; current-shot/current-scene scope is reserved for a future advanced mode.
+
+AI Edit includes a formal sound department. The director brief, script emotion, visual style, shot rhythm, and runtime produce a reviewable `Music Brief` and per-shot `Emotional Arc` (style, BPM, instruments, entry, peak, fade-out, and intensity). Music can come from `AI automatic score`, `studio library`, or `user upload`. The mix is always represented as four tracks — `Voice`, `Music`, `SFX`, and `Ambience` — with preview, enable/disable, and regenerate controls. Smart Ducking reads locked Dialogue Book timing, lowers Music during speech, and restores it with an attack/release curve. In mock mode these are production-ready metadata plans; a future audio renderer can attach the actual media files without changing the project contract.
 
 The currently verified Spark workflow is T2V. I2V and R2V remain disabled until their corresponding workflows are verified.
 
@@ -145,7 +155,7 @@ copy .env.example .env  # Windows; use cp on Linux/macOS
 python server.py
 ```
 
-Open `http://127.0.0.1:9071`. The FastAPI interface provides the cinematic three-act workspace, SSE progress updates, shot timeline, monitor, screenplay lock/editor, prominent `SHOTS READY → AI Edit` entry point, Rough Cut preview, subtitle mode selection, premiere flow, and project exports. The Gradio `app.py` fallback also exposes dialogue/subtitle editing and locking, Rough Cut, approval, subtitle mode, and SRT/VTT delivery controls for a Space deployment.
+Open `http://127.0.0.1:9071`. The FastAPI interface provides the cinematic three-act workspace, SSE progress updates, shot timeline, monitor, screenplay lock/editor, prominent `SHOTS READY → AI Edit` entry point, Rough Cut preview, Final Cut Screening Room, real-video metadata, shot jumping, export presets, subtitle mode selection, premiere flow, and project exports. The Gradio `app.py` fallback also exposes dialogue/subtitle editing and locking, Rough Cut, approval, subtitle mode, and SRT/VTT delivery controls for a Space deployment.
 
 ### Configuration and Compliance
 

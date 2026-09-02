@@ -18,6 +18,8 @@ from movie_agent.models import MovieProject
 from movie_agent.storage.project_store import ProjectStore
 from movie_agent.services.llm import build_creative_llm
 from movie_agent.services.quality import PlanningQualityGate, SemanticCopyrightReviewer
+from movie_agent.services.audio import EDIT_AUDIO_STAGES, ensure_audio_design, mark_audio_stage, regenerate_track
+from movie_agent.services.final_look import ensure_final_look, normalise_final_look, reset_final_look
 from movie_agent.services.subtitles import (
     align_script_to_shots,
     ensure_dialogue_assets,
@@ -291,6 +293,18 @@ class MovieOrchestrator:
             quality_report=quality_report,
             logs=logs + quality_report,
         )
+        # Prepare the sound department as soon as the shot rhythm exists. The
+        # brief is reviewable before AI Edit, while actual media remains a
+        # later renderer concern.
+        ensure_audio_design(project)
+        ensure_final_look(project)
+        project.logs.extend(
+            [
+                "声音设计 Agent：已生成 Music Brief 与 Emotional Arc，等待 AI Edit 挂接四轨。",
+                "声音设计 Agent：Voice / Music / SFX / Ambience 轨道已建立，Smart Ducking 默认开启。",
+                "最终润色：Final Look 控制台将在最终成片后开放，默认作用于整部影片。",
+            ]
+        )
         self.store.save(project)
         emit({"type": "archived", "project_id": project_id})
         if self.settings.video_generation_mode == "comfyui":
@@ -458,6 +472,7 @@ class MovieOrchestrator:
         project.final_output_placeholder = None
         project.rough_cut_placeholder = None
         project.edit_plan = {}
+        reset_final_look(project)
         shots_ready = bool(project.storyboard) and all(
             str(shot.status).startswith("approved") for shot in project.storyboard
         )
@@ -488,6 +503,7 @@ class MovieOrchestrator:
         script["dialogue_revision"] = int(script.get("dialogue_revision", 1)) + 1
         project.script = align_script_to_shots(script, project.storyboard)
         self._invalidate_edit_outputs(project)
+        ensure_audio_design(project)
         project.logs.append("场记：已保存台词本与字幕轨草稿，尚未锁定。")
         self.store.save(project)
         return project
@@ -506,6 +522,7 @@ class MovieOrchestrator:
         if not project.script.get("dialogue_book") or not project.script.get("subtitle_track"):
             raise ValueError("台词本或字幕轨为空，无法锁定。")
         project.script["dialogue_locked"] = True
+        ensure_audio_design(project)
         project.logs.append(
             f"场记：已锁定台词本 / 字幕稿第 {project.script.get('dialogue_revision', 1)} 版，后续配音、字幕与剪辑均以此为准。"
         )
@@ -520,6 +537,7 @@ class MovieOrchestrator:
             return project
         project.script["dialogue_locked"] = False
         self._invalidate_edit_outputs(project)
+        ensure_audio_design(project)
         project.logs.append("场记：已解锁台词本，允许修改后重新审核并锁定。")
         self.store.save(project)
         return project
@@ -535,23 +553,167 @@ class MovieOrchestrator:
         self,
         project_id: str,
         progress_callback: Callable[[str], None] | None = None,
+        *,
+        music_mode: str | None = None,
+        smart_ducking: bool | None = None,
+        music_asset_name: str | None = None,
+        track_enabled: dict[str, bool] | None = None,
     ) -> MovieProject:
         project = self.store.load(project_id)
         self._require_dialogue_locked(project)
         if not project.storyboard or not all(str(shot.status).startswith("approved") for shot in project.storyboard):
             raise ValueError("全部镜头通过质检后才能启动 AI Edit。")
+        # A completed cut can be sent back through AI Edit for a new rough cut
+        # without touching the locked dialogue or regenerating shots.
+        if str(project.status).startswith("completed"):
+            project.final_output_placeholder = None
+            project.edit_plan = {}
+        ensure_audio_design(
+            project,
+            music_mode=music_mode,
+            smart_ducking=smart_ducking,
+            music_asset_name=music_asset_name,
+        )
+        for key, enabled in (track_enabled or {}).items():
+            if key in project.audio_tracks:
+                project.audio_tracks[key]["enabled"] = bool(enabled)
+        project.mix_state["media_mixed"] = False
+        project.mix_state["stage_status"] = {stage: "queued" for stage in EDIT_AUDIO_STAGES}
+        project.mix_state["active_stage"] = "picture_cut"
         project.status = "editing_rough_cut"
-        project.logs.append("剪辑 Agent：启动 AI Edit，读取已锁定台词本与字幕轨。")
+        project.logs.append(
+            f"剪辑 Agent：启动 AI Edit，读取已锁定台词本与字幕轨；声音模式为 {project.music_mode.upper()}。"
+        )
+        self.store.save(project)
+        mark_audio_stage(project, "picture_cut", "working")
         self.store.save(project)
         if progress_callback:
-            progress_callback("AI Edit：正在排序镜头并计算 Trim / 转场。")
+            progress_callback("Picture Cut：正在排序镜头并计算 Trim / 转场。")
+        mark_audio_stage(project, "picture_cut", "done")
+        mark_audio_stage(project, "voice", "working")
+        self.store.save(project)
         project.logs.append("剪辑 Agent：镜头排序、Trim 与转场已完成。")
         if progress_callback:
-            progress_callback("AI Edit：正在编排旁白、BGM、SFX 与字幕轨。")
-        project.logs.append("剪辑 Agent：旁白、BGM、SFX 与字幕轨已挂接。")
+            progress_callback("Voice：正在挂接锁定旁白与 Dialogue Book。")
+        mark_audio_stage(project, "voice", "done")
+        mark_audio_stage(project, "music", "working")
+        self.store.save(project)
+        project.logs.append("声音设计 Agent：Voice 轨已挂接锁定台词本。")
+        if progress_callback:
+            progress_callback("Music：正在生成 Music Brief 与 Emotional Arc。")
+        mark_audio_stage(project, "music", "done")
+        mark_audio_stage(project, "sfx", "working")
+        self.store.save(project)
+        project.logs.append(
+            f"声音设计 Agent：Music Brief 已就绪（{project.music_brief.get('bpm', 0)} BPM，峰值 {project.music_brief.get('peak_seconds', 0)}s）。"
+        )
+        if progress_callback:
+            progress_callback("SFX：正在布置动作音效与环境声。")
+        mark_audio_stage(project, "sfx", "done")
+        mark_audio_stage(project, "subtitles", "working")
+        self.store.save(project)
+        project.logs.append("声音设计 Agent：SFX 与 Ambience 轨已按镜头声音提示建立。")
+        if progress_callback:
+            progress_callback("Subtitles：正在挂接锁定 Subtitle Track。")
+        mark_audio_stage(project, "subtitles", "done")
+        mark_audio_stage(project, "mix", "working")
+        self.store.save(project)
+        project.logs.append("剪辑 Agent：Subtitle Track 已挂接，等待最终输出模式。")
+        if progress_callback:
+            progress_callback("Mix：Smart Ducking 与四轨混音处理中。")
+        mark_audio_stage(project, "mix", "done")
+        mark_audio_stage(project, "final_encode", "working")
+        project.mix_state["active_stage"] = "final_encode"
+        project.mix_state["status"] = "MIX COMPLETE · ROUGH CUT ENCODING"
+        project.logs.append(
+            f"混音 Agent：Smart Ducking {'开启' if project.smart_ducking.get('enabled') else '关闭'}，Music duck {project.smart_ducking.get('amount_db', -8)} dB。"
+        )
+        self.store.save(project)
         project.logs.append(self.editor.create_rough_cut(project))
+        mark_audio_stage(project, "final_encode", "done")
+        project.mix_state["active_stage"] = "final_encode"
+        project.mix_state["status"] = "ROUGH CUT READY"
         project.status = "rough_cut_ready"
-        project.logs.append("剪辑 Agent：Rough Cut 已完成，可预览、重新剪辑或批准最终成片。")
+        project.logs.append("剪辑 Agent：Rough Cut 已完成，可预览声音设计、重新剪辑或批准最终成片。")
+        self.store.save(project)
+        return project
+
+    def set_audio_design(
+        self,
+        project_id: str,
+        *,
+        music_mode: str | None = None,
+        smart_ducking: bool | None = None,
+        music_asset_name: str | None = None,
+        track_enabled: dict[str, bool] | None = None,
+    ) -> MovieProject:
+        """Persist sound-department choices without starting an edit render."""
+
+        project = self.store.load(project_id)
+        before_config = {
+            "music_mode": project.music_mode,
+            "music_asset_name": project.music_asset_name,
+            "smart_ducking": bool((project.smart_ducking or {}).get("enabled", True)),
+        }
+        before_config["track_enabled"] = {
+            key: (project.audio_tracks or {}).get(key, {}).get("enabled", True)
+            for key in ("voice", "music", "sfx", "ambience")
+        }
+        had_edit_output = bool(
+            project.final_output_placeholder
+            or project.rough_cut_placeholder
+            or (project.edit_plan or {}).get("approved")
+            or project.status in {"editing_rough_cut", "rough_cut_ready", "editing_final"}
+            or str(project.status).startswith("completed")
+        )
+        ensure_audio_design(
+            project,
+            music_mode=music_mode,
+            smart_ducking=smart_ducking,
+            music_asset_name=music_asset_name,
+        )
+        for key, enabled in (track_enabled or {}).items():
+            if key in project.audio_tracks:
+                project.audio_tracks[key]["enabled"] = bool(enabled)
+        after_config = {
+            "music_mode": project.music_mode,
+            "music_asset_name": project.music_asset_name,
+            "smart_ducking": bool((project.smart_ducking or {}).get("enabled", True)),
+            "track_enabled": {
+                key: (project.audio_tracks or {}).get(key, {}).get("enabled", True)
+                for key in ("voice", "music", "sfx", "ambience")
+            },
+        }
+        project.mix_state["media_mixed"] = False
+        if had_edit_output and before_config != after_config:
+            self._invalidate_edit_outputs(project)
+            project.mix_state["stage_status"] = {stage: "queued" for stage in EDIT_AUDIO_STAGES}
+            project.mix_state["active_stage"] = None
+            project.mix_state["status"] = "DESIGN UPDATED · RE-CUT REQUIRED"
+        project.logs.append(
+            f"声音设计 Agent：已更新配置（Music={project.music_mode.upper()} · Smart Ducking={'ON' if project.smart_ducking.get('enabled') else 'OFF'}）。"
+        )
+        self.store.save(project)
+        return project
+
+    def regenerate_audio_track(self, project_id: str, track_key: str) -> MovieProject:
+        """Regenerate one sound track's plan while preserving user controls."""
+
+        project = self.store.load(project_id)
+        had_edit_output = bool(
+            project.final_output_placeholder
+            or project.rough_cut_placeholder
+            or (project.edit_plan or {}).get("approved")
+            or project.status in {"editing_rough_cut", "rough_cut_ready", "editing_final"}
+            or str(project.status).startswith("completed")
+        )
+        regenerate_track(project, track_key)
+        if had_edit_output:
+            self._invalidate_edit_outputs(project)
+            project.mix_state["stage_status"] = {stage: "queued" for stage in EDIT_AUDIO_STAGES}
+            project.mix_state["active_stage"] = None
+            project.mix_state["status"] = "DESIGN UPDATED · RE-CUT REQUIRED"
+        project.logs.append(f"声音设计 Agent：已重新规划 {track_key.upper()} 音轨。")
         self.store.save(project)
         return project
 
@@ -563,6 +725,10 @@ class MovieOrchestrator:
         if subtitle_mode:
             project.subtitle_mode = normalise_subtitle_mode(subtitle_mode)
         project.status = "editing_final"
+        ensure_audio_design(project)
+        reset_final_look(project)
+        project.mix_state["active_stage"] = "final_encode"
+        project.mix_state["status"] = "FINAL ENCODE"
         project.logs.append(f"剪辑 Agent：收到最终批准，按 {project.subtitle_mode} 字幕模式导出。")
         self.store.save(project)
         if self.settings.video_generation_mode == "comfyui":
@@ -572,6 +738,69 @@ class MovieOrchestrator:
             project.logs.append(self.editor.assemble_mock(project))
             project.status = "completed_text_ai_video_mock" if self.using_creative_llm else "completed_mock"
         project.logs.append(f"项目完成：最终成片已批准，交付模式为 {project.subtitle_mode}。")
+        project.mix_state["status"] = "FINAL MIX READY"
+        project.mix_state["active_stage"] = None
+        self.store.save(project)
+        return project
+
+    def set_final_look(
+        self,
+        project_id: str,
+        *,
+        preset: str = "original",
+        intensity: float = 0.72,
+        grain: float = 0.0,
+        vignette: float = 0.0,
+        highlight_soften: float = 0.0,
+        scope: str = "whole_film",
+        apply: bool = True,
+    ) -> MovieProject:
+        """Save a Final Look and optionally render it onto the real Final Cut."""
+
+        project = self.store.load(project_id)
+        if not str(project.status).startswith("completed"):
+            raise ValueError("请先完成最终成片，再进入 Final Look 最终润色。")
+        previous = normalise_final_look(project.final_look or {})
+        requested = normalise_final_look(
+            {
+                **previous,
+                "preset": preset,
+                "intensity": intensity,
+                "grain": grain,
+                "vignette": vignette,
+                "highlight_soften": highlight_soften,
+                "scope": scope,
+                "applied": bool(apply),
+            }
+        )
+        changed = any(
+            previous.get(key) != requested.get(key)
+            for key in ("preset", "intensity", "grain", "vignette", "highlight_soften", "scope", "applied")
+        )
+        if changed:
+            requested["revision"] = int(previous.get("revision", 1) or 1) + 1
+        project.final_look = normalise_final_look(requested)
+        if not apply:
+            project.final_look["status"] = "PREVIEW ONLY · NOT APPLIED"
+
+        if apply:
+            current_path = Path(project.final_output_placeholder or "")
+            base_path = Path(str(project.final_look.get("base_media_path") or ""))
+            if not base_path.is_file() and current_path.is_file():
+                base_path = current_path
+                project.final_look["base_media_path"] = str(base_path)
+            rendered = self.editor.apply_final_look(project, project.final_look, base_path)
+            if rendered is not None and rendered.is_file():
+                project.final_output_placeholder = str(rendered)
+                project.final_look["media_path"] = str(rendered)
+                project.final_look["status"] = normalise_final_look(project.final_look)["status"]
+            elif not current_path.is_file():
+                project.final_look["status"] = f"{project.final_look['english']} · EXPORT FILTER READY"
+            project.logs.append(
+                f"最终润色：已应用 {project.final_look['english']}（强度 {project.final_look['intensity']}，作用范围 {project.final_look['scope']}）。"
+            )
+        else:
+            project.logs.append("最终润色：已更新浏览器预览草稿，尚未应用到交付文件。")
         self.store.save(project)
         return project
 
@@ -598,6 +827,7 @@ class MovieOrchestrator:
         project.final_output_placeholder = None
         project.rough_cut_placeholder = None
         project.edit_plan = {}
+        reset_final_look(project)
         project.status = "ready_for_ai_edit" if all(
             str(shot.status).startswith("approved") for shot in project.storyboard
         ) else "ready_for_comfyui_render"

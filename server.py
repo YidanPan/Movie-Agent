@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import mimetypes
+import re
 import threading
 from collections.abc import Callable
 from pathlib import Path
@@ -78,6 +80,42 @@ class UpdateDialoguePayload(BaseModel):
 
 
 class ApproveEditPayload(BaseModel):
+    subtitle_mode: Literal["none", "soft", "burned"] = "burned"
+
+
+class AudioDesignPayload(BaseModel):
+    music_mode: Literal["ai", "library", "upload"] = "ai"
+    smart_ducking: bool = True
+    music_asset_name: str = Field(default="", max_length=240)
+    track_enabled: dict[str, bool] = Field(default_factory=dict)
+
+    @field_validator("music_asset_name")
+    @classmethod
+    def strip_asset_name(cls, value: str) -> str:
+        return re.split(r"[\\/]", value.strip())[-1][:240] if value else ""
+
+
+class FinalLookPayload(BaseModel):
+    preset: Literal[
+        "original",
+        "film_narrative",
+        "cool_gray_future",
+        "dream_surreal",
+        "documentary_desaturated",
+        "cyber_night",
+    ] = "original"
+    intensity: float = Field(default=0.72, ge=0, le=1)
+    grain: float = Field(default=0, ge=0, le=1)
+    vignette: float = Field(default=0, ge=0, le=1)
+    highlight_soften: float = Field(default=0, ge=0, le=1)
+    scope: Literal["whole_film", "current_scene", "current_shot"] = "whole_film"
+    apply: bool = True
+
+
+class ExportVideoPayload(BaseModel):
+    container: Literal["mp4", "mov", "webm"] = "mp4"
+    resolution: Literal["720p", "1080p"] = "1080p"
+    aspect: Literal["16:9", "9:16", "1:1"] = "16:9"
     subtitle_mode: Literal["none", "soft", "burned"] = "burned"
 
 
@@ -232,6 +270,11 @@ def unlock_script(project_id: str):
 @app.post("/api/projects/{project_id}/edit/stream")
 async def create_rough_cut_stream(project_id: str, request: Request) -> StreamingResponse:
     try:
+        raw_payload = await request.json()
+        payload = AudioDesignPayload.model_validate(raw_payload or {})
+    except (ValidationError, ValueError):
+        payload = AudioDesignPayload()
+    try:
         orchestrator.store.load(project_id)
     except FileNotFoundError:
         return project_not_found(project_id)
@@ -247,10 +290,120 @@ async def create_rough_cut_stream(project_id: str, request: Request) -> Streamin
                     snapshot = None
                 emit({"type": "edit_progress", "description": description, "project": snapshot})
 
-            project = orchestrator.create_rough_cut(project_id, progress_callback=on_progress)
+            project = orchestrator.create_rough_cut(
+                project_id,
+                progress_callback=on_progress,
+                music_mode=payload.music_mode,
+                smart_ducking=payload.smart_ducking,
+                music_asset_name=payload.music_asset_name,
+                track_enabled=payload.track_enabled,
+            )
             emit({"type": "done", "project": project.to_dict()})
 
     return run_with_sse(request, work)
+
+
+@app.patch("/api/projects/{project_id}/audio/design")
+async def update_audio_design(project_id: str, request: Request):
+    try:
+        payload = AudioDesignPayload.model_validate(await request.json())
+    except (ValidationError, ValueError) as error:
+        if isinstance(error, ValidationError):
+            return invalid_payload(error)
+        return JSONResponse({"error": "请求必须是合法 JSON。"}, status_code=400)
+    try:
+        project = orchestrator.set_audio_design(
+            project_id,
+            music_mode=payload.music_mode,
+            smart_ducking=payload.smart_ducking,
+            music_asset_name=payload.music_asset_name,
+            track_enabled=payload.track_enabled,
+        )
+    except FileNotFoundError:
+        return project_not_found(project_id)
+    except ValueError as error:
+        return JSONResponse({"error": str(error)}, status_code=400)
+    return project.to_dict()
+
+
+@app.patch("/api/projects/{project_id}/final-look")
+async def update_final_look(project_id: str, request: Request):
+    try:
+        payload = FinalLookPayload.model_validate(await request.json())
+    except (ValidationError, ValueError) as error:
+        if isinstance(error, ValidationError):
+            return invalid_payload(error)
+        return JSONResponse({"error": "请求必须是合法 JSON。"}, status_code=400)
+    try:
+        with render_lock:
+            project = orchestrator.set_final_look(
+                project_id,
+                preset=payload.preset,
+                intensity=payload.intensity,
+                grain=payload.grain,
+                vignette=payload.vignette,
+                highlight_soften=payload.highlight_soften,
+                scope=payload.scope,
+                apply=payload.apply,
+            )
+    except FileNotFoundError:
+        return project_not_found(project_id)
+    except ValueError as error:
+        return JSONResponse({"error": str(error)}, status_code=400)
+    except RuntimeError as error:
+        return JSONResponse({"error": str(error)}, status_code=409)
+    return project.to_dict()
+
+
+@app.post("/api/projects/{project_id}/audio/tracks/{track_key}/regenerate")
+def regenerate_audio_track(project_id: str, track_key: str):
+    try:
+        project = orchestrator.regenerate_audio_track(project_id, track_key)
+    except FileNotFoundError:
+        return project_not_found(project_id)
+    except ValueError as error:
+        return JSONResponse({"error": str(error)}, status_code=400)
+    return project.to_dict()
+
+
+@app.post("/api/projects/{project_id}/audio/upload")
+async def upload_music(project_id: str, request: Request):
+    """Accept a raw browser audio upload without requiring multipart extras.
+
+    The client sends the file bytes with an X-Filename header. Keeping this
+    endpoint small makes it usable on Spark and leaves the eventual audio
+    renderer free to replace the stored source.
+    """
+
+    try:
+        project = orchestrator.store.load(project_id)
+    except FileNotFoundError:
+        return project_not_found(project_id)
+    filename = Path(request.headers.get("x-filename", "uploaded-score")).name
+    filename = re.sub(r"[^\w.\- ]+", "_", filename).strip(" .") or "uploaded-score"
+    if len(filename) > 120:
+        filename = filename[-120:]
+    body = await request.body()
+    if not body:
+        return JSONResponse({"error": "上传文件为空。"}, status_code=400)
+    if len(body) > 120 * 1024 * 1024:
+        return JSONResponse({"error": "音频文件不能超过 120MB。"}, status_code=413)
+    audio_dir = settings.outputs_dir / project_id / "audio"
+    audio_dir.mkdir(parents=True, exist_ok=True)
+    target = audio_dir / filename
+    target.write_bytes(body)
+    project = orchestrator.set_audio_design(
+        project_id,
+        music_mode="upload",
+        smart_ducking=bool((project.smart_ducking or {}).get("enabled", True)),
+        music_asset_name=filename,
+    )
+    project.audio_tracks.setdefault("music", {})["preview_url"] = f"/api/projects/{project_id}/audio/tracks/music"
+    project.audio_tracks["music"]["media_path"] = str(target)
+    project.audio_tracks["music"]["status"] = "FILE READY"
+    project.logs.append(f"声音设计 Agent：已接收用户上传配乐 {filename}。")
+    orchestrator.store.save(project)
+    return project.to_dict()
 
 
 @app.post("/api/projects/{project_id}/edit/approve")
@@ -468,6 +621,30 @@ def final_video_head(project_id: str):
     return Response(status_code=200)
 
 
+@app.post("/api/projects/{project_id}/export/video")
+async def export_video(project_id: str, request: Request):
+    """Encode a user-selected delivery variant from the approved cut."""
+
+    try:
+        payload = ExportVideoPayload.model_validate(await request.json())
+    except (ValidationError, ValueError) as error:
+        if isinstance(error, ValidationError):
+            return invalid_payload(error)
+        return JSONResponse({"error": "请求必须是合法 JSON。"}, status_code=400)
+    try:
+        project = orchestrator.store.load(project_id)
+        with render_lock:
+            path = orchestrator.editor.export_variant(project, **payload.model_dump())
+    except FileNotFoundError:
+        return project_not_found(project_id)
+    except ValueError as error:
+        return JSONResponse({"error": str(error)}, status_code=400)
+    except RuntimeError as error:
+        return JSONResponse({"error": str(error)}, status_code=409)
+    media_types = {"mp4": "video/mp4", "mov": "video/quicktime", "webm": "video/webm"}
+    return FileResponse(path, filename=path.name, media_type=media_types[payload.container])
+
+
 @app.get("/api/projects/{project_id}/rough-cut")
 def rough_cut_video(project_id: str):
     return FileResponse(_resolve_rough_cut(project_id), media_type="video/mp4")
@@ -488,6 +665,23 @@ def shot_video(project_id: str, shot_number: int):
 def shot_video_head(project_id: str, shot_number: int):
     _resolve_shot_video(project_id, shot_number)
     return Response(status_code=200)
+
+
+@app.get("/api/projects/{project_id}/audio/tracks/{track_key}")
+def audio_track_preview(project_id: str, track_key: str):
+    """Stream an uploaded/generated track when a real media path exists."""
+
+    project = _load_project_or_http(project_id)
+    track = (project.audio_tracks or {}).get(str(track_key).lower()) or {}
+    raw_path = track.get("media_path")
+    if not raw_path:
+        raise HTTPException(status_code=404, detail="该音轨尚未生成可试听的音频文件。")
+    path = Path(raw_path).resolve()
+    allowed_root = (settings.outputs_dir / project_id).resolve()
+    if allowed_root not in path.parents or not path.is_file():
+        raise HTTPException(status_code=404, detail="该音轨试听文件不存在。")
+    media_type = mimetypes.guess_type(path.name)[0] or "audio/mpeg"
+    return FileResponse(path, media_type=media_type, filename=path.name)
 
 
 @app.get("/")

@@ -43,8 +43,7 @@ const els = {
   btnRefresh: $("#btn-refresh"),
   actCrew: $("#act-crew"),
   actWorkspace: $("#act-workspace"),
-  crewPrimary: $("#crew-primary"),
-  crewSecondary: $("#crew-secondary"),
+  crewFlow: $("#crew-flow"),
   crewMeta: $("#crew-meta"),
   crewRadioWrap: $(".crew-radio-wrap"),
   crewRadioToggle: $("#crew-radio-toggle"),
@@ -77,11 +76,85 @@ const els = {
   editConsole: $("#edit-console"),
   editConsoleState: $("#edit-console-state"),
   editConsoleNote: $("#edit-console-note"),
+  audioDesignConsole: $("#audio-design-console"),
+  audioDesignState: $("#audio-design-state"),
+  audioModeSwitch: $("#audio-mode-switch"),
+  audioUploadRow: $("#audio-upload-row"),
+  musicUpload: $("#music-upload"),
+  musicUploadNote: $("#music-upload-note"),
+  musicBriefSource: $("#music-brief-source"),
+  musicBriefVersion: $("#music-brief-version"),
+  musicBriefGrid: $("#music-brief-grid"),
+  emotionalArc: $("#emotional-arc"),
+  musicBriefDirection: $("#music-brief-direction"),
+  musicBriefInstruments: $("#music-brief-instruments"),
+  audioTrackList: $("#audio-track-list"),
+  smartDuckingToggle: $("#smart-ducking-toggle"),
+  smartDuckingCopy: $("#smart-ducking-copy"),
+  smartDuckingValue: $("#smart-ducking-value"),
   roughCutStage: $("#rough-cut-stage"),
   roughCutVideo: $("#rough-cut-video"),
   subtitleMode: $("#subtitle-mode"),
   btnRecut: $("#btn-recut"),
   btnApproveEdit: $("#btn-approve-edit"),
+  btnReedit: $("#btn-reedit"),
+  btnEditSubtitles: $("#btn-edit-subtitles"),
+  btnExportFinal: $("#btn-export-final"),
+  btnMoreExport: $("#btn-more-export"),
+  moreExportMenu: $("#more-export-menu"),
+  deliverRoom: $("#deliver-room"),
+  deliverStateTitle: $("#deliver-state-title"),
+  deliverStateCopy: $("#deliver-state-copy"),
+  deliverStateBadge: $("#deliver-state-badge"),
+  deliverSummary: $("#deliver-summary"),
+  deliverProjectTitle: $("#deliver-project-title"),
+  deliverProjectCopy: $("#deliver-project-copy"),
+  deliverShotsReady: $("#deliver-shots-ready"),
+  deliverReadyNote: $("#deliver-ready-note"),
+  deliverSummarySpecs: $("#deliver-summary-specs"),
+  deliverWorkProgress: $("#deliver-work-progress"),
+  deliverProgressTitle: $("#deliver-progress-title"),
+  deliverProgressPercent: $("#deliver-progress-percent"),
+  deliverProgressBar: $("#deliver-progress-bar"),
+  deliverProgressGrid: $("#deliver-progress-grid"),
+  deliverFinal: $("#deliver-final"),
+  finalNotGenerated: $("#final-not-generated"),
+  finalPlayerState: $("#final-player-state"),
+  deliverVideoMeta: $("#deliver-video-meta"),
+  deliverMetaDuration: $("#deliver-meta-duration"),
+  deliverMetaResolution: $("#deliver-meta-resolution"),
+  deliverMetaAspect: $("#deliver-meta-aspect"),
+  deliverMetaCodec: $("#deliver-meta-codec"),
+  deliverMetaSubtitles: $("#deliver-meta-subtitles"),
+  deliverMetaVoiceover: $("#deliver-meta-voiceover"),
+  deliverMetaAudio: $("#deliver-meta-audio"),
+  deliverShotTimeline: $("#deliver-shot-timeline"),
+  deliverTimelineTotal: $("#deliver-timeline-total"),
+  deliverAudioPanel: $("#deliver-audio-panel"),
+  deliverAudioState: $("#deliver-audio-state"),
+  deliverMusicBrief: $("#deliver-music-brief"),
+  deliverAudioTrackList: $("#deliver-audio-track-list"),
+  finalLookPanel: $("#final-look-panel"),
+  finalLookPresetGrid: $("#final-look-preset-grid"),
+  finalLookIntensity: $("#final-look-intensity"),
+  finalLookIntensityValue: $("#final-look-intensity-value"),
+  finalLookGrain: $("#final-look-grain"),
+  finalLookGrainValue: $("#final-look-grain-value"),
+  finalLookVignette: $("#final-look-vignette"),
+  finalLookVignetteValue: $("#final-look-vignette-value"),
+  finalLookSoftening: $("#final-look-softening"),
+  finalLookSofteningValue: $("#final-look-softening-value"),
+  finalLookStatus: $("#final-look-status"),
+  finalLookPresetName: $("#final-look-preset-name"),
+  finalLookDescription: $("#final-look-description"),
+  finalLookScope: $("#final-look-scope"),
+  finalLookApply: $("#btn-apply-final-look"),
+  finalLookReset: $("#btn-reset-final-look"),
+  finalLookOverlay: $("#final-look-overlay"),
+  exportSheet: $("#export-sheet"),
+  btnExportClose: $("#btn-export-close"),
+  btnExportRun: $("#btn-export-run"),
+  exportSelection: $("#export-selection"),
   posterTitle: $("#poster-title"),
   posterMeta: $("#poster-meta"),
   exportJson: $("#export-json"),
@@ -104,30 +177,53 @@ const SAMPLE_IDEAS = [
 ];
 
 const AGENT_DEFS = [
-  { id: "director", index: "01", name: "导演", en: "DIRECTOR", role: "主题与叙事边界", primary: true,
-    summarize: (d) => d.brief && d.brief["主题"] ? `THEME / ${truncate(d.brief["主题"], 64)}` : "THEME / PROJECT BRIEF LOCKED" },
-  { id: "writer", index: "02", name: "编剧", en: "WRITER", role: "剧本 · 台词本 · 字幕", primary: true,
-    summarize: (d) => d.script && d.script.story ? `DRAFT / ${d.script.dialogue_book?.length || 0} dialogue cues · ${d.script.dialogue_locked ? "LOCKED" : "REVIEW"}` : "DRAFT / AWAITING SCRIPT" },
-  { id: "visual_bible", index: "03", name: "美术指导", en: "ART DIRECTOR", role: "角色 · 场景 · 风格 · 声音", primary: true,
-    summarize: () => "VISUAL RULES / 4 continuity cards locked" },
-  { id: "storyboard", index: "04", name: "分镜师", en: "STORYBOARD", role: "可渲染镜头拆解", primary: true,
-    summarize: (d) => `SHOT LIST / ${(d.storyboard || []).length} shots locked` },
-  { id: "quality", index: "05", name: "质检", en: "QC GATE", role: "结构与版权风险", primary: false,
-    summarize: (d) => `QC GATE / ${(d.quality_report || []).length} checks complete` },
-  { id: "generation", index: "06", name: "生成调度", en: "GENERATION", role: "逐镜生成与重试", primary: false,
-    summarize: () => "SHOT QUEUE / render tasks ready" },
-  { id: "editor", index: "07", name: "剪辑", en: "EDITOR", role: "粗剪 · 合片 · 交付", primary: false,
-    summarize: (d) => d.final_output ? "DELIVERY / master cut ready" : d.rough_cut_placeholder ? "ROUGH CUT / review then approve" : "AI EDIT / awaiting locked dialogue" },
+  { id: "director", index: "01", name: "导演", en: "DIRECTOR", role: "主题与叙事边界",
+    summarize: (d) => d.brief && d.brief["主题"] ? `CORE CONCEPT / ${truncate(d.brief["主题"], 32)}` : d.idea ? `BRIEF / ${truncate(d.idea, 32)}` : "BRIEF / AWAITING DIRECTOR PASS" },
+  { id: "writer", index: "02", name: "编剧", en: "WRITER", role: "剧本 · 台词本 · 字幕",
+    summarize: (d) => d.script && d.script.story ? `SCRIPT / ${String(d.script.story).split(/\n+/).filter(Boolean).length || 1} SCENES · ${d.script.dialogue_book?.length || 0} CUES · ${d.script.dialogue_locked ? "LOCKED" : "REVIEW"}` : "SCRIPT / AWAITING WRITER PASS" },
+  { id: "visual_bible", index: "03", name: "美术指导", en: "ART DIRECTOR", role: "角色 · 场景 · 风格 · 声音",
+    summarize: (d) => {
+      const bible = d.visual_bible || {};
+      const rules = Object.keys(bible).length;
+      return rules ? `STYLE / ${d.visual_style || "CUSTOM"} · ${rules} RULES LOCKED` : "STYLE / AWAITING ART DIRECTION";
+    } },
+  { id: "storyboard", index: "04", name: "分镜师", en: "STORYBOARD", role: "可渲染镜头拆解",
+    summarize: (d) => {
+      const shots = d.storyboard || [];
+      const runtime = shots.reduce((sum, shot) => sum + Number(shot.duration_seconds || 0), 0);
+      return shots.length ? `STRUCTURE / ${shots.length} SHOTS · ${runtime}s LOCKED` : "STRUCTURE / SHOT LIST QUEUED";
+    } },
+  { id: "quality", index: "05", name: "质检", en: "QC GATE", role: "结构与版权风险",
+    summarize: (d) => {
+      const checks = d.quality_report || [];
+      const hasRisk = checks.some((item) => /失败|风险|建议改写|未通过|error|fail/i.test(String(item)));
+      return checks.length ? `QC GATE / ${checks.length} CHECKS · ${hasRisk ? "REVIEW" : "PASS"}` : "QC GATE / CHECKS QUEUED";
+    } },
+  { id: "generation", index: "06", name: "生成调度", en: "GENERATION", role: "逐镜生成与重试",
+    summarize: (d) => {
+      const shots = d.storyboard || [];
+      const approved = shots.filter((shot) => String(shot.status || "").startsWith("approved")).length;
+      return shots.length ? `SHOTS / ${approved}/${shots.length} READY · ${approved === shots.length ? "QUEUE CLEAR" : "RENDER QUEUE"}` : "SHOTS / QUEUE NOT RELEASED";
+    } },
+  { id: "editor", index: "07", name: "剪辑", en: "EDITOR", role: "粗剪 · 合片 · 交付",
+    summarize: (d) => {
+      const status = String(d.status || "");
+      if (status === "rough_cut_ready" || d.rough_cut_placeholder) return "ROUGH CUT / 4-TRACK MIX READY";
+      if (status === "editing_rough_cut") return "AI EDIT / PICTURE + SOUND MIX";
+      if (status.startsWith("completed")) return status === "completed_comfyui" && (d.final_video_url || state.hasFinalVideo) ? "DELIVERY / MASTER CUT + MIX READY" : "DELIVERY / ARCHIVED · MEDIA CHECK";
+      if (status === "ready_for_ai_edit") return "AI EDIT / SOUND DESIGN READY";
+      return "EDIT / WAITING FOR SHOT LOCK";
+    } },
 ];
 
 const AGENT_STATUS_COPY = {
-  director: { idle: "WAITING", working: "DIRECTING", done: "DIRECTION LOCKED" },
-  writer: { idle: "WAITING", working: "WRITING", done: "SCRIPT PACKAGE READY" },
-  visual_bible: { idle: "WAITING", working: "DESIGNING", done: "VISUAL LOCKED" },
-  storyboard: { idle: "WAITING", working: "BOARDING", done: "STORYBOARD READY" },
+  director: { idle: "WAITING FOR BRIEF", next: "READY · DIRECTOR", working: "DIRECTING", done: "BRIEF LOCKED" },
+  writer: { idle: "QUEUED", next: "NEXT · WRITER", working: "WRITING", done: "SCRIPT + CUES READY" },
+  visual_bible: { idle: "QUEUED", next: "NEXT · ART DIRECTION", working: "DESIGNING", done: "VISUAL BIBLE LOCKED" },
+  storyboard: { idle: "QUEUED", next: "NEXT · STORYBOARD", working: "BOARDING", done: "SHOT LIST READY" },
   quality: { idle: "QUEUED", next: "NEXT · QC GATE", working: "REVIEWING", done: "QC APPROVED" },
-  generation: { idle: "QUEUED", working: "RENDERING", done: "ASSETS READY" },
-  editor: { idle: "QUEUED", working: "ASSEMBLING", done: "CUT COMPLETE" },
+  generation: { idle: "QUEUED", next: "NEXT · RENDER QUEUE", working: "RENDERING", done: "SHOTS READY" },
+  editor: { idle: "QUEUED", next: "READY · START AI EDIT", working: "EDITING ROUGH CUT", done: "FINAL CUT READY" },
 };
 
 const SHOT_STATUS = {
@@ -178,10 +274,22 @@ const state = {
   crewDetails: {},
   crewMessages: [],
   crewArtifacts: [],
+  crewRadioLog: [],
   crewRadioOpen: false,
+  viewingHistorical: false,
   drawerType: null,
   activeAgentId: null,
   inspectorExpanded: false,
+  exportOptions: { container: "mp4", resolution: "1080p", aspect: "16:9", subtitle_mode: "burned" },
+  finalVideoUrl: null,
+  finalVideoProbeRun: 0,
+  editProgressStep: 0,
+  musicMode: "ai",
+  musicAssetName: "",
+  smartDucking: true,
+  finalLookProjectId: null,
+  finalLookDraft: null,
+  finalLookDirty: false,
 };
 
 let manualTypingRun = 0;
@@ -408,13 +516,13 @@ function createPacedHandler(onEvent) {
 
 function setPipeline(states = {}) {
   const order = ["plan", "previs", "render", "deliver"];
-  const stateLabels = { active: "当前", done: "已完成", todo: "未开始" };
+  const stateLabels = { active: "IN PROGRESS", ready: "READY", done: "COMPLETED", archived: "ARCHIVED", todo: "NOT STARTED" };
   const separators = $$("#pipeline .sep");
-  const hasExplicitActive = order.some((key) => states[key] === "active");
+  const hasExplicitFocus = order.some((key) => states[key] === "active" || states[key] === "ready");
   const resolvedStates = {};
-  let inferredActive = !hasExplicitActive;
+  let inferredActive = !hasExplicitFocus;
   for (const key of order) {
-    const requested = states[key] === "done" || states[key] === "active" ? states[key] : "todo";
+    const requested = ["done", "active", "ready", "archived"].includes(states[key]) ? states[key] : "todo";
     if (requested === "todo" && inferredActive) {
       resolvedStates[key] = "active";
       inferredActive = false;
@@ -425,7 +533,7 @@ function setPipeline(states = {}) {
   for (const [index, key] of order.entries()) {
     const el = els.pipeline.querySelector(`[data-step="${key}"]`);
     const currentState = resolvedStates[key];
-    el.classList.remove("is-active", "is-done");
+    el.classList.remove("is-active", "is-done", "is-ready", "is-archived");
     el.dataset.state = currentState;
     el.setAttribute("aria-label", `${key.toUpperCase()} · ${stateLabels[currentState]}`);
     const stateLabel = el.querySelector(".step-state");
@@ -433,15 +541,21 @@ function setPipeline(states = {}) {
     if (currentState === "active") {
       el.classList.add("is-active");
       el.setAttribute("aria-current", "step");
+    } else if (currentState === "ready") {
+      el.classList.add("is-ready");
+      el.setAttribute("aria-current", "step");
     } else if (currentState === "done") {
       el.classList.add("is-done");
+      el.removeAttribute("aria-current");
+    } else if (currentState === "archived") {
+      el.classList.add("is-archived");
       el.removeAttribute("aria-current");
     } else {
       el.removeAttribute("aria-current");
     }
     if (separators[index]) {
       const nextState = order[index + 1] ? resolvedStates[order[index + 1]] : "todo";
-      separators[index].dataset.state = currentState === "done" ? "done" : nextState === "active" ? "active" : "todo";
+      separators[index].dataset.state = currentState === "done" || currentState === "archived" ? "done" : ["active", "ready"].includes(nextState) ? "active" : "todo";
     }
   }
 }
@@ -449,6 +563,7 @@ function setPipeline(states = {}) {
 function pipelineFromProject(project, hasVideo) {
   const states = { plan: "todo", previs: "todo", render: "todo", deliver: "todo" };
   if (!project) return states;
+  const historical = Boolean(state.viewingHistorical);
   states.plan = "done";
   if ((project.storyboard || []).length > 0) states.previs = "done";
   const status = project.status || "";
@@ -457,111 +572,177 @@ function pipelineFromProject(project, hasVideo) {
   const finalApproved = status.startsWith("completed") && (hasVideo || status !== "completed_comfyui");
   if (["rendering_comfyui", "generating_video_mock", "ready_for_comfyui_render", "render_failed"].includes(status)) {
     states.render = status === "render_failed" ? "active" : "active";
+  } else if (historical && ["planned_mock", "planned_text_ai"].includes(status)) {
+    states.render = "ready";
   } else if (allReady || status.startsWith("editing_") || status === "rough_cut_ready" || finalApproved) {
     states.render = "done";
   }
-  if (finalApproved) states.deliver = "done";
-  else if (allReady || status === "ready_for_ai_edit" || status === "editing_rough_cut" || status === "rough_cut_ready") states.deliver = "active";
+  if (finalApproved) states.deliver = historical ? "archived" : "done";
+  else if (status === "ready_for_ai_edit") states.deliver = historical ? "ready" : "active";
+  else if (allReady || status === "editing_rough_cut" || status === "rough_cut_ready") states.deliver = "active";
+  if (historical && status.startsWith("completed") && !finalApproved) states.deliver = "archived";
   return states;
 }
 
 /* ── 第二幕 · 剧组看板 ─────────────────────────────────────── */
 
 function buildCrewBoard() {
-  const render = (container, defs) => {
-    container.innerHTML = "";
-    defs.forEach((def, index) => {
-      if (index > 0) {
-        const arrow = document.createElement("span");
-        arrow.className = "crew-arrow mono";
-        arrow.innerHTML = "<i></i>";
-        container.appendChild(arrow);
+  const container = els.crewFlow;
+  if (!container) return;
+  container.innerHTML = "";
+  AGENT_DEFS.forEach((def, index) => {
+    const node = document.createElement("div");
+    node.className = "crew-flow-node";
+    node.dataset.agent = def.id;
+    const card = document.createElement("article");
+    card.className = "crew-card idle";
+    card.dataset.agent = def.id;
+    card.dataset.state = "idle";
+    card.tabIndex = 0;
+    card.setAttribute("role", "button");
+    card.setAttribute("aria-expanded", "false");
+    card.setAttribute("aria-label", `${def.name} Agent 详情`);
+    card.innerHTML = `
+      <div class="crew-indexline mono"><span>${esc(def.index)} / NODE</span><span class="crew-en mono">${esc(def.en)}</span></div>
+      <div class="crew-head"><span class="crew-name">${esc(def.name)}</span></div>
+      <p class="crew-role">${esc(def.role)}</p>
+      <div class="crew-state mono"><span class="crew-state-icon" aria-hidden="true"></span><span class="crew-state-text">${AGENT_STATUS_COPY[def.id]?.idle || "WAITING"}</span></div>
+      <p class="crew-summary">${esc(def.summarize({}))}</p>`;
+    card.addEventListener("click", () => openCrewDrawer(def.id));
+    card.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        openCrewDrawer(def.id);
       }
-      const card = document.createElement("div");
-      card.className = "crew-card idle";
-      card.dataset.agent = def.id;
-      card.tabIndex = 0;
-      card.setAttribute("role", "button");
-      card.setAttribute("aria-expanded", "false");
-      card.setAttribute("aria-label", `${def.name} Agent 详情`);
-      card.innerHTML = `
-        <div class="crew-indexline mono"><span>${esc(def.index)} / NODE</span><span>${esc(def.en)}</span></div>
-        <div class="crew-head"><span class="crew-name">${esc(def.name)}</span><span class="crew-en mono">${esc(def.role)}</span></div>
-        <div class="crew-state mono"><span class="crew-state-icon" aria-hidden="true"></span><span class="crew-state-text">${AGENT_STATUS_COPY[def.id]?.idle || "WAITING"}</span></div>
-        <p class="crew-summary"></p>`;
-      card.addEventListener("click", () => openCrewDrawer(def.id));
-      card.addEventListener("keydown", (event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          openCrewDrawer(def.id);
-        }
-      });
-      container.appendChild(card);
     });
-  };
-  render(els.crewPrimary, AGENT_DEFS.filter((d) => d.primary));
-  render(els.crewSecondary, AGENT_DEFS.filter((d) => !d.primary));
+    node.appendChild(card);
+    if (index < AGENT_DEFS.length - 1) {
+      const link = document.createElement("i");
+      link.className = "crew-flow-link";
+      link.dataset.linkIndex = String(index);
+      link.setAttribute("aria-hidden", "true");
+      link.innerHTML = "<b></b>";
+      node.appendChild(link);
+    }
+    container.appendChild(node);
+  });
+  if (state.project) syncCrewBoard(state.project, { silent: true });
   refreshCrewConnectors();
   renderCrewRadio();
 }
 
-function setAgentState(agentId, agentState, data) {
+function crewMergedData(agentId, data = {}) {
+  const project = state.project || {};
+  const details = state.crewDetails[agentId] || {};
+  const merged = { ...project, ...details, ...data };
+  const hasValue = (value) => value !== undefined && value !== null && (typeof value !== "object" || Object.keys(value).length > 0);
+  for (const key of ["brief", "script", "visual_bible", "storyboard", "quality_report"]) {
+    merged[key] = hasValue(data[key]) ? data[key] : hasValue(details[key]) ? details[key] : project[key];
+  }
+  return merged;
+}
+
+function crewStatusText(agentId, agentState, data = {}) {
+  const copy = AGENT_STATUS_COPY[agentId] || {};
+  const status = String(data.status || state.project?.status || "");
+  if (agentState === "ready") return copy.next || "READY";
+  if (agentState === "done" && agentId === "editor") {
+    if (status === "rough_cut_ready" || data.rough_cut_placeholder) return "ROUGH CUT READY";
+    if (status.startsWith("completed") && status !== "completed_comfyui") return "DELIVERY RECORDED";
+    if (status === "completed_comfyui" && !state.hasFinalVideo && !data.final_video_url) return "DELIVERY RECORDED";
+  }
+  if (agentState === "working" && agentId === "editor" && status === "editing_final") return "FINAL ENCODE";
+  return copy[agentState] || copy.idle || agentState.toUpperCase();
+}
+
+function setAgentState(agentId, agentState, data = {}, { silent = false } = {}) {
   const card = document.querySelector(`.crew-card[data-agent="${agentId}"]`);
   if (!card) return;
-  card.classList.remove("idle", "next", "working", "done", "failed");
-  card.classList.add(agentState);
+  const previousState = card.dataset.state || "idle";
+  card.classList.remove("idle", "next", "ready", "working", "done", "failed");
+  const resolvedState = ["idle", "next", "ready", "working", "done", "failed"].includes(agentState) ? agentState : "idle";
+  card.classList.add(resolvedState);
+  card.dataset.state = resolvedState;
+  if (["working", "ready"].includes(resolvedState)) card.setAttribute("aria-current", "step");
+  else card.removeAttribute("aria-current");
   const text = card.querySelector(".crew-state-text");
   const summary = card.querySelector(".crew-summary");
   card.setAttribute("aria-expanded", "false");
-  if (agentState === "working") {
-    card.dataset.startedAt = String(Date.now());
-    text.textContent = `${AGENT_STATUS_COPY[agentId]?.working || "WORKING"} · 00:00`;
-    summary.innerHTML = '<span class="sk sk-1"></span><span class="sk sk-2"></span>';
-  } else if (agentState === "done") {
+  const merged = crewMergedData(agentId, data);
+  const def = AGENT_DEFS.find((item) => item.id === agentId);
+  const baseSummary = def ? def.summarize(merged) : "";
+  card.dataset.summary = baseSummary;
+  if (resolvedState === "working") {
+    if (previousState !== "working" || !card.dataset.startedAt) card.dataset.startedAt = String(Date.now());
+    text.textContent = `${crewStatusText(agentId, resolvedState, merged)} · 00:00`;
+    summary.innerHTML = '<span class="sk sk-1"></span><span class="sk sk-2"></span><span class="sk sk-3"></span>';
+  } else if (resolvedState === "done") {
     delete card.dataset.startedAt;
-    text.textContent = AGENT_STATUS_COPY[agentId]?.done || "COMPLETE";
-    const def = AGENT_DEFS.find((d) => d.id === agentId);
-    const baseSummary = def ? def.summarize(data || {}) : "";
-    card.dataset.summary = baseSummary;
+    text.textContent = crewStatusText(agentId, resolvedState, merged);
     summary.textContent = baseSummary;
     renderCrewCardExtras(agentId);
-    playUiSound("done");
-  } else if (agentState === "next") {
+    if (!silent && previousState !== "done") playUiSound("done");
+  } else if (resolvedState === "ready") {
     delete card.dataset.startedAt;
-    text.textContent = AGENT_STATUS_COPY[agentId]?.next || "NEXT";
-    summary.textContent = "UPSTREAM LOCKED / WAITING FOR THIS PASS";
-  } else if (agentState === "failed") {
+    text.textContent = crewStatusText(agentId, resolvedState, merged);
+    summary.textContent = baseSummary;
+    renderCrewCardExtras(agentId);
+  } else if (resolvedState === "next") {
+    delete card.dataset.startedAt;
+    text.textContent = crewStatusText(agentId, resolvedState, merged);
+    summary.textContent = "UPSTREAM LOCKED / AWAITING THIS PASS";
+  } else if (resolvedState === "failed") {
     delete card.dataset.startedAt;
     text.textContent = "INTERRUPTED";
     summary.textContent = "INTERRUPTED / RETRY AVAILABLE";
   } else {
     delete card.dataset.startedAt;
-    text.textContent = AGENT_STATUS_COPY[agentId]?.idle || "WAITING";
-    summary.textContent = "";
+    text.textContent = crewStatusText(agentId, resolvedState, merged);
+    summary.textContent = baseSummary.includes("AWAITING") || baseSummary.includes("QUEUED") ? baseSummary : "";
   }
+  const agentName = AGENT_DEFS.find((item) => item.id === agentId)?.name || agentId;
+  card.setAttribute("aria-label", `${agentName} Agent · ${text.textContent}`);
   refreshCrewConnectors();
 }
 
 function refreshCrewConnectors() {
-  for (const row of [els.crewPrimary, els.crewSecondary]) {
-    const cards = Array.from(row.querySelectorAll(".crew-card"));
-    const arrows = Array.from(row.querySelectorAll(".crew-arrow"));
-    arrows.forEach((arrow, index) => {
-      const previous = cards[index]?.classList;
-      const next = cards[index + 1]?.classList;
-      arrow.dataset.state = previous?.contains("done") && next?.contains("done") ? "done"
-        : previous?.contains("working") || next?.contains("working") || next?.contains("next") ? "active" : "waiting";
-    });
-  }
-  const bridge = document.querySelector(".crew-bridge");
-  const board = document.querySelector('.crew-card[data-agent="storyboard"]');
-  const qc = document.querySelector('.crew-card[data-agent="quality"]');
-  if (bridge) bridge.dataset.state = board?.classList.contains("done") && (qc?.classList.contains("working") || qc?.classList.contains("next")) ? "active" : board?.classList.contains("done") ? "ready" : "waiting";
+  const flow = els.crewFlow;
+  if (!flow) return;
+  const nodes = Array.from(flow.querySelectorAll(".crew-flow-node"));
+  nodes.forEach((node, index) => {
+    const left = node.querySelector(".crew-card");
+    const right = nodes[index + 1]?.querySelector(".crew-card");
+    const link = node.querySelector(".crew-flow-link");
+    if (!link || !left || !right) return;
+    const leftState = left.dataset.state || "idle";
+    const rightState = right.dataset.state || "idle";
+    const complete = leftState === "done" && rightState === "done";
+    const active = ["working", "ready"].includes(rightState) && ["done", "working", "ready"].includes(leftState);
+    link.dataset.state = complete ? "done" : active ? "active" : "waiting";
+  });
 }
 
 function rememberCrewEvent(agentId, event) {
   if (!agentId) return;
   state.crewDetails[agentId] = { ...(state.crewDetails[agentId] || {}), ...event };
+}
+
+function crewAgentLabel(agentId) {
+  const def = AGENT_DEFS.find((item) => item.id === agentId);
+  return def ? `${def.name} / ${def.en}` : String(agentId || "SYSTEM").toUpperCase();
+}
+
+function pushCrewRadio(entry) {
+  state.crewRadioLog.push({
+    ...entry,
+    time: entry.time || new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
+  });
+  if (state.crewRadioLog.length > 80) state.crewRadioLog.splice(0, state.crewRadioLog.length - 80);
+  renderCrewRadio();
+}
+
+function appendCrewStatus(agentId, status, message) {
+  pushCrewRadio({ type: "status", agent: agentId, status, message });
 }
 
 function renderCrewCardExtras(agentId) {
@@ -570,59 +751,65 @@ function renderCrewCardExtras(agentId) {
   const latest = state.crewArtifacts.filter((item) => item.agent === agentId).at(-1);
   if (!latest) return;
   const summary = card.querySelector(".crew-summary");
-  summary.innerHTML = `${esc(card.dataset.summary || "")}<span class="crew-artifact"><span class="artifact-title">${esc(latest.title)}</span><span class="artifact-content">${esc(truncate(latest.content, 110))}</span></span>`;
+  const artifact = `<span class="crew-artifact"><span class="artifact-title">${esc(latest.title)}</span><span class="artifact-content">${esc(truncate(latest.content, 34))}</span></span>`;
+  summary.innerHTML = card.classList.contains("working")
+    ? `<span class="sk sk-1"></span><span class="sk sk-2"></span><span class="sk sk-3"></span>${artifact}`
+    : `${esc(card.dataset.summary || "")}${artifact}`;
 }
 
 function appendCrewArtifact(event) {
   if (!event.agent || !event.content) return;
-  state.crewArtifacts.push({
+  const artifact = {
     agent: event.agent,
     title: event.title || "现场产出",
     content: event.content,
     time: new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
-  });
+  };
+  state.crewArtifacts.push(artifact);
   rememberCrewEvent(event.agent, { artifacts: state.crewArtifacts.filter((item) => item.agent === event.agent) });
   renderCrewCardExtras(event.agent);
-  renderCrewRadio();
+  pushCrewRadio({ type: "artifact", agent: artifact.agent, status: "ARTIFACT", title: artifact.title, message: artifact.content, time: artifact.time });
 }
 
 function appendCrewMessage(event) {
   if (!event.message) return;
-  state.crewMessages.push({
+  const message = {
     from: event.from || "crew",
     to: event.to || "all",
     message: event.message,
     time: new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
-  });
+  };
+  state.crewMessages.push(message);
   rememberCrewEvent(event.from, { messages: state.crewMessages.filter((item) => item.from === event.from) });
-  renderCrewRadio();
+  pushCrewRadio({ type: "chat", agent: message.from, to: message.to, status: "COMMS", message: message.message, time: message.time });
 }
 
 function renderCrewRadio() {
   if (!els.crewRadio) return;
   els.crewRadio.innerHTML = "";
-  const entries = [
-    ...state.crewMessages.map((item) => ({ type: "chat", ...item })),
-    ...state.crewArtifacts.map((item) => ({ type: "artifact", ...item })),
-  ].slice(-18);
+  const entries = (state.crewRadioLog.length ? state.crewRadioLog : [
+    ...state.crewMessages.map((item) => ({ type: "chat", agent: item.from, ...item, status: "COMMS" })),
+    ...state.crewArtifacts.map((item) => ({ type: "artifact", agent: item.agent, ...item, status: "ARTIFACT", message: item.content })),
+  ]).slice(-12);
   if (!entries.length) {
-    els.crewRadio.innerHTML = '<div class="radio-msg radio-system"><span class="radio-time">--:--:--</span><span class="radio-from">SYSTEM</span><span class="radio-to"> · STANDBY</span><br>Waiting for the first creative signal…</div>';
+    const emptyCopy = state.project ? "PROJECT SNAPSHOT / NO RADIO TRAFFIC" : "SYSTEM / WAITING FOR PROJECT START";
+    els.crewRadio.innerHTML = `<div class="radio-msg radio-system"><span class="radio-time">--:--:--</span><span class="radio-from">SYSTEM</span><span class="radio-status">${esc(emptyCopy)}</span><p>${state.project ? "已载入项目状态；新的 Agent 信号会在这里出现。" : "启动项目后，Agent 状态和中间产出会实时归档。"}</p></div>`;
   } else {
     for (const item of entries) {
       const row = document.createElement("div");
-      row.className = item.type === "chat" ? "radio-msg" : "radio-msg radio-artifact";
-      row.innerHTML = item.type === "chat"
-        ? `<span class="radio-time">${esc(item.time || "--:--:--")}</span><span class="radio-from">${esc(item.from)}</span><span class="radio-to"> → ${esc(item.to)}</span><br>${esc(item.message)}`
-        : `<span class="radio-time">${esc(item.time || "--:--:--")}</span><span class="radio-from">✦ ${esc(item.title)}</span><span class="radio-to"> · ${esc(item.agent)}</span><br>${esc(truncate(item.content, 180))}`;
+      row.className = `radio-msg ${item.type === "artifact" ? "radio-artifact" : item.type === "status" ? "radio-status-msg" : ""}`;
+      const route = item.type === "chat" ? ` → ${crewAgentLabel(item.to || "all")}` : "";
+      const title = item.type === "artifact" ? ` · ${item.title || "ARTIFACT"}` : "";
+      row.innerHTML = `<div class="radio-line"><span class="radio-time">${esc(item.time || "--:--:--")}</span><span class="radio-from">${esc(crewAgentLabel(item.agent || item.from))}</span><span class="radio-status">${esc(item.status || "SIGNAL")}</span><span class="radio-to">${esc(route || title)}</span></div><p>${esc(truncate(item.message || item.content || "", 180))}</p>`;
       els.crewRadio.appendChild(row);
     }
   }
   const latest = entries.at(-1);
   const latestLabel = latest
-    ? latest.type === "chat" ? `${latest.from} → ${latest.to}` : `${latest.title || "NEW ARTIFACT"}`
-    : "STANDBY";
+    ? `${crewAgentLabel(latest.agent || latest.from)} / ${latest.status || "SIGNAL"}`
+    : state.project ? "PROJECT SNAPSHOT" : "STANDBY";
   if (els.crewRadioSummary) {
-    els.crewRadioSummary.textContent = `${entries.length} MESSAGES · ${truncate(latestLabel, 34).toUpperCase()}`;
+    els.crewRadioSummary.textContent = `${entries.length} SIGNALS · ${truncate(latestLabel, 34).toUpperCase()}`;
   }
   if (els.crewRadioWrap) els.crewRadioWrap.classList.toggle("is-open", state.crewRadioOpen);
   if (els.crewRadioToggle) els.crewRadioToggle.setAttribute("aria-expanded", String(state.crewRadioOpen));
@@ -648,23 +835,109 @@ function startCrewTicker() {
 function failWorkingAgent() {
   if (!state.workingAgent) return;
   setAgentState(state.workingAgent, "failed");
+  appendCrewStatus(state.workingAgent, "FAILED", "Agent interrupted / retry available");
   state.workingAgent = null;
 }
 
-function markAllAgentsDone(project) {
-  state.workingAgent = null;
-  const dataset = {
-    brief: project.brief,
-    script: project.script,
-    visual_bible: project.visual_bible,
-    storyboard: project.storyboard,
-    quality_report: project.quality_report,
-    final_output: project.final_output_placeholder,
-  };
-  for (const def of AGENT_DEFS) setAgentState(def.id, "done", dataset);
-  if (!String(project.status || "").startsWith("completed")) {
-    setAgentState("editor", "next", dataset);
+function crewAssetReady(agentId, project) {
+  if (!project) return false;
+  if (agentId === "director") return Boolean(project.brief && Object.keys(project.brief).length);
+  if (agentId === "writer") return Boolean(project.script && (project.script.story || project.script.dialogue_book?.length));
+  if (agentId === "visual_bible") return Boolean(project.visual_bible && Object.keys(project.visual_bible).length);
+  if (agentId === "storyboard") return Boolean(project.storyboard?.length);
+  if (agentId === "quality") return Boolean(project.quality_report?.length);
+  if (agentId === "generation") return Boolean(project.storyboard?.length && project.storyboard.every((shot) => String(shot.status || "").startsWith("approved")));
+  if (agentId === "editor") return ["editing_rough_cut", "rough_cut_ready", "editing_final"].includes(project.status) || String(project.status || "").startsWith("completed") || Boolean(project.rough_cut_placeholder || project.final_output_placeholder);
+  return false;
+}
+
+function deriveCrewStates(project = state.project) {
+  const states = Object.fromEntries(AGENT_DEFS.map((def) => [def.id, "idle"]));
+  const status = String(project?.status || "");
+  const shots = project?.storyboard || [];
+  const allShotsReady = shots.length > 0 && shots.every((shot) => String(shot.status || "").startsWith("approved"));
+  const explicit = (agentId) => state.crewDetails[agentId]?.status;
+  for (const def of AGENT_DEFS) {
+    if (["working", "failed"].includes(explicit(def.id))) states[def.id] = explicit(def.id);
+    else if (explicit(def.id) === "done") states[def.id] = "done";
+    else if (crewAssetReady(def.id, project)) states[def.id] = "done";
   }
+  if (status === "render_failed") {
+    states.generation = "failed";
+    states.editor = "idle";
+  }
+  if (["generating_video_mock", "rendering_comfyui"].includes(status)) {
+    states.generation = "working";
+    states.editor = "idle";
+  }
+  if (["planned_mock", "planned_text_ai", "ready_for_comfyui_render"].includes(status)) {
+    states.generation = "ready";
+    states.editor = "idle";
+  }
+  if (status === "editing_rough_cut" || status === "editing_final") {
+    states.generation = allShotsReady ? "done" : states.generation;
+    states.editor = "working";
+  }
+  if (status === "rough_cut_ready" || status.startsWith("completed")) {
+    states.generation = allShotsReady ? "done" : states.generation;
+    states.editor = "done";
+  }
+  if (status === "ready_for_ai_edit") {
+    states.generation = allShotsReady ? "done" : states.generation;
+    states.editor = "ready";
+  }
+  const current = AGENT_DEFS.find((def) => states[def.id] === "working");
+  if (!current && status === "planning_live" && !Object.values(states).includes("failed")) {
+    const next = AGENT_DEFS.find((def) => states[def.id] === "idle");
+    if (next) states[next.id] = "next";
+  }
+  if (!current && !status && !state.project) states.director = "idle";
+  return states;
+}
+
+function pipelineFromCrewStates(states) {
+  const focus = AGENT_DEFS.findIndex((def) => ["working", "ready", "next"].includes(states[def.id]));
+  if (focus <= 1 && focus >= 0) return { plan: "active", previs: "todo", render: "todo", deliver: "todo" };
+  if (focus <= 4 && focus >= 0) return { plan: "done", previs: "active", render: "todo", deliver: "todo" };
+  if (focus === 5) return { plan: "done", previs: "done", render: "active", deliver: "todo" };
+  if (focus === 6) return { plan: "done", previs: "done", render: "done", deliver: "active" };
+  const doneCount = AGENT_DEFS.filter((def) => states[def.id] === "done").length;
+  return doneCount ? { plan: "done", previs: "done", render: "done", deliver: "todo" } : { plan: "active" };
+}
+
+function syncCrewBoard(project = state.project, { silent = true } = {}) {
+  if (!project) return;
+  const states = deriveCrewStates(project);
+  for (const def of AGENT_DEFS) setAgentState(def.id, states[def.id], project, { silent });
+  state.workingAgent = AGENT_DEFS.find((def) => states[def.id] === "working")?.id || null;
+  const focus = AGENT_DEFS.find((def) => ["working", "ready", "next"].includes(states[def.id]));
+  if (els.crewMeta) {
+    const status = String(project.status || "");
+    const projectId = String(project.project_id || "").replace(/^film-/, "").toUpperCase();
+    if (status === "planning_live") els.crewMeta.textContent = focus ? `LIVE · ${crewAgentLabel(focus.id)} ACTIVE` : `LIVE · PROJECT ${projectId}`;
+    else if (status === "ready_for_ai_edit") els.crewMeta.textContent = `READY · DELIVER / AI EDIT · ${projectId}`;
+    else if (status.startsWith("completed")) els.crewMeta.textContent = `${state.viewingHistorical ? "ARCHIVED" : "COMPLETED"} · PROJECT ${projectId}`;
+    else if (focus) els.crewMeta.textContent = `${focus.en} · ${status.replaceAll("_", " ").toUpperCase()}`;
+  }
+  refreshCrewConnectors();
+  if (state.busy && project.status === "planning_live") setPipeline(pipelineFromCrewStates(states));
+  else updatePipelineForProject(project);
+}
+
+function hydrateCrewRadio(project) {
+  state.crewRadioLog = [];
+  const logs = Array.isArray(project?.logs) ? project.logs.slice(-8) : [];
+  logs.forEach((line) => {
+    const match = AGENT_DEFS.find((def) => String(line).includes(`${def.name} Agent`));
+    pushCrewRadio({ type: "status", agent: match?.id || "system", status: "ARCHIVED", message: String(line) });
+  });
+}
+
+function syncHistoricalCrew(project) {
+  state.workingAgent = null;
+  state.crewDetails = {};
+  syncCrewBoard(project, { silent: true });
+  hydrateCrewRadio(project);
 }
 
 /* ── 第三幕 · 工作区渲染 ───────────────────────────────────── */
@@ -1127,52 +1400,628 @@ function renderManual(project, tab = state.manualTab, animate = false) {
   }
 }
 
-async function renderScreening(project) {
-  state.hasFinalVideo = false;
-  els.screen.classList.remove("has-video");
-  els.finalVideo.removeAttribute("src");
-  els.roughCutVideo?.removeAttribute("src");
-  els.roughCutStage?.classList.remove("has-media");
-  els.posterTitle.textContent = truncate(
-    (project.brief && (project.brief["主题"] || project.brief["原始创意"])) || project.idea,
-    34
+function deliverRuntime(project) {
+  const seconds = (project?.storyboard || []).reduce(
+    (sum, shot) => sum + Number(shot.duration_seconds || 0),
+    0,
   );
-  els.posterMeta.textContent = `${project.visual_style} · ${project.duration_seconds}S · ${project.project_id}`;
-  const status = String(project.status || "");
-  const roughStatuses = ["ready_for_ai_edit", "editing_rough_cut", "rough_cut_ready"];
-  const showingRoughCut = roughStatuses.includes(status);
-  if (els.editConsole) els.editConsole.classList.toggle("hidden", !showingRoughCut);
-  if (els.editConsoleState) {
-    els.editConsoleState.textContent = status === "rough_cut_ready" ? "ROUGH CUT READY" : status === "editing_rough_cut" ? "EDITING" : "READY TO EDIT";
+  return seconds || Number(project?.duration_seconds || 0) || 0;
+}
+
+function deliverStatus(project) {
+  const status = String(project?.status || "");
+  if (status === "editing_rough_cut") return { key: "editing", badge: "AI EDITING", title: "AI 剪辑正在组装", copy: "镜头、声音与字幕正在进入粗剪时间线。" };
+  if (status === "rough_cut_ready") return { key: "rough", badge: "ROUGH CUT READY", title: "粗剪已完成，等待审片", copy: "先预览 Rough Cut，再决定是否批准最终成片。" };
+  if (status === "ready_for_ai_edit") return { key: "ready", badge: "SHOTS READY", title: "AI Edit 已就绪", copy: "全部镜头通过质检；先选择声音设计，再启动 Rough Cut。" };
+  if (status.startsWith("completed")) {
+    return state.hasFinalVideo
+      ? { key: "complete", badge: "FINAL CUT READY", title: "最终成片已完成", copy: "放映室已就绪：审片、跳转镜头并导出交付版本。" }
+      : { key: "missing", badge: "DELIVERY RECORDED", title: "FINAL CUT NOT GENERATED", copy: "交付记录已保存，但后端尚未提供可播放的最终视频文件。" };
   }
-  if (els.subtitleMode) els.subtitleMode.value = project.subtitle_mode || project.script?.subtitle_mode || "burned";
-  if (els.btnApproveEdit) els.btnApproveEdit.disabled = state.editing || status !== "rough_cut_ready";
-  if (els.btnRecut) els.btnRecut.disabled = state.editing;
+  return { key: "unedited", badge: "NOT EDITED", title: "FINAL CUT NOT GENERATED", copy: "镜头已就绪，下一步由 AI Edit 生成可审阅的 Rough Cut。" };
+}
+
+function subtitleModeLabel(mode) {
+  return mode === "soft" ? "SOFT / 可切换" : mode === "none" ? "NONE / 无字幕" : "BURNED / 烧录";
+}
+
+function finalVideoCandidate(project) {
+  if (project?.final_video_url) return project.final_video_url;
+  return `/api/projects/${encodeURIComponent(project.project_id)}/final-video`;
+}
+
+function renderDeliverSummary(project) {
+  const shots = project?.storyboard || [];
+  const approved = shots.filter((shot) => String(shot.status || "").startsWith("approved")).length;
+  const total = deliverRuntime(project);
+  const locked = Boolean(project?.script?.dialogue_locked);
+  if (els.deliverProjectTitle) els.deliverProjectTitle.textContent = project ? projectTitle(project) : "等待项目进入放映室";
+  if (els.deliverProjectCopy) {
+    els.deliverProjectCopy.textContent = project
+      ? `${project.visual_style || "未设定风格"} · ${total || project.duration_seconds || 0} 秒 · ${locked ? "台词本已锁定" : "台词本待锁定"}`
+      : "完成分镜生成后，这里会显示成片状态、镜头就绪度和交付控制。";
+  }
+  if (els.deliverShotsReady) els.deliverShotsReady.textContent = `${approved}/${shots.length} SHOTS READY`;
+  if (els.deliverReadyNote) {
+    els.deliverReadyNote.textContent = !shots.length
+      ? "尚未收到镜头素材。"
+      : approved === shots.length
+        ? (locked ? "全部通过质检 · 可启动 AI Edit" : "全部通过质检 · 请先锁定台词本")
+        : `${shots.length - approved} 个镜头仍在制作或质检。`;
+  }
+  if (els.deliverSummarySpecs) {
+    const specs = [
+      ["RUNTIME", total ? compactDuration(total) : "—"],
+      ["FRAME", "16:9"],
+      ["DIALOGUE", locked ? "LOCKED" : "REVIEW"],
+      ["SOUND", project ? `4 TRACKS · ${project.smart_ducking?.enabled === false ? "DUCKING OFF" : "DUCKING ON"}` : "—"],
+      ["DELIVERY", project ? (PROJECT_STATUS[project.status] || project.status) : "STANDBY"],
+    ];
+    els.deliverSummarySpecs.innerHTML = specs.map(([label, value]) => `<div><span class="deliver-label mono">${label}</span><strong>${esc(value)}</strong></div>`).join("");
+  }
+}
+
+/* ── 声音设计 / Music Brief / 四轨混音 ─────────────────────── */
+
+const AUDIO_TRACK_ORDER = ["voice", "music", "sfx", "ambience"];
+const AUDIO_TRACK_LABELS = {
+  voice: { en: "VOICE", zh: "旁白 / Dialogue" },
+  music: { en: "MUSIC", zh: "配乐 / Score" },
+  sfx: { en: "SFX", zh: "动作音效 / Effects" },
+  ambience: { en: "AMBIENCE", zh: "环境声 / Atmos" },
+};
+const AUDIO_MODE_LABELS = { ai: "AI 自动配乐", library: "素材库音乐", upload: "用户上传音乐" };
+
+function audioTracksFor(project) {
+  const source = project?.audio_tracks || {};
+  return Object.fromEntries(AUDIO_TRACK_ORDER.map((key) => {
+    const fallback = {
+      key,
+      label: AUDIO_TRACK_LABELS[key].en,
+      name: AUDIO_TRACK_LABELS[key].zh,
+      status: key === "voice" && project?.script?.dialogue_locked ? "READY" : "DESIGN READY",
+      source: key === "voice" ? "DIALOGUE BOOK" : "SOUND DESIGN PLAN",
+      enabled: true,
+      volume_db: key === "voice" ? -2 : key === "music" ? -14 : key === "sfx" ? -10 : -22,
+      preview_url: null,
+      can_regenerate: key !== "voice",
+    };
+    return [key, { ...fallback, ...(source[key] || {}), key }];
+  }));
+}
+
+function audioModeFor(project) {
+  return ["ai", "library", "upload"].includes(project?.music_mode) ? project.music_mode : "ai";
+}
+
+function renderMusicBriefMarkup(project, compact = false) {
+  const brief = project?.music_brief || {};
+  const arc = Array.isArray(brief.emotional_arc) ? brief.emotional_arc : [];
+  const fields = [
+    ["STYLE", brief.style || project?.visual_style || "CINEMATIC SCORE"],
+    ["BPM", brief.bpm ? `${brief.bpm} BPM` : "—"],
+    ["IN", brief.entry_seconds != null ? `${brief.entry_seconds}s` : "0s"],
+    ["PEAK", brief.peak_seconds != null ? `${brief.peak_seconds}s` : "—"],
+    ["FADE", brief.fade_out_seconds != null ? `${brief.fade_out_seconds}s` : "—"],
+  ];
+  const fieldsMarkup = fields.map(([label, value]) => `<div class="music-brief-stat"><span class="mono">${esc(label)}</span><strong>${esc(value)}</strong></div>`).join("");
+  if (compact) {
+    return `<div class="deliver-music-brief-head"><span class="deliver-label mono">MUSIC BRIEF</span><strong>${esc(brief.source || AUDIO_MODE_LABELS[audioModeFor(project)])}</strong><span class="mono">${brief.bpm ? `${brief.bpm} BPM` : "BRIEF READY"}</span></div><div class="deliver-music-brief-stats">${fieldsMarkup}</div>`;
+  }
+  return `<div class="music-brief-inline-stats">${fieldsMarkup}</div>`;
+}
+
+function renderEmotionalArc(project) {
+  if (!els.emotionalArc) return;
+  const arc = Array.isArray(project?.music_brief?.emotional_arc) ? project.music_brief.emotional_arc : [];
+  els.emotionalArc.innerHTML = arc.length
+    ? arc.map((item) => {
+      const intensity = Math.max(0.12, Math.min(1, Number(item.intensity || 0.2)));
+      return `<span class="arc-segment" style="--arc-intensity:${intensity}" title="SHOT ${item.shot} · ${esc(item.emotion || "arc")}"><i></i><b class="mono">${String(item.shot).padStart(2, "0")}</b></span>`;
+    }).join("")
+    : '<span class="audio-empty mono">情绪曲线将在分镜就绪后生成。</span>';
+}
+
+function renderAudioTrackList(project, target) {
+  if (!target) return;
+  const tracks = audioTracksFor(project);
+  target.innerHTML = AUDIO_TRACK_ORDER.map((key) => {
+    const track = tracks[key];
+    const labels = AUDIO_TRACK_LABELS[key];
+    const enabled = track.enabled !== false;
+    const canRegenerate = track.can_regenerate !== false;
+    const previewUrl = track.preview_url || "";
+    return `<article class="audio-track ${enabled ? "is-enabled" : "is-muted"}" data-audio-track="${key}">
+      <button class="audio-track-toggle" type="button" data-audio-toggle="${key}" aria-pressed="${enabled}" aria-label="${enabled ? "关闭" : "开启"} ${labels.en} 轨道"><span class="audio-track-led"></span></button>
+      <div class="audio-track-main"><div class="audio-track-title"><span class="mono">${labels.en}</span><strong>${esc(track.name || labels.zh)}</strong></div><p>${esc(track.source || "SOUND DESIGN PLAN")}</p></div>
+      <div class="audio-track-meter" aria-label="音量 ${esc(track.volume_db ?? 0)} dB"><i style="--meter-level:${Math.max(8, Math.min(100, 68 + Number(track.volume_db || 0) * 2))}%"></i></div>
+      <div class="audio-track-status mono">${esc(track.status || "QUEUED")}<small>${esc(String(track.volume_db ?? 0))} dB</small></div>
+      <div class="audio-track-actions"><button type="button" class="audio-track-action" data-audio-preview="${key}" data-audio-url="${esc(previewUrl)}">试听</button><button type="button" class="audio-track-action" data-audio-regenerate="${key}" ${canRegenerate ? "" : "disabled"}>重新生成</button></div>
+    </article>`;
+  }).join("");
+}
+
+function renderAudioDesign(project) {
+  if (!project) return;
+  const mode = audioModeFor(project);
+  state.musicMode = mode;
+  state.musicAssetName = project.music_asset_name || "";
+  state.smartDucking = project.smart_ducking?.enabled !== false;
+  if (els.audioDesignState) els.audioDesignState.textContent = project.music_brief?.mode_status || (mode === "ai" ? "BRIEF READY" : mode.toUpperCase());
+  els.audioModeSwitch?.querySelectorAll("[data-audio-mode]").forEach((button) => {
+    const selected = button.dataset.audioMode === mode;
+    button.classList.toggle("is-selected", selected);
+    button.setAttribute("aria-checked", String(selected));
+  });
+  els.audioUploadRow?.classList.toggle("hidden", mode !== "upload");
+  if (els.musicUploadNote) els.musicUploadNote.textContent = state.musicAssetName ? `已选择：${state.musicAssetName}` : "上传后将作为 MUSIC 轨来源。";
+  if (els.musicBriefSource) els.musicBriefSource.textContent = project.music_brief?.source || AUDIO_MODE_LABELS[mode];
+  if (els.musicBriefVersion) els.musicBriefVersion.textContent = `V${project.music_brief?.version || 1}`;
+  if (els.musicBriefGrid) els.musicBriefGrid.innerHTML = renderMusicBriefMarkup(project);
+  if (els.musicBriefDirection) els.musicBriefDirection.textContent = project.music_brief?.direction || "AI Music 将读取导演设定、剧本情绪、视觉风格和镜头节奏。";
+  if (els.musicBriefInstruments) els.musicBriefInstruments.textContent = `INSTRUMENTS / ${(project.music_brief?.instruments || ["低音合成器", "颗粒钢琴", "弓弦纹理", "低频打击"]).join(" · ")}`;
+  if (els.smartDuckingToggle) els.smartDuckingToggle.checked = state.smartDucking;
+  if (els.smartDuckingValue) els.smartDuckingValue.textContent = `${project.smart_ducking?.amount_db ?? -8} dB`;
+  if (els.smartDuckingCopy) {
+    const cueCount = project.smart_ducking?.voice_cues?.length || 0;
+    els.smartDuckingCopy.textContent = `${cueCount} 个语音区间 · ${project.smart_ducking?.description || "旁白 / 对白出现时，Music 自动降低并平滑恢复。"}`;
+  }
+  renderEmotionalArc(project);
+  renderAudioTrackList(project, els.audioTrackList);
+  if (els.deliverAudioState) els.deliverAudioState.textContent = project.mix_state?.status || "MIX PLAN READY";
+  if (els.deliverMusicBrief) els.deliverMusicBrief.innerHTML = renderMusicBriefMarkup(project, true);
+  renderAudioTrackList(project, els.deliverAudioTrackList);
+}
+
+async function persistAudioDesign(changes = {}) {
+  if (!state.project) return;
+  const payload = {
+    music_mode: changes.music_mode || state.musicMode || "ai",
+    smart_ducking: changes.smart_ducking ?? state.smartDucking,
+    music_asset_name: changes.music_asset_name ?? state.musicAssetName ?? "",
+    track_enabled: Object.fromEntries(AUDIO_TRACK_ORDER.map((key) => [key, state.project?.audio_tracks?.[key]?.enabled !== false])),
+  };
+  try {
+    const response = await fetch(`/api/projects/${encodeURIComponent(state.project.project_id)}/audio/design`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const project = await response.json();
+    if (!response.ok) throw new Error(project.error || `HTTP ${response.status}`);
+    state.project = project;
+    renderAudioDesign(project);
+    renderWorkspace(project);
+  } catch (error) {
+    toast(`声音设计保存失败：${error.message}`, true);
+  }
+}
+
+async function regenerateAudioTrack(trackKey) {
+  if (!state.project) return;
+  const button = document.querySelector(`[data-audio-regenerate="${trackKey}"]`);
+  if (button) { button.disabled = true; button.textContent = "规划中…"; }
+  try {
+    const response = await fetch(`/api/projects/${encodeURIComponent(state.project.project_id)}/audio/tracks/${encodeURIComponent(trackKey)}/regenerate`, { method: "POST" });
+    const project = await response.json();
+    if (!response.ok) throw new Error(project.error || `HTTP ${response.status}`);
+    state.project = project;
+    renderAudioDesign(project);
+    renderLogFeed(project);
+    toast(`${trackKey.toUpperCase()} 音轨已重新规划。`);
+  } catch (error) {
+    toast(`音轨更新失败：${error.message}`, true);
+    if (button) { button.disabled = false; button.textContent = "重新生成"; }
+  }
+}
+
+function handleAudioInteraction(event) {
+  const modeButton = event.target.closest("[data-audio-mode]");
+  if (modeButton) {
+    state.musicMode = modeButton.dataset.audioMode || "ai";
+    renderAudioDesign({ ...(state.project || {}), music_mode: state.musicMode });
+    persistAudioDesign({ music_mode: state.musicMode });
+    return;
+  }
+  const toggle = event.target.closest("[data-audio-toggle]");
+  if (toggle) {
+    const key = toggle.dataset.audioToggle;
+    const current = state.project?.audio_tracks?.[key]?.enabled !== false;
+    if (state.project?.audio_tracks?.[key]) state.project.audio_tracks[key].enabled = !current;
+    renderAudioDesign(state.project);
+    persistAudioDesign();
+    return;
+  }
+  const regenerate = event.target.closest("[data-audio-regenerate]");
+  if (regenerate) { regenerateAudioTrack(regenerate.dataset.audioRegenerate); return; }
+  const preview = event.target.closest("[data-audio-preview]");
+  if (preview) {
+    const url = preview.dataset.audioUrl;
+    if (!url) { toast("该音轨还没有可试听的真实音频媒体。先完成 AI Edit 或上传配乐。", true); return; }
+    const player = state.audioPreview;
+    if (player && !player.paused) player.pause();
+    state.audioPreview = new Audio(url);
+    state.audioPreview.play().catch(() => toast("浏览器阻止了试听，请再次点击试听。", true));
+    toast(`${preview.dataset.audioPreview.toUpperCase()} 试听中。`);
+  }
+}
+
+async function uploadMusicFile(file) {
+  if (!state.project || !file) return;
+  const note = els.musicUploadNote;
+  if (note) note.textContent = "正在接收用户配乐…";
+  try {
+    const response = await fetch(`/api/projects/${encodeURIComponent(state.project.project_id)}/audio/upload`, {
+      method: "POST",
+      headers: { "Content-Type": file.type || "application/octet-stream", "X-Filename": file.name },
+      body: file,
+    });
+    const project = await response.json();
+    if (!response.ok) throw new Error(project.error || `HTTP ${response.status}`);
+    state.project = project;
+    state.musicMode = "upload";
+    state.musicAssetName = file.name;
+    renderAudioDesign(project);
+    renderLogFeed(project);
+    toast("用户配乐已挂接到 MUSIC 轨道。");
+  } catch (error) {
+    if (note) note.textContent = "上传失败，请重试。";
+    toast(`配乐上传失败：${error.message}`, true);
+  }
+}
+
+/* ── Final Look / 全片色彩润色 ──────────────────────────────── */
+
+const FINAL_LOOK_PRESETS = {
+  original: {
+    label: "原片",
+    english: "ORIGINAL",
+    description: "保留原始曝光、色彩与镜头质感。",
+    css: "original",
+  },
+  film_narrative: {
+    label: "胶片叙事",
+    english: "FILM NARRATIVE",
+    description: "暖肤色、柔和反差和轻微乳剂颗粒，适合人物叙事。",
+    css: "film",
+  },
+  cool_gray_future: {
+    label: "冷灰未来",
+    english: "COOL GRAY FUTURE",
+    description: "压低暖色、抬高蓝灰阴影，保持克制的未来感。",
+    css: "cool",
+  },
+  dream_surreal: {
+    label: "梦境超现实",
+    english: "DREAM SURREAL",
+    description: "高光轻柔、色彩稍微漂浮，让现实边界变得不确定。",
+    css: "dream",
+  },
+  documentary_desaturated: {
+    label: "纪实去饱和",
+    english: "DOCUMENTARY DESAT",
+    description: "低饱和、高信息密度，保留现场观察感。",
+    css: "documentary",
+  },
+  cyber_night: {
+    label: "赛博夜色",
+    english: "CYBER NIGHT",
+    description: "深黑底色与冷蓝高光，强化夜景和电子空间。",
+    css: "cyber",
+  },
+};
+
+function normaliseFinalLook(value = {}) {
+  const raw = value || {};
+  const preset = Object.prototype.hasOwnProperty.call(FINAL_LOOK_PRESETS, raw.preset) ? raw.preset : "original";
+  const number = (key, fallback) => Math.max(0, Math.min(1, Number.isFinite(Number(raw[key])) ? Number(raw[key]) : fallback));
+  return {
+    ...raw,
+    preset,
+    intensity: number("intensity", 0.72),
+    grain: number("grain", 0),
+    vignette: number("vignette", 0),
+    highlight_soften: number("highlight_soften", 0),
+    scope: "whole_film",
+    applied: Boolean(raw.applied),
+    revision: Math.max(1, Number(raw.revision || 1)),
+  };
+}
+
+function finalLookVideoFilter(look) {
+  const preset = look?.preset || "original";
+  const intensity = Number(look?.intensity || 0);
+  const effects = [];
+  const profile = {
+    film_narrative: [0.08, -0.16, 0.01, 0.12, 0],
+    cool_gray_future: [0.11, -0.28, -0.015, 0, 16],
+    dream_surreal: [-0.05, 0.2, 0.035, 0.04, 10],
+    documentary_desaturated: [0.1, -0.52, -0.005, 0, 0],
+    cyber_night: [0.18, 0.24, -0.055, 0, 180],
+  }[preset];
+  if (profile && intensity > 0) {
+    const [contrast, saturation, brightness, sepia, hue] = profile;
+    effects.push("contrast(" + (1 + contrast * intensity).toFixed(3) + ")");
+    effects.push("saturate(" + Math.max(0.1, 1 + saturation * intensity).toFixed(3) + ")");
+    if (sepia) effects.push("sepia(" + (sepia * intensity).toFixed(3) + ")");
+    if (brightness) effects.push("brightness(" + (1 + brightness * intensity).toFixed(3) + ")");
+    if (hue) effects.push("hue-rotate(" + (hue * intensity).toFixed(1) + "deg)");
+  }
+  if (Number(look?.highlight_soften || 0) > 0) effects.push("blur(" + (Number(look.highlight_soften) * 0.35).toFixed(2) + "px)");
+  return effects.join(" ") || "none";
+}
+
+function applyFinalLookPreview(look) {
+  const resolved = normaliseFinalLook(look);
+  const info = FINAL_LOOK_PRESETS[resolved.preset];
+  if (els.screen) {
+    els.screen.dataset.finalLook = resolved.preset;
+    els.screen.style.setProperty("--look-intensity", String(resolved.intensity));
+    els.screen.style.setProperty("--look-grain", String(resolved.grain));
+    els.screen.style.setProperty("--look-grain-alpha", String((resolved.grain * 0.16).toFixed(3)));
+    els.screen.style.setProperty("--look-vignette", String(resolved.vignette));
+    els.screen.style.setProperty("--look-soften", String(resolved.highlight_soften));
+  }
+  if (els.finalVideo) els.finalVideo.style.filter = finalLookVideoFilter(resolved);
+  if (els.finalLookPresetName) els.finalLookPresetName.textContent = info.english;
+  if (els.finalLookDescription) els.finalLookDescription.textContent = info.description;
+}
+
+function renderFinalLook(project) {
+  if (!els.finalLookPanel || !project) return;
+  const persisted = normaliseFinalLook(project.final_look || {});
+  if (state.finalLookProjectId !== project.project_id) {
+    state.finalLookProjectId = project.project_id;
+    state.finalLookDraft = persisted;
+    state.finalLookDirty = false;
+  } else if (!state.finalLookDirty) {
+    state.finalLookDraft = persisted;
+  }
+  const draft = normaliseFinalLook(state.finalLookDraft || persisted);
+  const info = FINAL_LOOK_PRESETS[draft.preset];
+  els.finalLookPanel.classList.toggle("is-media-missing", !state.hasFinalVideo);
+  els.finalLookPresetGrid?.querySelectorAll("[data-final-look-preset]").forEach((button) => {
+    const selected = button.dataset.finalLookPreset === draft.preset;
+    button.classList.toggle("is-selected", selected);
+    button.setAttribute("aria-selected", String(selected));
+  });
+  const ranges = [
+    [els.finalLookIntensity, els.finalLookIntensityValue, draft.intensity],
+    [els.finalLookGrain, els.finalLookGrainValue, draft.grain],
+    [els.finalLookVignette, els.finalLookVignetteValue, draft.vignette],
+    [els.finalLookSoftening, els.finalLookSofteningValue, draft.highlight_soften],
+  ];
+  ranges.forEach(([input, output, value]) => {
+    if (input) input.value = String(value);
+    if (output) output.textContent = Math.round(value * 100) + "%";
+  });
+  if (els.finalLookScope) els.finalLookScope.textContent = "WHOLE FILM / 全片";
+  if (els.finalLookStatus) {
+    els.finalLookStatus.textContent = !state.hasFinalVideo
+      ? "MEDIA MISSING"
+      : state.finalLookDirty
+        ? "PREVIEW · NOT APPLIED"
+        : draft.applied
+          ? (draft.status || (info.english + " · WHOLE FILM"))
+          : "READY TO FINISH";
+  }
+  if (els.finalLookApply) els.finalLookApply.disabled = !state.hasFinalVideo || !state.finalLookDirty;
+  if (els.finalLookReset) els.finalLookReset.disabled = !state.hasFinalVideo;
+  applyFinalLookPreview(draft);
+}
+
+function updateFinalLookDraft(key, value) {
+  if (!state.project) return;
+  state.finalLookDraft = normaliseFinalLook({ ...(state.finalLookDraft || state.project.final_look || {}), [key]: value, applied: false });
+  state.finalLookDirty = true;
+  renderFinalLook(state.project);
+}
+
+async function applyFinalLook() {
+  if (!state.project || !state.hasFinalVideo || !state.finalLookDraft) return;
+  const button = els.finalLookApply;
+  if (button) { button.disabled = true; button.textContent = "应用中…"; }
+  try {
+    const look = normaliseFinalLook({ ...state.finalLookDraft, applied: true });
+    const response = await fetch("/api/projects/" + encodeURIComponent(state.project.project_id) + "/final-look", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        preset: look.preset,
+        intensity: look.intensity,
+        grain: look.grain,
+        vignette: look.vignette,
+        highlight_soften: look.highlight_soften,
+        scope: "whole_film",
+        apply: true,
+      }),
+    });
+    const project = await response.json();
+    if (!response.ok) throw new Error(project.error || ("HTTP " + response.status));
+    state.project = project;
+    state.finalLookProjectId = project.project_id;
+    state.finalLookDraft = normaliseFinalLook(project.final_look || look);
+    state.finalLookDirty = false;
+    renderWorkspace(project);
+    toast("Final Look 已应用：" + state.finalLookDraft.english + " · WHOLE FILM。");
+  } catch (error) {
+    toast("Final Look 应用失败：" + error.message, true);
+    renderFinalLook(state.project);
+  } finally {
+    if (button) button.textContent = "应用 Final Look →";
+  }
+}
+
+function resetFinalLookPreview() {
+  if (!state.project || !state.hasFinalVideo) return;
+  state.finalLookDraft = normaliseFinalLook({ ...(state.finalLookDraft || state.project.final_look || {}), preset: "original", intensity: 0, grain: 0, vignette: 0, highlight_soften: 0, applied: false });
+  state.finalLookDirty = true;
+  renderFinalLook(state.project);
+  toast("已预览原片状态；确认后点击应用 Final Look。");
+}
+
+function handleFinalLookInteraction(event) {
+  const preset = event.target.closest("[data-final-look-preset]");
+  if (preset) {
+    updateFinalLookDraft("preset", preset.dataset.finalLookPreset || "original");
+    toast("正在预览 " + (FINAL_LOOK_PRESETS[preset.dataset.finalLookPreset]?.english || "ORIGINAL") + " · 未应用。");
+  }
+}
+
+function deliverProgressIndex(description = "") {
+  const text = String(description || "");
+  if (/voice|旁白/i.test(text)) return 1;
+  if (/music|配乐|音乐|brief|情绪曲线/i.test(text)) return 2;
+  if (/sfx|音效|ambience|环境声/i.test(text)) return 3;
+  if (/subtitle|字幕/i.test(text)) return 4;
+  if (/mix|混音|ducking/i.test(text)) return 5;
+  if (/编码|FFmpeg|encode|final encode/i.test(text)) return 6;
+  return 0;
+}
+
+function renderDeliverProgress(project, description = "") {
+  const status = String(project?.status || "");
+  const editing = status === "editing_rough_cut";
+  const roughReady = status === "rough_cut_ready";
+  const editReady = status === "ready_for_ai_edit";
+  if (els.deliverWorkProgress) els.deliverWorkProgress.classList.toggle("hidden", !editing && !roughReady && !editReady);
+  if (els.deliverProgressTitle) els.deliverProgressTitle.textContent = roughReady ? "粗剪已完成，等待审片" : editReady ? "AI Edit 已就绪 · 先规划声音" : "粗剪正在组装";
+  if (description) state.editProgressStep = deliverProgressIndex(description);
+  const activeIndex = roughReady ? 7 : Math.max(0, Math.min(6, state.editProgressStep));
+  const stageCount = 7;
+  $$("[data-deliver-progress]").forEach((node, index) => {
+    const done = roughReady || index < activeIndex;
+    const working = editing && index === activeIndex;
+    node.dataset.state = done ? "done" : working ? "working" : "queued";
+    const stateNode = node.querySelector(".deliver-progress-state");
+    if (stateNode) stateNode.textContent = done ? "DONE" : working ? "WORKING" : "QUEUED";
+  });
+  const percent = roughReady ? 100 : Math.round((activeIndex / stageCount) * 100);
+  if (els.deliverProgressPercent) els.deliverProgressPercent.textContent = `${percent}%`;
+  if (els.deliverProgressBar) els.deliverProgressBar.style.width = `${percent}%`;
+  if (els.editConsoleState) els.editConsoleState.textContent = roughReady ? "ROUGH CUT READY" : editing ? "EDITING" : "READY TO EDIT";
   if (els.editConsoleNote) {
-    els.editConsoleNote.textContent = project.script?.dialogue_locked
+    els.editConsoleNote.textContent = project?.script?.dialogue_locked
       ? "AI Edit 会严格读取已锁定的台词本与字幕轨。"
       : "请先在“剧本与旁白”页锁定台词本，剪辑才能继续。";
   }
-  if (showingRoughCut) {
+  if (els.btnApproveEdit) els.btnApproveEdit.disabled = state.editing || !roughReady;
+  if (els.btnRecut) els.btnRecut.disabled = state.editing;
+}
+
+function updateFinalVideoMetadata() {
+  const video = els.finalVideo;
+  if (!video || !state.hasFinalVideo) return;
+  if (els.deliverMetaDuration && Number.isFinite(video.duration)) els.deliverMetaDuration.textContent = compactDuration(video.duration);
+  if (els.deliverMetaResolution && video.videoWidth && video.videoHeight) {
+    els.deliverMetaResolution.textContent = `${video.videoWidth} × ${video.videoHeight}`;
+    const ratio = video.videoWidth / video.videoHeight;
+    if (els.deliverMetaAspect) els.deliverMetaAspect.textContent = Math.abs(ratio - 1) < 0.04 ? "1:1" : ratio < 0.8 ? "9:16" : "16:9";
+  }
+}
+
+function renderDeliverTimeline(project) {
+  const shots = project?.storyboard || [];
+  if (!els.deliverShotTimeline) return;
+  let offset = 0;
+  const total = deliverRuntime(project);
+  els.deliverTimelineTotal.textContent = total ? `${compactDuration(total)} · ${shots.length} SHOTS` : "—";
+  els.deliverShotTimeline.innerHTML = shots.length
+    ? shots.map((shot) => {
+      const duration = Math.max(1, Number(shot.duration_seconds || 1));
+      const start = offset;
+      offset += duration;
+      const stateInfo = shotWorkflowState(shot.status);
+      return `<button class="deliver-timeline-shot ${stateInfo.key}" type="button" role="listitem" data-deliver-start="${start}" style="--shot-duration:${duration};" aria-label="跳转到镜头 ${shot.number}"><span class="mono">SHOT ${String(shot.number).padStart(2, "0")}</span><small>${compactDuration(start)} — ${compactDuration(start + duration)}</small><i>${duration}s</i></button>`;
+    }).join("")
+    : '<p class="empty-note">镜头生成后，这里会出现可跳转的时间线。</p>';
+  els.deliverShotTimeline.querySelectorAll("[data-deliver-start]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const start = Number(button.dataset.deliverStart || 0);
+      if (!state.hasFinalVideo || !els.finalVideo) return;
+      els.finalVideo.currentTime = start;
+      els.finalVideo.play().catch(() => {});
+      els.deliverShotTimeline.querySelectorAll(".is-selected").forEach((item) => item.classList.remove("is-selected"));
+      button.classList.add("is-selected");
+    });
+  });
+}
+
+async function renderScreening(project) {
+  const probeRun = ++state.finalVideoProbeRun;
+  state.hasFinalVideo = false;
+  state.finalVideoUrl = null;
+  els.finalVideo?.removeAttribute("src");
+  els.finalVideo?.load();
+  els.roughCutVideo?.removeAttribute("src");
+  els.roughCutVideo?.load();
+  els.roughCutStage?.classList.remove("has-media");
+  const status = String(project?.status || "");
+  const stateInfo = deliverStatus(project);
+  if (els.deliverStateTitle) els.deliverStateTitle.textContent = stateInfo.title;
+  if (els.deliverStateCopy) els.deliverStateCopy.textContent = stateInfo.copy;
+  if (els.deliverStateBadge) {
+    els.deliverStateBadge.textContent = stateInfo.badge;
+    els.deliverStateBadge.dataset.state = stateInfo.key;
+  }
+  renderDeliverSummary(project);
+  renderAudioDesign(project);
+  renderDeliverTimeline(project);
+  if (els.deliverWorkProgress) els.deliverWorkProgress.classList.toggle("hidden", !["editing", "rough", "ready"].includes(stateInfo.key));
+  renderDeliverProgress(project);
+  if (els.subtitleMode) els.subtitleMode.value = project?.subtitle_mode || project?.script?.subtitle_mode || "burned";
+  const editingOrRough = ["editing_rough_cut", "rough_cut_ready"].includes(status);
+  if (editingOrRough) {
     try {
-      const response = await fetch(`/api/projects/${project.project_id}/rough-cut`, { method: "HEAD" });
-      if (response.ok && els.roughCutVideo) {
-        els.roughCutVideo.src = `/api/projects/${project.project_id}/rough-cut`;
+      const response = await fetch(`/api/projects/${encodeURIComponent(project.project_id)}/rough-cut`, { method: "HEAD" });
+      if (response.ok && els.roughCutVideo && probeRun === state.finalVideoProbeRun) {
+        els.roughCutVideo.src = `/api/projects/${encodeURIComponent(project.project_id)}/rough-cut`;
         els.roughCutStage?.classList.add("has-media");
       }
-    } catch { /* mock mode may only expose the rough-cut metadata */ }
+    } catch { /* mock mode may only expose rough-cut metadata */ }
   }
-  // 只有真实生成完成的项目才探测成片文件；mock 模式不把占位路径当真实成片。
-  if (status === "completed_comfyui") {
+  const finalStatus = status.startsWith("completed");
+  if (finalStatus) {
+    const candidate = finalVideoCandidate(project);
     try {
-      const response = await fetch(`/api/projects/${project.project_id}/final-video`, { method: "HEAD" });
-      if (response.ok) {
+      const response = await fetch(candidate, { method: "HEAD" });
+      if (response.ok && probeRun === state.finalVideoProbeRun) {
         state.hasFinalVideo = true;
-        els.finalVideo.src = `/api/projects/${project.project_id}/final-video`;
-        els.screen.classList.add("has-video");
+        state.finalVideoUrl = candidate;
+        if (els.finalVideo) els.finalVideo.src = candidate;
       }
-    } catch { /* offline / not generated */ }
+    } catch { /* final media is optional in mock mode */ }
   }
+  const resolvedState = deliverStatus(project);
+  if (els.deliverStateTitle) els.deliverStateTitle.textContent = resolvedState.title;
+  if (els.deliverStateCopy) els.deliverStateCopy.textContent = resolvedState.copy;
+  if (els.deliverStateBadge) {
+    els.deliverStateBadge.textContent = resolvedState.badge;
+    els.deliverStateBadge.dataset.state = resolvedState.key;
+  }
+  const showFinal = finalStatus;
+  if (els.deliverFinal) els.deliverFinal.classList.toggle("hidden", !showFinal);
+  if (els.finalNotGenerated) els.finalNotGenerated.classList.toggle("hidden", state.hasFinalVideo);
+  if (els.screen) els.screen.classList.toggle("has-video", state.hasFinalVideo);
+  if (els.finalPlayerState) els.finalPlayerState.textContent = state.hasFinalVideo ? "READY TO SCREEN" : "MEDIA MISSING";
+  if (els.deliverMetaDuration) els.deliverMetaDuration.textContent = deliverRuntime(project) ? compactDuration(deliverRuntime(project)) : "—";
+  if (els.deliverMetaResolution) els.deliverMetaResolution.textContent = state.hasFinalVideo ? "读取中…" : "—";
+  if (els.deliverMetaAspect) els.deliverMetaAspect.textContent = "16:9";
+  if (els.deliverMetaCodec) els.deliverMetaCodec.textContent = state.hasFinalVideo ? "H.264 / AAC" : "—";
+  if (els.deliverMetaSubtitles) els.deliverMetaSubtitles.textContent = subtitleModeLabel(project?.subtitle_mode || project?.script?.subtitle_mode || "burned");
+  if (els.deliverMetaVoiceover) els.deliverMetaVoiceover.textContent = project?.script?.dialogue_locked ? "LOCKED TRACK" : "LOCK REQUIRED";
+  if (els.deliverMetaAudio) els.deliverMetaAudio.textContent = project?.script?.dialogue_locked ? "VOICE · MUSIC · SFX · ATMOS" : "LOCK REQUIRED";
+  if (els.btnAiEdit) {
+    els.btnAiEdit.classList.toggle("hidden", finalStatus || ["rough", "editing"].includes(resolvedState.key));
+    els.btnAiEdit.disabled = state.editing || !((project?.storyboard || []).length && (project.storyboard || []).every((shot) => String(shot.status || "").startsWith("approved")));
+    els.btnAiEdit.innerHTML = state.editing ? "AI Edit 粗剪中…" : 'AI 剪辑成片 <span class="cta-arrow" aria-hidden="true">→</span>';
+  }
+  if (els.btnExportFinal) els.btnExportFinal.classList.toggle("hidden", !state.hasFinalVideo);
+  if (els.btnReedit) els.btnReedit.classList.toggle("hidden", !finalStatus);
+  if (els.btnEditSubtitles) els.btnEditSubtitles.classList.toggle("hidden", !project);
+  if (els.editStatus && !state.editing && resolvedState.key === "missing") els.editStatus.textContent = "FINAL CUT NOT GENERATED · 请在 Spark 完成真实 FFmpeg 成片后刷新。";
+  renderFinalLook(project);
+  if (els.crewFlow) syncCrewBoard(project, { silent: true });
   updatePipelineForProject(project);
 }
 
@@ -1183,7 +2032,8 @@ function renderDelivery(project) {
     ["WRITTEN BY", "WRITER AGENT"],
     ["ART DIRECTION", "VISUAL BIBLE AGENT"],
     ["STORYBOARD", "STORYBOARD AGENT"],
-    ["POST PRODUCTION", "GENERATION · QC · EDITOR"],
+    ["SOUND DESIGN", "VOICE · MUSIC · SFX · AMBIENCE"],
+    ["POST PRODUCTION", "GENERATION · QC · EDITOR · MIX"],
     ["DELIVERY", PROJECT_STATUS[project.status] || project.status],
   ];
   els.creditsRoll.innerHTML = credits
@@ -1200,6 +2050,78 @@ function renderDelivery(project) {
     void els.creditsRoll.offsetWidth;
     els.creditsRoll.classList.add("is-rolling");
   }
+}
+
+function updateExportSelection() {
+  const options = state.exportOptions;
+  const subtitle = options.subtitle_mode === "soft" ? "SOFT" : options.subtitle_mode === "none" ? "NONE" : "BURNED";
+  if (els.exportSelection) {
+    els.exportSelection.textContent = `${options.container.toUpperCase()} · ${options.container === "webm" ? "VP9" : "H.264"} · ${options.resolution.toUpperCase()} · ${options.aspect} · ${subtitle}`;
+  }
+  $$("[data-export-field]").forEach((button) => {
+    const selected = state.exportOptions[button.dataset.exportField] === button.dataset.exportValue;
+    button.classList.toggle("is-selected", selected);
+    button.setAttribute("aria-pressed", String(selected));
+  });
+}
+
+function openExportSheet() {
+  if (!state.project || !state.hasFinalVideo) {
+    toast("当前没有可导出的 FINAL CUT。", true);
+    return;
+  }
+  show(els.exportSheet);
+  els.exportSheet?.classList.add("is-open");
+  updateExportSelection();
+  els.btnExportRun?.focus();
+}
+
+function closeExportSheet() {
+  els.exportSheet?.classList.remove("is-open");
+  hide(els.exportSheet);
+}
+
+async function exportFinalCut() {
+  if (!state.project || !state.hasFinalVideo || !els.btnExportRun) return;
+  const button = els.btnExportRun;
+  const original = button.innerHTML;
+  button.disabled = true;
+  button.textContent = "编码导出中…";
+  try {
+    const response = await fetch(`/api/projects/${encodeURIComponent(state.project.project_id)}/export/video`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(state.exportOptions),
+    });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      throw new Error(payload.error || `HTTP ${response.status}`);
+    }
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${state.project.project_id}-final-${state.exportOptions.resolution}.${state.exportOptions.container}`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+    closeExportSheet();
+    toast(`已导出 ${state.exportOptions.container.toUpperCase()} · ${state.exportOptions.resolution} · ${state.exportOptions.aspect}。`);
+  } catch (error) {
+    toast(`导出失败：${error.message}`, true);
+  } finally {
+    button.disabled = false;
+    button.innerHTML = original;
+  }
+}
+
+function openSubtitleEditor() {
+  if (!state.project) return;
+  state.manualTab = "script";
+  renderManual(state.project, "script");
+  els.manualBody?.scrollIntoView({ behavior: REDUCED_MOTION ? "auto" : "smooth", block: "center" });
+  setTimeout(() => els.manualBody?.querySelector("[data-dialogue-field='text']:not(:disabled)")?.focus(), REDUCED_MOTION ? 0 : 350);
 }
 
 function updatePipelineForProject(project) {
@@ -1237,6 +2159,7 @@ function renderWorkspace(project, options = {}) {
 
 function applyProjectSnapshot(project) {
   state.project = project;
+  if (els.crewFlow) syncCrewBoard(project, { silent: true });
   renderFilmstrip(project);
   renderTimeline(project);
   renderShotMap(project);
@@ -1509,16 +2432,16 @@ function buildCrewInspectorMarkup(agentId) {
     : agentId === "writer" ? crewAssetMarkup("剧本与旁白", asset.script)
     : agentId === "visual_bible" ? crewAssetMarkup("视觉规范", asset.visual_bible)
     : agentId === "storyboard" ? crewAssetMarkup("分镜资产", asset.storyboard)
-    : agentId === "quality" ? crewAssetMarkup("质检报告", asset.quality_report)
+      : agentId === "quality" ? crewAssetMarkup("质检报告", asset.quality_report)
       : agentId === "generation" ? crewAssetMarkup("逐镜任务", project.storyboard)
-      : agentId === "editor" ? crewAssetMarkup("剪辑结果", project.final_output_placeholder || project.rough_cut_placeholder || "等待镜头素材")
+      : agentId === "editor" ? crewAssetMarkup("剪辑结果", project.final_output_placeholder || project.rough_cut_placeholder || (String(project.status || "") === "ready_for_ai_edit" ? "AI EDIT READY / 等待启动粗剪" : String(project.status || "").startsWith("completed") ? "DELIVERY RECORDED / MEDIA CHECK" : "EDIT QUEUED / 等待镜头通过质检"))
             : `<section class="crew-drawer-section"><h3>任务说明</h3><p>${esc(def.role)}。${esc(card?.querySelector(".crew-summary")?.textContent || "等待上游素材。")}</p></section>`;
   return `
     <div class="inspector-content inspector-content--agent" data-inspector-type="agent" data-agent-id="${esc(agentId)}">
       <header class="inspector-head">
         <div class="inspector-head-main">
           <p class="inspector-kicker mono">AGENT INSPECTOR / ${esc(def.en)}</p>
-          <div class="inspector-title-row"><h2>${esc(def.name)} Agent</h2><span class="inspector-status ${card?.classList.contains("working") ? "active" : card?.classList.contains("failed") ? "failed" : "complete"} mono"><i>●</i>${esc(card?.querySelector(".crew-state-text")?.textContent || "候场")}</span></div>
+          <div class="inspector-title-row"><h2>${esc(def.name)} Agent</h2><span class="inspector-status ${card?.classList.contains("working") || card?.classList.contains("ready") || card?.classList.contains("next") ? "active" : card?.classList.contains("failed") ? "failed" : "complete"} mono"><i>●</i>${esc(card?.querySelector(".crew-state-text")?.textContent || "候场")}</span></div>
           <p class="inspector-subtitle">${esc(def.role)} · 点击卡片即可查看实时产出、沟通和决策记录。</p>
         </div>
         <div class="inspector-head-actions">
@@ -1716,6 +2639,13 @@ function createLiveProject(event) {
     rough_cut_placeholder: null,
     subtitle_mode: "burned",
     edit_plan: {},
+    music_mode: "ai",
+    music_asset_name: "",
+    music_brief: {},
+    audio_tracks: {},
+    smart_ducking: { enabled: true },
+    mix_state: {},
+    final_look: {},
   };
 }
 
@@ -1732,6 +2662,7 @@ function stageStoryboard(shots) {
       renderShotMap(state.project);
       renderManualSummary(state.project);
       renderAgentActivity(state.project);
+      syncCrewBoard(state.project, { silent: true });
       if (state.manualTab === "quality") renderManual(state.project, "quality");
     }, index * 125);
   });
@@ -1757,37 +2688,55 @@ function handleCreateEvent(event) {
   if (event.type === "project") {
     state.project = createLiveProject(event);
     state.pendingProjectId = event.project_id;
+    pushCrewRadio({ type: "status", agent: "system", status: "BOOT", message: "Project slate received · crew assembly online" });
     els.crewMeta.textContent = `LIVE · PROJECT ${String(event.project_id || "").replace(/^film-/, "").toUpperCase()}`;
     els.modeNote.textContent = `文案引擎：${event.text_mode === "modelscope" ? "ModelScope AI" : "mock"} · 视频引擎：${event.video_mode === "comfyui" ? "Spark 真实生成" : "mock 流程"}`;
   } else if (event.type === "agent_start") {
     state.workingAgent = event.agent;
     rememberCrewEvent(event.agent, { status: "working", startedAt: Date.now() });
-    setAgentState(event.agent, "working");
+    appendCrewStatus(event.agent, "START", `${crewAgentLabel(event.agent)} · pass started`);
+    syncCrewBoard(state.project, { silent: true });
   } else if (event.type === "agent_done") {
     state.workingAgent = null;
     rememberCrewEvent(event.agent, { status: "done", ...event });
-    setAgentState(event.agent, "done", event);
     revealAsset(event.agent, event);
+    appendCrewStatus(event.agent, "DONE", `${crewAgentLabel(event.agent)} · deliverable locked`);
+    syncCrewBoard(state.project, { silent: true });
     if (event.agent === "storyboard") {
       state.project.logs.push("分镜师：开始逐张冲印镜头。 ");
       stageStoryboard(event.storyboard || []);
-      setAgentState("quality", "next");
-      setPipeline({ plan: "done", previs: "active" });
+      appendCrewStatus("storyboard", "HANDOFF", "Shot list released to QC Gate");
+      syncCrewBoard(state.project, { silent: true });
+    } else if (event.agent === "quality") {
+      appendCrewStatus("quality", "PASS", "QC Gate cleared · render queue can open");
+      syncCrewBoard(state.project, { silent: true });
     }
   } else if (event.type === "artifact") {
     appendCrewArtifact(event);
   } else if (event.type === "chat") {
     appendCrewMessage(event);
   } else if (event.type === "shot_update") {
-    const card = document.querySelector('.crew-card[data-agent="generation"] .crew-summary');
-    if (card && event.shot) {
-      card.textContent = `镜头 ${event.shot.number} · ${shotStatusInfo(event.shot.status)}`;
+    if (event.shot && state.project) {
+      const shots = Array.isArray(state.project.storyboard) ? state.project.storyboard : (state.project.storyboard = []);
+      const index = shots.findIndex((shot) => Number(shot.number) === Number(event.shot.number));
+      if (index >= 0) shots[index] = { ...shots[index], ...event.shot };
+      else shots.push(event.shot);
+      rememberCrewEvent("generation", { lastShot: event.shot, status: "working" });
+      syncCrewBoard(state.project, { silent: true });
+      const card = document.querySelector('.crew-card[data-agent="generation"]');
+      const summary = card?.querySelector(".crew-summary");
+      if (summary) {
+        summary.innerHTML = `<span class="sk sk-1"></span><span class="sk sk-2"></span><span class="crew-live-note mono">SHOT ${String(event.shot.number).padStart(2, "0")} · ${esc(shotStatusInfo(event.shot.status))}</span>`;
+      }
+      appendCrewStatus("generation", "SHOT UPDATE", `SHOT ${String(event.shot.number).padStart(2, "0")} · ${shotStatusInfo(event.shot.status)}`);
     }
   } else if (event.type === "done") {
     storyboardStageRun += 1;
     state.project = event.project;
     state.pendingProjectId = null;
     els.crewMeta.textContent = `LOCKED · PROJECT ${String(event.project?.project_id || "").replace(/^film-/, "").toUpperCase()}`;
+    syncCrewBoard(state.project, { silent: true });
+    appendCrewStatus("system", "ARCHIVED", `Project snapshot saved · ${PROJECT_STATUS[state.project.status] || state.project.status}`);
     renderWorkspace(state.project, { entranceFrom: 0 });
     setBrowserActivity("idle", state.project);
     toast(state.project.status === "ready_for_ai_edit"
@@ -1797,6 +2746,7 @@ function handleCreateEvent(event) {
   } else if (event.type === "error") {
     els.crewMeta.textContent = "INTERRUPTED · RETRY AVAILABLE";
     failWorkingAgent();
+    appendCrewStatus("system", "FAILED", `Crew run interrupted · ${event.message || "retry available"}`);
     setIdeaError("创作暂时中断，请检查创意后重试。", `制作未完成：${event.message || "服务暂时不可用"}`);
   }
 }
@@ -1810,12 +2760,18 @@ async function startCreation() {
   state.assemblyLocked = true;
   state.project = null;
   state.pendingProjectId = null;
+  state.viewingHistorical = false;
   state.crewDetails = {};
   state.crewMessages = [];
   state.crewArtifacts = [];
+  state.crewRadioLog = [];
   state.crewRadioOpen = false;
   state.hasFinalVideo = false;
   state.editing = false;
+  state.editProgressStep = 0;
+  state.musicMode = "ai";
+  state.musicAssetName = "";
+  state.smartDucking = true;
   state.workingAgent = null;
   els.btnStart.disabled = true;
   els.btnStart.textContent = "拍摄中…";
@@ -1874,9 +2830,14 @@ function handleRenderEvent(event) {
       els.monitorBar.style.width = `${(completed / total) * 100}%`;
     }
     els.monitorDesc.textContent = event.description || "生成中…";
+    if (event.description) appendCrewStatus("generation", "SHOT UPDATE", event.description);
   } else if (event.type === "done") {
     state.project = event.project;
     state.rendering = false;
+    rememberCrewEvent("generation", { status: "done" });
+    appendCrewStatus("generation", "DONE", `${event.project.storyboard?.length || 0}/${event.project.storyboard?.length || 0} shots ready`);
+    appendCrewStatus("editor", "READY", "AI Edit queue opened · start Rough Cut when ready");
+    syncCrewBoard(event.project, { silent: true });
     applyProjectSnapshot(event.project);
     els.renderRec.classList.remove("live");
     renderMonitor(event.project, false);
@@ -1896,6 +2857,9 @@ function handleRenderEvent(event) {
     els.btnRender.disabled = false;
     els.btnRender.textContent = "提交 Spark 真实生成";
     els.monitorDesc.textContent = `生成中断：${event.message}`;
+    rememberCrewEvent("generation", { status: "failed" });
+    appendCrewStatus("generation", "FAILED", event.message || "render queue interrupted");
+    syncCrewBoard(state.project, { silent: true });
     toast(`渲染失败：${event.message}`, true);
     if (state.project) updatePipelineForProject(state.project);
   }
@@ -1932,20 +2896,30 @@ async function startRender() {
 
 function handleEditEvent(event) {
   if (event.type === "edit_progress") {
+    rememberCrewEvent("editor", { status: "working" });
     if (event.project) applyProjectSnapshot(event.project);
     if (els.editStatus) els.editStatus.textContent = event.description || "AI Edit 处理中…";
     if (els.monitorDesc) els.monitorDesc.textContent = event.description || "AI Edit 处理中…";
+    if (event.project) renderDeliverProgress(event.project, event.description || "");
     if (state.project) renderLogFeed(state.project);
+    appendCrewStatus("editor", "PROGRESS", event.description || "AI Edit working");
   } else if (event.type === "done") {
     state.project = event.project;
     state.editing = false;
+    rememberCrewEvent("editor", { status: "done" });
+    appendCrewStatus("editor", "ROUGH CUT READY", "Rough Cut assembled · screening pass open");
+    syncCrewBoard(event.project, { silent: true });
     applyProjectSnapshot(event.project);
     setBrowserActivity("idle", event.project);
     if (els.editStatus) els.editStatus.textContent = "ROUGH CUT READY · 可预览并批准最终成片";
+    state.editProgressStep = 6;
+    renderDeliverProgress(event.project);
     toast("Rough Cut 已完成：镜头、声音与字幕轨已汇合，请先预览。");
     els.editConsole?.scrollIntoView({ behavior: REDUCED_MOTION ? "auto" : "smooth", block: "center" });
   } else if (event.type === "error") {
     state.editing = false;
+    rememberCrewEvent("editor", { status: "failed" });
+    appendCrewStatus("editor", "FAILED", event.message || "AI Edit interrupted");
     setBrowserActivity("idle", state.project);
     if (els.editStatus) els.editStatus.textContent = `AI Edit 中断：${event.message || "服务暂时不可用"}`;
     toast(`AI Edit 失败：${event.message || "服务暂时不可用"}`, true);
@@ -1963,17 +2937,28 @@ async function startAiEdit() {
     return;
   }
   state.editing = true;
+  rememberCrewEvent("editor", { status: "working" });
+  appendCrewStatus("editor", "START", "AI Edit reading locked dialogue and shot queue");
+  syncCrewBoard({ ...state.project, status: "editing_rough_cut" }, { silent: true });
+  state.editProgressStep = 0;
+  els.deliverFinal?.classList.add("hidden");
   if (els.btnAiEdit) {
     els.btnAiEdit.disabled = true;
     els.btnAiEdit.textContent = "AI Edit 粗剪中…";
   }
   if (els.editStatus) els.editStatus.textContent = "AI Edit：正在读取锁定台词本…";
+  renderDeliverProgress({ ...state.project, status: "editing_rough_cut" }, "");
   setBrowserActivity("edit", state.project);
   setPipeline({ plan: "done", previs: "done", render: "done", deliver: "active" });
   try {
     await streamPost(
       `/api/projects/${state.project.project_id}/edit/stream`,
-      {},
+      {
+        music_mode: state.musicMode || state.project.music_mode || "ai",
+        smart_ducking: state.smartDucking,
+        music_asset_name: state.musicAssetName || state.project.music_asset_name || "",
+        track_enabled: Object.fromEntries(AUDIO_TRACK_ORDER.map((key) => [key, state.project?.audio_tracks?.[key]?.enabled !== false])),
+      },
       handleEditEvent
     );
   } catch (error) {
@@ -1993,6 +2978,15 @@ async function approveAiEdit() {
     els.btnApproveEdit.disabled = true;
     els.btnApproveEdit.textContent = "交付中…";
   }
+  if (els.deliverStateTitle) els.deliverStateTitle.textContent = "最终成片编码中";
+  if (els.deliverStateCopy) els.deliverStateCopy.textContent = "FFmpeg 正在写入最终画面与字幕轨，请稍候。";
+  if (els.deliverStateBadge) {
+    els.deliverStateBadge.textContent = "FINAL ENCODE";
+    els.deliverStateBadge.dataset.state = "editing";
+  }
+  state.editProgressStep = 6;
+  renderDeliverProgress({ ...state.project, status: "editing_rough_cut" }, "Final Encode · FFmpeg 编码交付");
+  if (els.deliverProgressTitle) els.deliverProgressTitle.textContent = "最终成片编码中";
   try {
     const response = await fetch(`/api/projects/${state.project.project_id}/edit/approve`, {
       method: "POST",
@@ -2002,6 +2996,9 @@ async function approveAiEdit() {
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
     state.project = payload;
+    rememberCrewEvent("editor", { status: "done" });
+    appendCrewStatus("editor", "FINAL CUT", `Delivery encoded · ${mode.toUpperCase()} subtitles`);
+    syncCrewBoard(payload, { silent: true });
     renderWorkspace(payload);
     toast(`最终成片已批准（${mode === "burned" ? "烧录字幕" : mode === "soft" ? "软字幕" : "无字幕"}）。`);
     renderScreening(payload).then(() => {
@@ -2009,6 +3006,7 @@ async function approveAiEdit() {
     });
   } catch (error) {
     toast(`批准成片失败：${error.message}`, true);
+    if (state.project) renderWorkspace(state.project);
     if (els.btnApproveEdit) {
       els.btnApproveEdit.disabled = false;
       els.btnApproveEdit.innerHTML = '批准最终成片 <span class="cta-arrow" aria-hidden="true">→</span>';
@@ -2080,8 +3078,12 @@ async function loadSelectedProject() {
     state.project = payload;
     state.hasFinalVideo = false;
     state.editing = false;
+    state.busy = false;
+    state.viewingHistorical = true;
+    state.crewMessages = [];
+    state.crewArtifacts = [];
     buildCrewBoard();
-    markAllAgentsDone(payload);
+    syncHistoricalCrew(payload);
     show(els.actCrew);
     els.crewMeta.textContent = `RESTORED · PROJECT ${projectId.replace(/^film-/, "").toUpperCase()}`;
     renderWorkspace(payload, { entranceFrom: 0 });
@@ -2413,7 +3415,42 @@ function init() {
   els.btnRender.addEventListener("click", startRender);
   els.btnAiEdit?.addEventListener("click", startAiEdit);
   els.btnRecut?.addEventListener("click", startAiEdit);
+  els.btnReedit?.addEventListener("click", startAiEdit);
+  els.btnEditSubtitles?.addEventListener("click", openSubtitleEditor);
   els.btnApproveEdit?.addEventListener("click", approveAiEdit);
+  els.btnExportFinal?.addEventListener("click", openExportSheet);
+  els.btnExportClose?.addEventListener("click", closeExportSheet);
+  els.btnExportRun?.addEventListener("click", exportFinalCut);
+  document.addEventListener("click", handleAudioInteraction);
+  document.addEventListener("click", handleFinalLookInteraction);
+  els.finalLookIntensity?.addEventListener("input", () => updateFinalLookDraft("intensity", els.finalLookIntensity.value));
+  els.finalLookGrain?.addEventListener("input", () => updateFinalLookDraft("grain", els.finalLookGrain.value));
+  els.finalLookVignette?.addEventListener("input", () => updateFinalLookDraft("vignette", els.finalLookVignette.value));
+  els.finalLookSoftening?.addEventListener("input", () => updateFinalLookDraft("highlight_soften", els.finalLookSoftening.value));
+  els.finalLookApply?.addEventListener("click", applyFinalLook);
+  els.finalLookReset?.addEventListener("click", resetFinalLookPreview);
+  els.smartDuckingToggle?.addEventListener("change", () => {
+    state.smartDucking = Boolean(els.smartDuckingToggle.checked);
+    renderAudioDesign(state.project);
+    persistAudioDesign({ smart_ducking: state.smartDucking });
+  });
+  els.musicUpload?.addEventListener("change", () => {
+    const file = els.musicUpload.files?.[0];
+    if (file) uploadMusicFile(file);
+  });
+  els.exportSheet?.addEventListener("click", (event) => {
+    if (event.target === els.exportSheet) closeExportSheet();
+    const option = event.target.closest("[data-export-field]");
+    if (!option) return;
+    state.exportOptions[option.dataset.exportField] = option.dataset.exportValue;
+    updateExportSelection();
+  });
+  els.btnMoreExport?.addEventListener("click", () => {
+    const isOpen = !els.moreExportMenu?.classList.contains("hidden");
+    els.moreExportMenu?.classList.toggle("hidden", isOpen);
+    els.btnMoreExport?.setAttribute("aria-expanded", String(!isOpen));
+  });
+  els.finalVideo?.addEventListener("loadedmetadata", updateFinalVideoMetadata);
   els.manualTabs.addEventListener("click", (event) => {
     const button = event.target.closest(".tab");
     if (button) renderManual(state.project, button.dataset.tab);
@@ -2428,6 +3465,10 @@ function init() {
   });
   els.drawerBackdrop.addEventListener("click", closeDrawer);
   document.addEventListener("click", (event) => {
+    if (els.moreExportMenu && !event.target.closest(".more-export-trigger, #more-export-menu")) {
+      els.moreExportMenu.classList.add("hidden");
+      els.btnMoreExport?.setAttribute("aria-expanded", "false");
+    }
     if (!drawerIsOpen() || event.target.closest("#drawer")) return;
     if (event.target.closest(".shot-card, .timeline-segment, .crew-card")) return;
     closeDrawer();
@@ -2436,6 +3477,7 @@ function init() {
     if (event.key === "Escape") {
       closeDrawer();
       closePremiere(false);
+      closeExportSheet();
       return;
     }
     if (event.key === "ArrowLeft" || event.key === "ArrowRight") {

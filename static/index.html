@@ -144,9 +144,11 @@
         </div>
         <p class="act-meta mono"><span class="act-meta-label">STATUS</span><span id="crew-meta">READY / STANDBY</span></p>
       </div>
-      <div class="crew-row" id="crew-primary"></div>
-      <div class="crew-bridge" aria-hidden="true"><i></i></div>
-      <div class="crew-row crew-row--secondary" id="crew-secondary"></div>
+      <div class="crew-flow-head">
+        <span class="mono">PRODUCTION ROUTE / DIRECTOR → EDITOR</span>
+        <span class="crew-flow-legend mono" aria-label="节点状态图例"><i data-state="active"></i>ACTIVE <i data-state="done"></i>COMPLETED <i data-state="waiting"></i>QUEUED</span>
+      </div>
+      <div class="crew-flow" id="crew-flow" aria-label="Director 到 Editor 的 Agent 生产流水线"></div>
       <div class="crew-radio-wrap">
         <button class="crew-radio-head mono" id="crew-radio-toggle" type="button" aria-expanded="false" aria-controls="crew-radio"><span><i class="radio-signal" aria-hidden="true"></i>CREW RADIO</span><span class="radio-summary" id="crew-radio-summary">0 MESSAGES · STANDBY</span><span class="radio-chevron" aria-hidden="true">⌄</span></button>
         <div class="crew-radio mono" id="crew-radio" aria-live="polite"></div>
@@ -191,14 +193,6 @@
         <div class="monitor-actions">
           <button class="cta cta--render" id="btn-render" type="button">提交 Spark 真实生成</button>
           <p class="render-note" id="render-note"></p>
-          <div class="render-readiness hidden" id="render-readiness" aria-live="polite">
-            <div class="readiness-copy">
-              <span class="readiness-count mono" id="shots-ready">0/0 SHOTS READY</span>
-              <span class="readiness-note">镜头已通过质检，下一步进入 AI Edit 粗剪。</span>
-            </div>
-            <button class="cta cta--edit" id="btn-ai-edit" type="button">AI 剪辑成片 <span class="cta-arrow" aria-hidden="true">→</span></button>
-          </div>
-          <p class="edit-status mono" id="edit-status" aria-live="polite"></p>
         </div>
         <pre class="log-feed mono" id="log-feed" aria-label="任务日志"></pre>
       </div>
@@ -230,43 +224,136 @@
       </div>
 
       <div class="panel screening-panel">
-        <div class="panel-head">
-          <h2>放映室</h2>
-          <span class="panel-meta mono">SCREENING ROOM</span>
+        <div class="panel-head screening-panel-head">
+          <div><p class="manual-kicker mono">04 / DELIVER</p><h2>放映室</h2></div>
+          <span class="panel-meta mono">FINAL CUT SCREENING ROOM</span>
         </div>
-        <section class="edit-console hidden" id="edit-console" aria-live="polite">
-          <header class="edit-console-head">
-            <div><span class="manual-label mono">AI EDIT / ROUGH CUT</span><h3>先看粗剪，再批准成片。</h3></div>
-            <span class="edit-console-state mono" id="edit-console-state">WAITING</span>
+        <section class="deliver-room" id="deliver-room" aria-live="polite">
+          <header class="deliver-stage-head">
+            <div>
+              <span class="deliver-kicker mono">FINAL CUT / SCREENING ROOM</span>
+              <h3 id="deliver-state-title">FINAL CUT NOT GENERATED</h3>
+              <p id="deliver-state-copy">镜头和制作手册准备好后，从这里启动 AI 剪辑。</p>
+            </div>
+            <span class="deliver-state-badge mono" id="deliver-state-badge">NOT EDITED</span>
           </header>
-          <div class="rough-cut-stage" id="rough-cut-stage">
-            <div class="rough-cut-placeholder"><span class="mono">ROUGH CUT / 16:9</span><strong>等待剪辑引擎启动</strong><small>镜头排序、Trim、旁白、BGM、SFX 与字幕会在这里汇合。</small></div>
-            <video id="rough-cut-video" controls playsinline preload="metadata" aria-label="Rough Cut 粗剪预览"></video>
+
+          <section class="deliver-summary" id="deliver-summary" aria-label="项目摘要">
+            <div class="deliver-summary-main">
+              <span class="deliver-label mono">PROJECT SUMMARY / 项目摘要</span>
+              <h4 id="deliver-project-title">等待项目进入放映室</h4>
+              <p id="deliver-project-copy">完成分镜生成后，这里会显示成片状态、镜头就绪度和交付控制。</p>
+              <div class="deliver-ready-line"><strong class="mono" id="deliver-shots-ready">0/0 SHOTS READY</strong><span id="deliver-ready-note">尚未收到镜头素材。</span></div>
+            </div>
+            <div class="deliver-summary-specs" id="deliver-summary-specs" aria-label="项目摘要数据"></div>
+          </section>
+
+          <section class="deliver-work-progress hidden" id="deliver-work-progress" aria-label="AI 剪辑进度">
+            <header class="deliver-progress-head"><div><span class="deliver-label mono">AI EDIT / ASSEMBLY PIPELINE</span><h4 id="deliver-progress-title">粗剪正在组装</h4></div><strong class="mono" id="deliver-progress-percent">0%</strong></header>
+            <div class="deliver-progress-track" aria-hidden="true"><i id="deliver-progress-bar"></i></div>
+            <div class="deliver-progress-grid" id="deliver-progress-grid">
+              <div class="deliver-progress-step" data-deliver-progress="picture_cut"><span class="deliver-progress-icon">01</span><div><b>镜头合成</b><small class="mono">PICTURE CUT</small></div><i class="deliver-progress-state mono">QUEUED</i></div>
+              <div class="deliver-progress-step" data-deliver-progress="voice"><span class="deliver-progress-icon">02</span><div><b>旁白</b><small class="mono">VOICE</small></div><i class="deliver-progress-state mono">QUEUED</i></div>
+              <div class="deliver-progress-step" data-deliver-progress="music"><span class="deliver-progress-icon">03</span><div><b>配乐</b><small class="mono">MUSIC</small></div><i class="deliver-progress-state mono">QUEUED</i></div>
+              <div class="deliver-progress-step" data-deliver-progress="sfx"><span class="deliver-progress-icon">04</span><div><b>音效</b><small class="mono">SFX</small></div><i class="deliver-progress-state mono">QUEUED</i></div>
+              <div class="deliver-progress-step" data-deliver-progress="subtitles"><span class="deliver-progress-icon">05</span><div><b>字幕</b><small class="mono">SUBTITLES</small></div><i class="deliver-progress-state mono">QUEUED</i></div>
+              <div class="deliver-progress-step" data-deliver-progress="mix"><span class="deliver-progress-icon">06</span><div><b>最终混音</b><small class="mono">MIX / DUCKING</small></div><i class="deliver-progress-state mono">QUEUED</i></div>
+              <div class="deliver-progress-step" data-deliver-progress="final_encode"><span class="deliver-progress-icon">07</span><div><b>编码交付</b><small class="mono">FINAL ENCODE</small></div><i class="deliver-progress-state mono">QUEUED</i></div>
+            </div>
+            <div class="deliver-rough-console" id="edit-console">
+              <div class="rough-cut-stage" id="rough-cut-stage">
+                <div class="rough-cut-placeholder"><span class="mono">ROUGH CUT / 16:9</span><strong>等待剪辑引擎启动</strong><small>Picture Cut、Voice、Music、SFX、Subtitles 与 Mix 会在这里汇合。</small></div>
+                <video id="rough-cut-video" controls playsinline preload="metadata" aria-label="Rough Cut 粗剪预览"></video>
+              </div>
+              <section class="audio-design-console" id="audio-design-console" aria-label="声音设计控制台">
+                <header class="audio-console-head"><div><span class="deliver-label mono">AUDIO DEPARTMENT / SOUND DESIGN</span><h4>声音设计与配乐</h4></div><span class="audio-console-state mono" id="audio-design-state">DESIGN READY</span></header>
+                <div class="audio-mode-row"><span class="manual-label mono">MUSIC SOURCE / 配乐来源</span><div class="audio-mode-switch" id="audio-mode-switch" role="radiogroup" aria-label="配乐来源"><button type="button" class="audio-mode-button is-selected" data-audio-mode="ai" role="radio" aria-checked="true"><b>AI 自动配乐</b><small>EMOTIONAL ARC</small></button><button type="button" class="audio-mode-button" data-audio-mode="library" role="radio" aria-checked="false"><b>素材库音乐</b><small>STUDIO LIBRARY</small></button><button type="button" class="audio-mode-button" data-audio-mode="upload" role="radio" aria-checked="false"><b>用户上传音乐</b><small>USER SOURCE</small></button></div></div>
+                <div class="audio-upload-row hidden" id="audio-upload-row"><label class="audio-upload-control"><span class="manual-label mono">USER SCORE / 上传文件</span><input id="music-upload" type="file" accept="audio/*"><small class="mono" id="music-upload-note">上传后将作为 MUSIC 轨来源。</small></label></div>
+                <div class="music-brief-card"><div class="music-brief-head"><div><span class="deliver-label mono">MUSIC BRIEF / AI 配乐方案</span><strong id="music-brief-source">AI MUSIC / EMOTIONAL ARC</strong></div><span class="music-brief-version mono" id="music-brief-version">V1</span></div><div class="music-brief-grid" id="music-brief-grid"></div><div class="emotional-arc" id="emotional-arc" aria-label="情绪曲线"></div><p class="music-brief-direction" id="music-brief-direction">AI Music 将读取导演设定、剧本情绪、视觉风格和镜头节奏。</p><p class="music-brief-instruments mono" id="music-brief-instruments">INSTRUMENTS / 低音合成器 · 颗粒钢琴 · 弓弦纹理 · 低频打击</p></div>
+                <div class="audio-track-list" id="audio-track-list" aria-label="四类声音轨道"></div>
+                <label class="smart-ducking" id="smart-ducking-control"><input type="checkbox" id="smart-ducking-toggle" checked><span><b>SMART DUCKING</b><small id="smart-ducking-copy">旁白 / 对白出现时，Music 自动降低并平滑恢复。</small></span><i class="mono" id="smart-ducking-value">−8 dB</i></label>
+              </section>
+              <div class="edit-console-controls">
+                <label class="subtitle-mode-control"><span class="manual-label mono">SUBTITLE OUTPUT / 字幕输出</span><select id="subtitle-mode" aria-label="字幕输出模式"><option value="burned">烧录字幕 · BURNED</option><option value="soft">软字幕 · SOFT + SRT/VTT</option><option value="none">无字幕 · CLEAN PICTURE</option></select></label>
+                <div class="edit-console-actions"><button class="ghost" id="btn-recut" type="button">重新规划粗剪</button><button class="cta" id="btn-approve-edit" type="button">批准最终成片 <span class="cta-arrow" aria-hidden="true">→</span></button></div>
+              </div>
+              <p class="edit-console-note mono" id="edit-console-note">AI Edit 会严格读取已锁定的台词本与字幕轨。</p>
+            </div>
+          </section>
+
+          <section class="deliver-final hidden" id="deliver-final" aria-label="最终成片">
+            <div class="final-cut-workspace">
+              <div class="final-cut-screening">
+                <div class="final-player-shell" id="screen" data-final-look="original">
+                  <div class="final-player-topline mono"><span><i class="rec-dot" aria-hidden="true"></i> FINAL CUT</span><span id="final-player-state">READY TO SCREEN</span></div>
+                  <video id="final-video" controls playsinline preload="metadata" aria-label="最终成片视频"></video>
+                  <div class="final-look-overlay" id="final-look-overlay" aria-hidden="true"></div>
+                  <div class="final-not-generated" id="final-not-generated"><strong class="mono">FINAL CUT NOT GENERATED</strong><span>后端尚未提供可播放的最终视频文件。</span></div>
+                </div>
+                <div class="deliver-video-meta" id="deliver-video-meta" aria-label="成片技术信息">
+                  <div><span class="deliver-label mono">DURATION</span><strong id="deliver-meta-duration">—</strong></div>
+                  <div><span class="deliver-label mono">RESOLUTION</span><strong id="deliver-meta-resolution">—</strong></div>
+                  <div><span class="deliver-label mono">ASPECT</span><strong id="deliver-meta-aspect">16:9</strong></div>
+                  <div><span class="deliver-label mono">CODEC</span><strong id="deliver-meta-codec">H.264 / AAC</strong></div>
+                  <div><span class="deliver-label mono">SUBTITLES</span><strong id="deliver-meta-subtitles">BURNED</strong></div>
+                  <div><span class="deliver-label mono">VOICEOVER</span><strong id="deliver-meta-voiceover">LOCKED TRACK</strong></div>
+                  <div><span class="deliver-label mono">AUDIO</span><strong id="deliver-meta-audio">VOICE · MUSIC · SFX · ATMOS</strong></div>
+                </div>
+                <div class="deliver-shot-timeline-wrap">
+                  <div class="deliver-shot-timeline-head"><span class="deliver-label mono">SHOT TIMELINE / 快速跳转</span><span class="mono" id="deliver-timeline-total">—</span></div>
+                  <div class="deliver-shot-timeline" id="deliver-shot-timeline" role="list" aria-label="成片镜头时间线"></div>
+                </div>
+              </div>
+              <aside class="final-look-panel" id="final-look-panel" aria-label="最终润色控制台">
+                <header class="final-look-head"><div><span class="deliver-kicker mono">FINAL LOOK / COLOR FINISH</span><h4>最终润色</h4></div><span class="final-look-status mono" id="final-look-status">READY TO FINISH</span></header>
+                <p class="final-look-intro">在导出前为整部短片定下统一的视觉气质。点击预设即可试听画面效果。</p>
+                <div class="final-look-scope"><div><span class="deliver-label mono">APPLY TO</span><strong id="final-look-scope">WHOLE FILM / 全片</strong></div><span class="final-look-scope-lock mono">LOCKED</span><small>高级模式：当前镜头 / 当前场景范围预留</small></div>
+                <div class="final-look-presets-head"><span class="deliver-label mono">LOOK PRESETS / 滤镜预设</span><span class="mono" id="final-look-preset-name">ORIGINAL</span></div>
+                <div class="final-look-preset-grid" id="final-look-preset-grid" role="listbox" aria-label="Final Look 滤镜预设">
+                  <button type="button" class="final-look-preset is-selected" data-final-look-preset="original" role="option" aria-selected="true"><i class="look-swatch look-swatch--original"></i><span><b>原片</b><small>ORIGINAL</small></span></button>
+                  <button type="button" class="final-look-preset" data-final-look-preset="film_narrative" role="option" aria-selected="false"><i class="look-swatch look-swatch--film"></i><span><b>胶片叙事</b><small>FILM NARRATIVE</small></span></button>
+                  <button type="button" class="final-look-preset" data-final-look-preset="cool_gray_future" role="option" aria-selected="false"><i class="look-swatch look-swatch--cool"></i><span><b>冷灰未来</b><small>COOL GRAY FUTURE</small></span></button>
+                  <button type="button" class="final-look-preset" data-final-look-preset="dream_surreal" role="option" aria-selected="false"><i class="look-swatch look-swatch--dream"></i><span><b>梦境超现实</b><small>DREAM SURREAL</small></span></button>
+                  <button type="button" class="final-look-preset" data-final-look-preset="documentary_desaturated" role="option" aria-selected="false"><i class="look-swatch look-swatch--documentary"></i><span><b>纪实去饱和</b><small>DOCUMENTARY DESAT</small></span></button>
+                  <button type="button" class="final-look-preset" data-final-look-preset="cyber_night" role="option" aria-selected="false"><i class="look-swatch look-swatch--cyber"></i><span><b>赛博夜色</b><small>CYBER NIGHT</small></span></button>
+                </div>
+                <div class="final-look-controls" aria-label="滤镜强度与附加效果">
+                  <label class="final-look-range"><span><b>LOOK INTENSITY</b><output id="final-look-intensity-value">72%</output></span><input id="final-look-intensity" type="range" min="0" max="1" step="0.01" value="0.72"></label>
+                  <label class="final-look-range"><span><b>FILM GRAIN</b><output id="final-look-grain-value">0%</output></span><input id="final-look-grain" type="range" min="0" max="1" step="0.01" value="0"></label>
+                  <label class="final-look-range"><span><b>VIGNETTE</b><output id="final-look-vignette-value">0%</output></span><input id="final-look-vignette" type="range" min="0" max="1" step="0.01" value="0"></label>
+                  <label class="final-look-range"><span><b>HIGHLIGHT SOFTEN</b><output id="final-look-softening-value">0%</output></span><input id="final-look-softening" type="range" min="0" max="1" step="0.01" value="0"></label>
+                </div>
+                <p class="final-look-description" id="final-look-description">保留原始曝光、色彩与镜头质感。</p>
+                <div class="final-look-actions"><button class="ghost" id="btn-reset-final-look" type="button">恢复原片</button><button class="cta" id="btn-apply-final-look" type="button">应用 Final Look <span class="cta-arrow" aria-hidden="true">→</span></button></div>
+                <p class="final-look-note mono">预览只改变当前审片画面；点击应用后才会写入全片交付配置。</p>
+              </aside>
+            </div>
+            <section class="deliver-audio-panel" id="deliver-audio-panel" aria-label="最终混音轨道"><header class="deliver-audio-head"><div><span class="deliver-label mono">FINAL MIX / SOUND DEPARTMENT</span><h4>四轨声音设计</h4></div><span class="mono" id="deliver-audio-state">MIX PLAN READY</span></header><div class="deliver-music-brief" id="deliver-music-brief"></div><div class="deliver-audio-track-list" id="deliver-audio-track-list"></div></section>
+          </section>
+
+          <section class="deliver-actions" id="deliver-actions" aria-label="放映室操作">
+            <div class="deliver-primary-actions">
+              <button class="cta cta--deliver-edit" id="btn-ai-edit" type="button">AI 剪辑成片 <span class="cta-arrow" aria-hidden="true">→</span></button>
+              <button class="cta cta--deliver-export hidden" id="btn-export-final" type="button">导出成片 <span class="cta-arrow" aria-hidden="true">→</span></button>
+            </div>
+            <div class="deliver-secondary-actions">
+              <button class="ghost" id="btn-reedit" type="button">重新剪辑</button>
+              <button class="ghost" id="btn-edit-subtitles" type="button">编辑字幕</button>
+              <button class="ghost more-export-trigger" id="btn-more-export" type="button" aria-expanded="false" aria-controls="more-export-menu">更多导出 <span aria-hidden="true">⌄</span></button>
+              <div class="more-export-menu hidden" id="more-export-menu" role="menu">
+                <a role="menuitem" class="more-export-link" id="export-srt" download>字幕 SRT</a>
+                <a role="menuitem" class="more-export-link" id="export-vtt" download>字幕 VTT</a>
+                <a role="menuitem" class="more-export-link" id="export-json" download>项目 JSON</a>
+                <a role="menuitem" class="more-export-link" id="export-md" download>制作手册 Markdown</a>
+              </div>
+            </div>
+          </section>
+
+          <p class="deliver-status-line mono" id="edit-status" aria-live="polite"></p>
+          <div class="delivery deliver-credits">
+            <div class="credits-roll-viewport"><div class="credits-roll mono" id="credits-roll">—</div></div>
           </div>
-          <div class="edit-console-controls">
-            <label class="subtitle-mode-control"><span class="manual-label mono">SUBTITLE OUTPUT / 字幕输出</span><select id="subtitle-mode" aria-label="字幕输出模式"><option value="burned">烧录字幕 · BURNED</option><option value="soft">软字幕 · SOFT + SRT/VTT</option><option value="none">无字幕 · CLEAN PICTURE</option></select></label>
-            <div class="edit-console-actions"><button class="ghost" id="btn-recut" type="button">重新规划粗剪</button><button class="cta" id="btn-approve-edit" type="button">批准最终成片 <span class="cta-arrow" aria-hidden="true">→</span></button></div>
-          </div>
-          <p class="edit-console-note mono" id="edit-console-note">AI Edit 会严格读取已锁定的台词本与字幕轨。</p>
         </section>
-        <div class="screen" id="screen">
-          <div class="screen-poster" id="screen-poster">
-            <p class="poster-title" id="poster-title">成片尚未生成</p>
-            <p class="poster-meta mono" id="poster-meta"></p>
-          </div>
-          <video id="final-video" controls playsinline preload="metadata"></video>
-        </div>
-        <div class="delivery">
-          <div class="credits-roll-viewport">
-            <div class="credits-roll mono" id="credits-roll">—</div>
-          </div>
-          <div class="delivery-actions">
-            <a class="ghost" id="export-json" download>导出 JSON</a>
-            <a class="ghost" id="export-md" download>导出 Markdown</a>
-            <a class="ghost" id="export-srt" download>导出 SRT</a>
-            <a class="ghost" id="export-vtt" download>导出 VTT</a>
-          </div>
-        </div>
       </div>
 
     </section>
@@ -274,6 +361,23 @@
 </main>
 
 <footer class="credits mono">▮▮ MOVIE·AGENT — 为 ModelScope「AI+∞ 影视流」而作 · 每一次创作决策都被存档</footer>
+
+<!-- Final Cut 导出配置 -->
+<div class="export-sheet hidden" id="export-sheet" role="dialog" aria-modal="true" aria-labelledby="export-sheet-title">
+  <div class="export-sheet-card">
+    <header class="export-sheet-head">
+      <div><span class="deliver-kicker mono">MASTER DELIVERY / FINAL CUT</span><h2 id="export-sheet-title">导出成片</h2><p>选择交付规格，默认输出 MP4 · H.264 · 1080P · 16:9。</p></div>
+      <button class="drawer-close" id="btn-export-close" type="button" aria-label="关闭导出设置">×</button>
+    </header>
+    <div class="export-options">
+      <fieldset class="export-option-group"><legend class="deliver-label mono">CONTAINER / 文件格式</legend><div class="export-option-grid"><button type="button" class="export-option is-selected" data-export-field="container" data-export-value="mp4"><b>MP4</b><small>H.264 · 通用</small></button><button type="button" class="export-option" data-export-field="container" data-export-value="mov"><b>MOV</b><small>ProRes-ready</small></button><button type="button" class="export-option" data-export-field="container" data-export-value="webm"><b>WebM</b><small>VP9 · Web</small></button></div></fieldset>
+      <fieldset class="export-option-group"><legend class="deliver-label mono">RESOLUTION / 分辨率</legend><div class="export-option-grid export-option-grid--compact"><button type="button" class="export-option" data-export-field="resolution" data-export-value="720p"><b>720P</b><small>轻量预览</small></button><button type="button" class="export-option is-selected" data-export-field="resolution" data-export-value="1080p"><b>1080P</b><small>推荐母版</small></button></div></fieldset>
+      <fieldset class="export-option-group"><legend class="deliver-label mono">FRAME / 画幅</legend><div class="export-option-grid"><button type="button" class="export-option is-selected" data-export-field="aspect" data-export-value="16:9"><b>16:9</b><small>横屏影院</small></button><button type="button" class="export-option" data-export-field="aspect" data-export-value="9:16"><b>9:16</b><small>竖屏短片</small></button><button type="button" class="export-option" data-export-field="aspect" data-export-value="1:1"><b>1:1</b><small>方形社媒</small></button></div></fieldset>
+      <fieldset class="export-option-group"><legend class="deliver-label mono">SUBTITLE / 字幕</legend><div class="export-option-grid"><button type="button" class="export-option is-selected" data-export-field="subtitle_mode" data-export-value="burned"><b>烧录</b><small>画面内嵌</small></button><button type="button" class="export-option" data-export-field="subtitle_mode" data-export-value="soft"><b>软字幕</b><small>可切换轨道</small></button><button type="button" class="export-option" data-export-field="subtitle_mode" data-export-value="none"><b>无字幕</b><small>纯画面</small></button></div></fieldset>
+    </div>
+    <footer class="export-sheet-foot"><p class="export-selection mono" id="export-selection">MP4 · H.264 · 1080P · 16:9 · BURNED</p><button class="cta" id="btn-export-run" type="button">开始导出 <span class="cta-arrow" aria-hidden="true">→</span></button></footer>
+  </div>
+</div>
 
 <!-- Inspector：镜头 / 剧组详情 -->
 <div class="drawer-backdrop hidden" id="drawer-backdrop"></div>

@@ -361,6 +361,7 @@ def _project_outputs(project, status_message: str, history_update):
         project.visual_bible_as_markdown(),
         project.storyboard_as_markdown(),
         project.log_as_markdown(),
+        project.audio_as_markdown(),
         status_message,
         project.final_output_placeholder or "",
         _video_update(project.final_output_placeholder),
@@ -376,7 +377,7 @@ def _project_outputs(project, status_message: str, history_update):
 
 def _empty_project_outputs(message: str):
     return (
-        "", "", "", "", "", f"## 任务日志\n- {message}", message, "", _hidden_video(), gr.update(),
+        "", "", "", "", "", f"## 任务日志\n- {message}", "", message, "", _hidden_video(), gr.update(),
         [], [], "DRAFT · 等待项目", "burned", _hidden_video(), "",
     )
 
@@ -419,11 +420,13 @@ def unlock_dialogue(project_id: str):
     return _project_outputs(project, "台词本已解锁，可修改后重新保存并锁定。", gr.update(value=project.project_id))
 
 
-def create_rough_cut(project_id: str, progress=gr.Progress()):
+def create_rough_cut(project_id: str, music_mode: str = "ai", smart_ducking: bool = True, progress=gr.Progress()):
     try:
         progress(0, desc="正在读取锁定台词本")
         project = orchestrator.create_rough_cut(
             project_id,
+            music_mode=music_mode,
+            smart_ducking=smart_ducking,
             progress_callback=lambda description: progress(0.55, desc=description),
         )
     except Exception as error:
@@ -449,6 +452,23 @@ def export_subtitles(project_id: str):
     except Exception as error:
         raise gr.Error(f"字幕导出失败：{error}") from error
     return [str(path) for path in paths]
+
+
+def export_video_variant(project_id: str, container: str, resolution: str, aspect: str, subtitle_mode: str):
+    if not project_id:
+        raise gr.Error("请先创建或打开一个项目。")
+    try:
+        project = orchestrator.store.load(project_id)
+        path = orchestrator.editor.export_variant(
+            project,
+            container=container,
+            resolution=resolution,
+            aspect=aspect,
+            subtitle_mode=subtitle_mode,
+        )
+    except Exception as error:
+        raise gr.Error(f"成片导出失败：{error}") from error
+    return str(path)
 
 
 def _hidden_video():
@@ -528,12 +548,18 @@ with gr.Blocks(title="Movie-Agent · 流影制片台", css=APP_CSS) as demo:
                 dialogue_state = gr.Textbox(label="台词版本状态", value="DRAFT · 等待项目", interactive=False)
                 with gr.Row(elem_classes="history-actions"):
                     rough_cut_button = gr.Button("AI 剪辑成片 →", variant="primary")
+                    music_mode = gr.Radio(
+                        [("AI 自动配乐", "ai"), ("素材库音乐", "library"), ("用户上传音乐", "upload")],
+                        value="ai", label="Music 来源", interactive=True,
+                    )
+                    smart_ducking = gr.Checkbox(value=True, label="Smart Ducking", info="语音出现时自动降低 Music")
                     subtitle_mode = gr.Dropdown(
                         ["burned", "soft", "none"], value="burned", label="最终字幕模式", interactive=True
                     )
                     approve_edit_button = gr.Button("批准最终成片", variant="primary")
                 rough_video = gr.Video(label="Rough Cut 粗剪预览", interactive=False, visible=False)
                 edit_status = gr.Textbox(label="AI Edit 状态", value="", interactive=False)
+                audio_plan = gr.Markdown("*AI Music、四轨声音设计和 Smart Ducking 会在 AI Edit 规划后显示。*")
                 subtitle_export_button = gr.Button("导出 SRT / VTT")
                 subtitle_exports = gr.File(label="字幕文件", file_count="multiple", interactive=False)
             with gr.Tabs():
@@ -550,14 +576,23 @@ with gr.Blocks(title="Movie-Agent · 流影制片台", css=APP_CSS) as demo:
                         logs = gr.Markdown("*任务日志会记录每一步制作决策。*")
                 with gr.Tab("交付文件"):
                     with gr.Group(elem_classes="panel"):
-                        gr.HTML("<div class='file-delivery'><h3>交付中心</h3><p>生成完成后，在此预览最终 MP4，并导出可提交的项目 JSON 与 Markdown 制作档案。</p></div>")
+                        gr.HTML("<div class='file-delivery'><h3>Final Cut Screening Room</h3><p>只有后端提供真实最终视频时才显示播放器；可在此选择规格导出 MP4 / MOV / WebM，并从更多文件导出字幕与制作档案。</p></div>")
                         final_video = gr.Video(label="最终成片", interactive=False, visible=False, elem_id="final-video")
-                        export = gr.Button("导出项目档案（JSON + Markdown）")
+                        with gr.Row(elem_classes="history-actions"):
+                            export_container = gr.Dropdown(["mp4", "mov", "webm"], value="mp4", label="文件格式")
+                            export_resolution = gr.Dropdown(["720p", "1080p"], value="1080p", label="分辨率")
+                            export_aspect = gr.Dropdown(["16:9", "9:16", "1:1"], value="16:9", label="画幅")
+                            export_subtitle_mode = gr.Dropdown(["burned", "soft", "none"], value="burned", label="字幕")
+                        with gr.Row(elem_classes="history-actions"):
+                            export_video_button = gr.Button("导出成片", variant="primary")
+                            export_video_file = gr.File(label="成片文件", interactive=False)
+                        gr.HTML("<p class='render-note'>默认 MP4 · H.264 · 1080P · 16:9 · 烧录字幕。JSON、Markdown、SRT、VTT 位于下方的更多导出。</p>")
+                        export = gr.Button("更多导出：项目 JSON + Markdown")
                         exports = gr.File(label="项目导出", file_count="multiple", interactive=False)
 
     # Keep creation and history recovery on the same display contract.
     project_outputs = [
-        project_id, brief, script, visual_bible, storyboard, logs, status, final_output, final_video, history,
+        project_id, brief, script, visual_bible, storyboard, logs, audio_plan, status, final_output, final_video, history,
         dialogue_book, subtitle_track, dialogue_state, subtitle_mode, rough_video, edit_status,
     ]
     submit.click(create_project, inputs=[idea, duration, visual_style], outputs=project_outputs)
@@ -580,9 +615,14 @@ with gr.Blocks(title="Movie-Agent · 流影制片台", css=APP_CSS) as demo:
     save_dialogue_button.click(save_dialogue, inputs=[project_id, dialogue_book, subtitle_track], outputs=project_outputs)
     lock_dialogue_button.click(lock_dialogue, inputs=project_id, outputs=project_outputs)
     unlock_dialogue_button.click(unlock_dialogue, inputs=project_id, outputs=project_outputs)
-    rough_cut_button.click(create_rough_cut, inputs=project_id, outputs=project_outputs)
+    rough_cut_button.click(create_rough_cut, inputs=[project_id, music_mode, smart_ducking], outputs=project_outputs)
     approve_edit_button.click(approve_edit, inputs=[project_id, subtitle_mode], outputs=project_outputs)
     subtitle_export_button.click(export_subtitles, inputs=project_id, outputs=subtitle_exports)
+    export_video_button.click(
+        export_video_variant,
+        inputs=[project_id, export_container, export_resolution, export_aspect, export_subtitle_mode],
+        outputs=export_video_file,
+    )
     export.click(export_project, inputs=project_id, outputs=exports)
 
 

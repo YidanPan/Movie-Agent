@@ -28,7 +28,12 @@ PORT=7860
 - 输入原创科幻创意后，页面出现项目设定、剧本、按镜头拆分的 Dialogue Book / Subtitle Track、视觉卡、6–10 个分镜和任务日志。
 - 能在编剧阶段编辑并锁定台词本；未锁定前不得进入配音、字幕和 AI Edit。
 - 全部镜头通过质检后显示 `SHOTS READY`，先生成可预览的 Rough Cut，再明确批准最终成片。
+- Deliver / 放映室按“未剪辑 → AI 剪辑中 → 最终成片完成”显示状态；最终成片存在时显示真实播放器、技术元数据和可跳转 Shot Timeline，不存在时明确显示 `FINAL CUT NOT GENERATED`。
+- 最终成片完成后，Deliver 播放器右侧出现 `FINAL LOOK / COLOR FINISH`。六种预设、强度、颗粒、暗角和高光柔化都只作用于整部影片；点击预设即时预览，点击“应用 Final Look”后才保存。真实视频由 FFmpeg 生成带版本号的润色母版，mock 模式只保存润色与导出方案，不伪造媒体文件。
+- `导出成片` 提供 MP4/MOV/WebM、720P/1080P、16:9/9:16/1:1 与烧录/软字幕/无字幕选项，默认 MP4 + H.264 + 1080P；JSON、制作手册 Markdown、SRT/VTT 位于 `更多导出`。
 - 默认启用字幕，并可在交付时选择烧录、软字幕或无字幕；SRT/VTT 可单独导出。
+- AI Edit 必须按 `Picture Cut → Voice → Music → SFX → Subtitles → Mix → Final Encode` 展示进度；声音设计区应显示 Music Brief、Emotional Arc、四轨状态和 Smart Ducking。
+- 配乐支持 AI 自动配乐、素材库音乐和用户上传音乐三种模式；没有真实音频生成器时也要保留可审阅的声音设计计划，不能伪称已有音频媒体。
 - 能打开已保存项目，且可导出 JSON 与 Markdown。
 - 无 API Key 时仍可切换为 mock 模式演示。
 - 视频能力未就绪时，页面明确标注为 mock 视频流程，不能将占位路径宣传为真实成片。
@@ -48,4 +53,4 @@ OUTPUTS_DIR=/path/to/Movie-Agent/outputs
 COMFY_MAX_RETRIES=2
 ```
 
-点击页面的“Spark 真实生成”后，应用会逐镜调用固定 API 工作流；每个镜头完成即保存 `project.json`，全部通过质检后显示 `SHOTS READY` 并推进到 `DELIVER`。点击 AI Edit 后先由 FFmpeg 生成可预览的 `rough-cut.mp4`，用户确认字幕模式并批准后才输出 `final-cut.mp4`。已通过质检的镜头会在再次点击后跳过；单镜生成或媒体完整性质检失败时，会按 `COMFY_MAX_RETRIES` 自动重试。
+点击页面的“Spark 真实生成”后，应用会逐镜调用固定 API 工作流；每个镜头完成即保存 `project.json`，全部通过质检后显示 `SHOTS READY` 并推进到 `DELIVER`。点击 AI Edit 后按 Picture Cut、Voice、Music、SFX、Subtitles、Mix、Final Encode 顺序生成可预览的 `rough-cut.mp4`，用户确认字幕与声音设计后批准才输出 `final-cut.mp4`。放映室可重新剪辑已批准项目，并通过导出配置接口生成不同容器、分辨率、画幅与字幕模式的交付文件。已通过质检的镜头会在再次点击后跳过；单镜生成或媒体完整性质检失败时，会按 `COMFY_MAX_RETRIES` 自动重试。

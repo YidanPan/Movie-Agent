@@ -14,6 +14,7 @@ from movie_agent.services.subtitles import (
     render_vtt,
     script_subtitle_track,
 )
+from movie_agent.services.final_look import final_look_filter, normalise_final_look
 
 
 class EditorAgent:
@@ -106,9 +107,109 @@ class EditorAgent:
             concat_file.unlink(missing_ok=True)
         return output_path
 
+    def _mix_audio(self, project: MovieProject, picture_path: Path) -> Path:
+        """Mix any real sound sources into the picture without faking media.
+
+        Mock and AI-generated plans normally have no audio files yet, so the
+        picture is returned unchanged. When a user upload or a future audio
+        renderer provides ``media_path`` values, this method adds them as
+        proper FFmpeg inputs and applies the stored volume / ducking settings.
+        """
+
+        if (project.mix_state or {}).get("media_mixed"):
+            return picture_path
+        sources: list[tuple[str, Path, float]] = []
+        for key, track in (project.audio_tracks or {}).items():
+            if track.get("enabled") is False:
+                continue
+            raw_path = track.get("media_path")
+            if not raw_path:
+                continue
+            path = Path(str(raw_path))
+            if path.is_file():
+                try:
+                    gain = float(track.get("volume_db", 0) or 0)
+                except (TypeError, ValueError):
+                    gain = 0.0
+                sources.append((str(key), path, gain))
+        if not sources or not picture_path.is_file():
+            return picture_path
+
+        # A lot of generated T2V clips are silent. Add a bounded room-tone
+        # source in that case so an uploaded score can still be mixed in.
+        probe = subprocess.run(
+            [self.settings.ffprobe_bin, "-v", "error", "-select_streams", "a:0", "-show_entries", "stream=index", "-of", "csv=p=0", str(picture_path)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        base_has_audio = bool(probe.stdout.strip())
+        command = [self.settings.ffmpeg_bin, "-y", "-i", str(picture_path)]
+        base_index = 0
+        if not base_has_audio:
+            command.extend([
+                "-f", "lavfi",
+                "-t", str(max(1, project.duration_seconds)),
+                "-i", "anullsrc=channel_layout=stereo:sample_rate=48000",
+            ])
+            base_index = 1
+        first_source_index = len([arg for arg in command if arg == "-i"])
+        for _, path, _ in sources:
+            command.extend(["-stream_loop", "-1", "-i", str(path)])
+        filter_parts = [f"[{base_index}:a]anull[base]"]
+        mix_labels = ["[base]"]
+        music_label = None
+        voice_label = None
+        for offset, (key, _, gain) in enumerate(sources, start=first_source_index):
+            label = f"track{offset}"
+            volume_filter = f"volume={10 ** (gain / 20):.5f}"
+            if key == "voice":
+                # The voice signal feeds both the audible mix and the
+                # sidechain detector, so split it before ducking Music.
+                voice_label = f"{label}_sidechain"
+                filter_parts.append(
+                    f"[{offset}:a]{volume_filter},asplit=2[{label}][{voice_label}]"
+                )
+            else:
+                filter_parts.append(f"[{offset}:a]{volume_filter}[{label}]")
+            if key == "music":
+                music_label = label
+            mix_labels.append(f"[{label}]")
+        if music_label and project.smart_ducking.get("enabled"):
+            ducked = "music_ducked"
+            sidechain = f"[{voice_label}]" if voice_label else f"[{base_index}:a]"
+            filter_parts.append(
+                f"[{music_label}]{sidechain}sidechaincompress=threshold=0.03:ratio=8:attack=0.12:release=0.42[{ducked}]"
+            )
+            # Replace the music input in the final mix with its ducked version.
+            mix_labels = [label for label in mix_labels if label != f"[{music_label}]"] + [f"[{ducked}]"]
+        filter_parts.append("".join(mix_labels) + f"amix=inputs={len(mix_labels)}:duration=first:dropout_transition=2[mix]")
+        mixed_path = picture_path.with_name(f"{picture_path.stem}.mixed.mp4")
+        command.extend([
+            "-filter_complex", ";".join(filter_parts),
+            "-map", "0:v:0",
+            "-map", "[mix]",
+            "-c:v", "copy",
+            "-c:a", "aac",
+            "-b:a", "192k",
+            "-shortest",
+            "-movflags", "+faststart",
+            str(mixed_path),
+        ])
+        completed = subprocess.run(command, capture_output=True, text=True, check=False)
+        if completed.returncode != 0 or not mixed_path.is_file():
+            mixed_path.unlink(missing_ok=True)
+            return picture_path
+        picture_path.unlink(missing_ok=True)
+        mixed_path.replace(picture_path)
+        project.mix_state["media_mixed"] = True
+        return picture_path
+
     def _rough_cut_plan(self, project: MovieProject) -> dict[str, Any]:
+        tracks = project.audio_tracks or {}
         return {
             "status": "rough_cut",
+            "pipeline": ["picture_cut", "voice", "music", "sfx", "subtitles", "mix", "final_encode"],
             "sequence": [
                 {
                     "shot": shot.number,
@@ -118,9 +219,17 @@ class EditorAgent:
                 for shot in project.storyboard
             ],
             "audio": {
-                "voiceover": "locked subtitle track / dialogue book",
-                "bgm": "ambient score · restrained",
-                "sfx": "shot sound design cues",
+                "tracks": {
+                    key: {
+                        "status": value.get("status"),
+                        "enabled": value.get("enabled", True),
+                        "volume_db": value.get("volume_db", 0),
+                        "source": value.get("source", ""),
+                    }
+                    for key, value in tracks.items()
+                },
+                "smart_ducking": project.smart_ducking or {},
+                "music_brief": project.music_brief or {},
             },
             "subtitles": {
                 "enabled": normalise_subtitle_mode(project.subtitle_mode) != "none",
@@ -167,10 +276,11 @@ class EditorAgent:
         rough_path = self._output_dir(project) / "rough-cut.mp4"
         if all(path.is_file() for path in self._shot_paths(project)):
             self._concat_media(project, rough_path)
+            self._mix_audio(project, rough_path)
             project.rough_cut_placeholder = str(rough_path)
-            return "剪辑 Agent：已完成 Rough Cut，排序、Trim、转场、旁白、BGM、SFX 与字幕轨已就绪。"
+            return "剪辑 Agent：已完成 Rough Cut，Picture Cut、Voice、Music、SFX、Subtitles 与 Mix 已就绪。"
         project.rough_cut_placeholder = f"outputs/{project.project_id}/rough-cut.mp4"
-        return "剪辑 Agent：已模拟完成 Rough Cut，等待真实镜头媒体后可预览。"
+        return "剪辑 Agent：已模拟完成 Rough Cut，四轨声音设计与字幕计划已就绪，等待真实镜头媒体后可预览。"
 
     def assemble_mock(self, project: MovieProject) -> str:
         """Create the mock final-delivery placeholder after explicit approval."""
@@ -181,7 +291,7 @@ class EditorAgent:
         self.write_subtitle_exports(project)
         project.final_output_placeholder = f"outputs/{project.project_id}/final-cut.mp4"
         project.edit_plan = {**(project.edit_plan or {}), "status": "final_approved", "approved": True}
-        return f"剪辑 Agent：已批准交付 mock 成片（字幕模式：{project.subtitle_mode}）。"
+        return f"剪辑 Agent：已批准交付 mock 成片（字幕模式：{project.subtitle_mode}；四轨混音已确认）。"
 
     def assemble(self, project: MovieProject, subtitle_mode: str | None = None) -> str:
         """Render the final master from locked dialogue and the selected subtitle mode."""
@@ -194,20 +304,23 @@ class EditorAgent:
         rough_path = output_dir / "rough-cut.mp4"
         if not rough_path.is_file():
             self._concat_media(project, rough_path)
+        self._mix_audio(project, rough_path)
         final_cut = output_dir / "final-cut.mp4"
 
         if project.subtitle_mode == "burned":
             # Burn-in is best-effort because font packages differ between the
             # local machine and Spark. A clean concat fallback still leaves
             # the canonical SRT sidecar available for review.
-            subtitle_filter_path = str(srt_path.resolve()).replace("\\", "\\\\").replace(":", "\\:")
+            # The subtitles filter accepts a POSIX-style path; on Windows the
+            # drive-colon is escaped while slashes remain forward slashes.
+            subtitle_filter_path = srt_path.resolve().as_posix().replace(":", "\\:")
             command = [
                 self.settings.ffmpeg_bin,
                 "-y",
                 "-i",
                 str(rough_path),
                 "-vf",
-                f"subtitles={subtitle_filter_path}",
+                f"subtitles='{subtitle_filter_path}'",
                 "-c:v",
                 "libx264",
                 "-c:a",
@@ -231,3 +344,132 @@ class EditorAgent:
         project.final_output_placeholder = str(final_cut)
         project.edit_plan = {**(project.edit_plan or {}), "status": "final_approved", "approved": True}
         return f"剪辑 Agent：已用 FFmpeg 合成 {len(project.storyboard)} 个镜头（字幕模式：{project.subtitle_mode}）。"
+
+    def apply_final_look(self, project: MovieProject, look: dict[str, Any], source_path: Path) -> Path | None:
+        """Render an applied whole-film look when a real Final Cut exists."""
+
+        source = Path(source_path)
+        if not source.is_file():
+            return None
+        video_filter = final_look_filter(look)
+        if video_filter == "null":
+            return source
+        output_dir = self._output_dir(project)
+        revision = max(1, int((look or {}).get("revision", 1) or 1))
+        output = output_dir / f"final-look-v{revision}.mp4"
+        command = [
+            self.settings.ffmpeg_bin,
+            "-y",
+            "-i",
+            str(source),
+            "-vf",
+            video_filter,
+            "-map",
+            "0:v:0",
+            "-map",
+            "0:a?",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "medium",
+            "-crf",
+            "18",
+            "-pix_fmt",
+            "yuv420p",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "192k",
+            "-movflags",
+            "+faststart",
+            str(output),
+        ]
+        completed = subprocess.run(command, capture_output=True, text=True, check=False)
+        if completed.returncode != 0 or not output.is_file():
+            output.unlink(missing_ok=True)
+            return None
+        return output
+
+    def export_variant(
+        self,
+        project: MovieProject,
+        *,
+        container: str = "mp4",
+        resolution: str = "1080p",
+        aspect: str = "16:9",
+        subtitle_mode: str = "burned",
+    ) -> Path:
+        """Encode a selectable delivery variant from the approved cut.
+
+        The rough cut is preferred as the source so a user can switch between
+        burned, soft, and clean subtitles without stacking subtitles onto an
+        already-burned master. The saved Final Look is applied to the export
+        source unless that exact source is already the rendered look. Mock
+        projects deliberately fail here because their placeholder paths are
+        not media files.
+        """
+
+        self._require_locked_dialogue(project)
+        if not str(project.status).startswith("completed"):
+            raise RuntimeError("请先完成并批准最终成片，再导出交付版本。")
+        container = str(container).lower().strip()
+        resolution = str(resolution).lower().strip()
+        aspect = str(aspect).strip()
+        subtitle_mode = normalise_subtitle_mode(subtitle_mode)
+        if container not in {"mp4", "mov", "webm"}:
+            raise ValueError("文件格式仅支持 MP4、MOV 或 WebM。")
+        if resolution not in {"720p", "1080p"}:
+            raise ValueError("分辨率仅支持 720P 或 1080P。")
+        if aspect not in {"16:9", "9:16", "1:1"}:
+            raise ValueError("画幅仅支持 16:9、9:16 或 1:1。")
+        output_dir = self._output_dir(project)
+        rough_path = output_dir / "rough-cut.mp4"
+        final_path = Path(project.final_output_placeholder or "")
+        source = rough_path if rough_path.is_file() else final_path
+        if not source.is_file():
+            raise RuntimeError("FINAL CUT 尚未生成真实视频文件，暂时无法导出。")
+        look = normalise_final_look(project.final_look or {})
+        look_media = Path(str(look.get("media_path") or ""))
+        look_already_on_source = bool(
+            look.get("applied")
+            and look_media.is_file()
+            and look_media.resolve() == source.resolve()
+        )
+        look_filter = "null" if look_already_on_source else final_look_filter(look)
+
+        height = 1080 if resolution == "1080p" else 720
+        width = 1920 if aspect == "16:9" else 1080 if aspect == "9:16" else height
+        if aspect == "1:1":
+            width = height
+        scale_filter = f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height}"
+        srt_path, _ = self.write_subtitle_exports(project)
+        output_path = output_dir / f"final-{resolution}-{aspect.replace(':', 'x')}-{subtitle_mode}.{container}"
+
+        command = [self.settings.ffmpeg_bin, "-y", "-i", str(source)]
+        if subtitle_mode == "soft":
+            command.extend(["-i", str(srt_path)])
+        command.extend(["-map", "0:v:0", "-map", "0:a?"])
+        if subtitle_mode == "soft":
+            command.extend(["-map", "1:0"])
+        video_filters = [scale_filter]
+        if look_filter != "null":
+            video_filters.append(look_filter)
+        if subtitle_mode == "burned":
+            subtitle_filter_path = srt_path.resolve().as_posix().replace(":", "\\:")
+            video_filters.append(f"subtitles='{subtitle_filter_path}'")
+        command.extend(["-vf", ",".join(video_filters)])
+
+        if container in {"mp4", "mov"}:
+            command.extend(["-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k"])
+            if subtitle_mode == "soft":
+                command.extend(["-c:s", "mov_text", "-metadata:s:s:0", "language=chi"])
+            command.extend(["-movflags", "+faststart"])
+        else:
+            command.extend(["-c:v", "libvpx-vp9", "-crf", "32", "-b:v", "0", "-c:a", "libopus"])
+            if subtitle_mode == "soft":
+                command.extend(["-c:s", "webvtt", "-metadata:s:s:0", "language=chi"])
+        command.append(str(output_path))
+        completed = subprocess.run(command, capture_output=True, text=True, check=False)
+        if completed.returncode != 0 or not output_path.is_file():
+            raise RuntimeError(f"导出失败：{completed.stderr[-700:]}")
+        return output_path

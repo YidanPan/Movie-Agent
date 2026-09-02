@@ -50,6 +50,8 @@ class SubtitleAssetTests(unittest.TestCase):
         self.assertEqual(len(project.script["subtitle_track"]), 6)
         self.assertFalse(project.script["dialogue_locked"])
         self.assertIsNone(project.rough_cut_placeholder)
+        self.assertEqual(set(project.audio_tracks), {"voice", "music", "sfx", "ambience"})
+        self.assertIn("emotional_arc", project.music_brief)
 
     def test_mock_editor_requires_lock_and_writes_sidecars(self) -> None:
         with TemporaryDirectory() as temporary_directory:
@@ -85,6 +87,9 @@ class SubtitleAssetTests(unittest.TestCase):
             editor.create_rough_cut(project)
             self.assertEqual(project.edit_plan["status"], "rough_cut")
             self.assertTrue((root / "outputs" / project.project_id / "subtitles.srt").is_file())
+            project.status = "completed_mock"
+            with self.assertRaisesRegex(ValueError, "文件格式"):
+                editor.export_variant(project, container="avi")
 
 
 if __name__ == "__main__":

@@ -32,21 +32,43 @@ class MovieOrchestratorTests(unittest.TestCase):
             self.assertEqual(len(project.script["dialogue_book"]), len(project.storyboard))
             self.assertEqual(len(project.script["subtitle_track"]), len(project.storyboard))
             self.assertFalse(project.script["dialogue_locked"])
+            self.assertEqual(project.music_mode, "ai")
+            self.assertIn("emotional_arc", project.music_brief)
+            self.assertEqual(len(project.music_brief["emotional_arc"]), len(project.storyboard))
+            self.assertEqual(set(project.audio_tracks), {"voice", "music", "sfx", "ambience"})
+            self.assertTrue(project.smart_ducking["enabled"])
+            self.assertEqual(project.mix_state["pipeline"], ["picture_cut", "voice", "music", "sfx", "subtitles", "mix", "final_encode"])
             exported = MovieOrchestrator(settings).store.export(project.project_id)
             self.assertEqual(len(exported), 2)
             self.assertIn("最终视频提示词", exported[1].read_text(encoding="utf-8"))
+            self.assertIn("Sound Department", exported[1].read_text(encoding="utf-8"))
 
             locked = MovieOrchestrator(settings).lock_dialogue(project.project_id)
             self.assertTrue(locked.script["dialogue_locked"])
+            configured = MovieOrchestrator(settings).set_audio_design(
+                project.project_id,
+                music_mode="library",
+                smart_ducking=False,
+            )
+            self.assertEqual(configured.music_mode, "library")
+            self.assertFalse(configured.smart_ducking["enabled"])
+            self.assertEqual(configured.audio_tracks["music"]["source"], "STUDIO LIBRARY / CURATED SCORE")
+            refreshed = MovieOrchestrator(settings).regenerate_audio_track(project.project_id, "music")
+            self.assertGreaterEqual(refreshed.audio_tracks["music"].get("revision", 1), 2)
             rough = MovieOrchestrator(settings).create_rough_cut(project.project_id)
             self.assertEqual(rough.status, "rough_cut_ready")
             self.assertIsNotNone(rough.rough_cut_placeholder)
             self.assertIsNone(rough.final_output_placeholder)
+            self.assertTrue(all(value == "done" for value in rough.mix_state["stage_status"].values()))
             approved = MovieOrchestrator(settings).approve_edit(project.project_id, "soft")
             self.assertEqual(approved.status, "completed_mock")
             self.assertEqual(approved.subtitle_mode, "soft")
             self.assertEqual(approved.final_output_placeholder, f"outputs/{project.project_id}/final-cut.mp4")
             self.assertTrue((root / "outputs" / project.project_id / "subtitles.srt").exists())
+
+            re_cut = MovieOrchestrator(settings).create_rough_cut(project.project_id)
+            self.assertEqual(re_cut.status, "rough_cut_ready")
+            self.assertIsNone(re_cut.final_output_placeholder)
 
             unlocked = MovieOrchestrator(settings).unlock_dialogue(project.project_id)
             self.assertFalse(unlocked.script["dialogue_locked"])
