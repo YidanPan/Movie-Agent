@@ -549,6 +549,8 @@ main {
   animation: fade-up 0.5s ease both;
 }
 
+.crew-summary .sk { min-height: 8px; }
+
 @keyframes fade-up {
   from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: translateY(0); }
@@ -1160,6 +1162,8 @@ body[data-view="landing"] .pipeline { display: none; }
   inset: -25%;
   filter: blur(90px);
   pointer-events: none;
+  transform: translate(var(--aurora-x, 0), var(--aurora-y, 0));
+  transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .aurora i { position: absolute; border-radius: 50%; will-change: transform; }
@@ -1392,6 +1396,300 @@ body[data-view="landing"] .pipeline { display: none; }
 .shutter::after { bottom: 0; transform-origin: bottom; }
 
 .shutter.is-closed::before, .shutter.is-closed::after { transform: scaleY(1); }
+
+/* ── 等待表演化：骨架微光 / 镜头翻入 / 手册实时填充 ────────── */
+
+.sk {
+  display: block;
+  height: 8px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, rgba(232, 163, 76, 0.05), rgba(232, 163, 76, 0.18), rgba(232, 163, 76, 0.05));
+  background-size: 200% 100%;
+  animation: shimmer 1.3s linear infinite;
+}
+
+.sk-1 { width: 88%; }
+.sk-2 { width: 64%; margin-top: 8px; }
+
+@keyframes shimmer { to { background-position: -200% 0; } }
+
+.shot-card.card-enter { animation: card-in 0.55s cubic-bezier(0.16, 1, 0.3, 1) both; }
+
+@keyframes card-in {
+  from { opacity: 0; transform: translateY(18px) scale(0.97); }
+}
+
+.tab.is-live { color: var(--text); }
+
+.tab.is-live::after {
+  content: "";
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin-left: 7px;
+  border-radius: 50%;
+  background: var(--amber);
+  box-shadow: 0 0 8px rgba(232, 163, 76, 0.7);
+  vertical-align: middle;
+}
+
+.tab-body dl dt, .tab-body dl dd { animation: row-in 0.5s cubic-bezier(0.16, 1, 0.3, 1) both; }
+
+@keyframes row-in {
+  from { opacity: 0; transform: translateY(8px); }
+}
+
+/* ── 电影感数据：剪辑时间线 / 未曝光胶片 / 取景框 ─────────── */
+
+.edit-timeline-wrap { margin-top: 18px; }
+
+.timeline-head {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  font-size: 0.6rem;
+  letter-spacing: 0.22em;
+  color: var(--faint);
+}
+
+.edit-timeline { display: flex; gap: 3px; height: 38px; }
+
+.timeline-segment {
+  position: relative;
+  min-width: 14px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: var(--line);
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.timeline-segment span {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-style: normal;
+  font-size: 0.58rem;
+  letter-spacing: 0.1em;
+  color: var(--dim);
+}
+
+.timeline-segment:hover, .timeline-segment:focus-visible { transform: translateY(-2px); box-shadow: 0 6px 14px rgba(0, 0, 0, 0.4); }
+.timeline-segment:focus-visible { outline: 1px solid var(--text); outline-offset: 2px; }
+
+.timeline-segment[data-status="generating_mock"],
+.timeline-segment[data-status="generating_comfyui"] { background: var(--amber); animation: rec-blink 1s infinite; }
+
+.timeline-segment[data-status="generated_comfyui"] { background: var(--amber-deep); }
+
+.timeline-segment[data-status="approved_mock"],
+.timeline-segment[data-status="approved_comfyui"] { background: var(--ok); }
+
+.timeline-segment[data-status="approved_mock"] span,
+.timeline-segment[data-status="approved_comfyui"] span { color: #0d0c0a; font-weight: 600; }
+
+.timeline-segment[data-status="generation_failed"] { background: var(--err); }
+
+.shot-frame::before {
+  content: "";
+  position: absolute;
+  inset: 7px;
+  border: 1px dashed rgba(236, 226, 205, 0.13);
+  pointer-events: none;
+}
+
+.shot-frame::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse at center, transparent 44%, rgba(0, 0, 0, 0.32) 115%),
+    repeating-linear-gradient(0deg, rgba(236, 226, 205, 0.028) 0 1px, transparent 1px 4px);
+  pointer-events: none;
+}
+
+.shot-frame:has(video)::before, .shot-frame:has(video)::after { display: none; }
+
+.film-stamp {
+  position: absolute;
+  top: 8px;
+  left: 9px;
+  z-index: 1;
+  font-size: 0.5rem;
+  letter-spacing: 0.12em;
+  color: rgba(236, 226, 205, 0.36);
+}
+
+.shot-frame:has(video) .film-stamp { display: none; }
+
+.tab-body .is-typing::after {
+  content: "▋";
+  display: inline-block;
+  margin-left: 2px;
+  color: var(--amber);
+  animation: rec-blink 0.8s step-end infinite;
+}
+
+.viewfinder { position: absolute; inset: 0; z-index: 1; pointer-events: none; }
+
+.vf { position: absolute; width: 16px; height: 16px; opacity: 0.55; }
+
+.vf.tl { top: 9px; left: 9px; border-top: 2px solid var(--amber); border-left: 2px solid var(--amber); }
+.vf.tr { top: 9px; right: 9px; border-top: 2px solid var(--amber); border-right: 2px solid var(--amber); }
+.vf.bl { bottom: 9px; left: 9px; border-bottom: 2px solid var(--amber); border-left: 2px solid var(--amber); }
+.vf.br { bottom: 9px; right: 9px; border-bottom: 2px solid var(--amber); border-right: 2px solid var(--amber); }
+
+.vf-safe { position: absolute; inset: 10% 8%; border: 1px dashed rgba(232, 163, 76, 0.15); }
+
+.vf-cross {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 18px;
+  height: 18px;
+  transform: translate(-50%, -50%);
+  opacity: 0.4;
+  background:
+    linear-gradient(rgba(232, 163, 76, 0.8), rgba(232, 163, 76, 0.8)) center / 1px 100% no-repeat,
+    linear-gradient(rgba(232, 163, 76, 0.8), rgba(232, 163, 76, 0.8)) center / 100% 1px no-repeat;
+}
+
+#monitor-tc { color: var(--amber); letter-spacing: 0.08em; }
+
+/* ── 完成仪式感：首映遮罩 / 片尾字幕 ──────────────────────── */
+
+.premiere {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  place-items: center;
+  background: rgba(4, 3, 2, 0.94);
+  backdrop-filter: blur(4px);
+}
+
+.premiere-card { max-width: 720px; padding: 40px 30px; text-align: center; }
+
+.premiere-eyebrow {
+  font-size: 0.66rem;
+  letter-spacing: 0.4em;
+  color: var(--amber);
+  opacity: 0;
+  animation: fade-rise 0.8s 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.premiere-title {
+  margin-top: 26px;
+  font-family: var(--serif);
+  font-size: clamp(2rem, 5vw, 3.8rem);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1.3;
+  opacity: 0;
+  animation: premiere-rise 1s 0.45s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes premiere-rise {
+  from { opacity: 0; transform: translateY(26px); filter: blur(8px); }
+  to { opacity: 1; transform: none; filter: none; }
+}
+
+.premiere-meta {
+  margin-top: 16px;
+  font-size: 0.68rem;
+  letter-spacing: 0.24em;
+  color: var(--faint);
+  opacity: 0;
+  animation: fade-rise 0.8s 0.9s forwards;
+}
+
+.premiere-byline {
+  margin-top: 34px;
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 0.8rem;
+  letter-spacing: 0.42em;
+  color: var(--dim);
+  opacity: 0;
+  animation: fade-rise 1s 1.2s forwards;
+}
+
+#btn-premiere-play { margin-top: 44px; opacity: 0; animation: fade-rise 0.8s 1.7s forwards; }
+
+.premiere-skip {
+  margin-top: 20px;
+  background: none;
+  border: 0;
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: 0.64rem;
+  letter-spacing: 0.2em;
+  cursor: pointer;
+  opacity: 0;
+  animation: fade-rise 0.8s 2s forwards;
+}
+
+.premiere-skip:hover { color: var(--dim); }
+
+.credits-roll-viewport {
+  flex: 1;
+  min-width: 0;
+  height: 132px;
+  position: relative;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(transparent, #000 18%, #000 82%, transparent);
+  mask-image: linear-gradient(transparent, #000 18%, #000 82%, transparent);
+}
+
+.credits-roll {
+  position: absolute;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 0.7rem;
+  line-height: 2.1;
+  color: var(--dim);
+}
+
+.credits-roll.is-rolling { animation: credits-roll 16s linear forwards; }
+
+@keyframes credits-roll {
+  from { transform: translateY(60%); }
+  to { transform: translateY(-100%); }
+}
+
+.credits-roll .cr-group { margin: 16px 0; }
+
+.credits-roll .cr-head {
+  margin-bottom: 4px;
+  font-size: 0.6rem;
+  letter-spacing: 0.3em;
+  color: var(--amber);
+}
+
+.credits-roll .cr-strong { color: var(--text); }
+
+/* ── 声音开关与按压反馈 ───────────────────────────────────── */
+
+.sound-toggle {
+  padding: 7px 14px;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--faint);
+  font-size: 0.62rem;
+  letter-spacing: 0.14em;
+  cursor: pointer;
+  transition: border-color 0.2s ease, color 0.2s ease;
+}
+
+.sound-toggle:hover { border-color: var(--amber-deep); color: var(--dim); }
+
+.sound-toggle.is-on { border-color: rgba(232, 163, 76, 0.5); color: var(--amber); }
+
+.cta:active { transform: translateY(0) scale(0.98); }
 
 /* ── 响应式 ────────────────────────────────────────────────── */
 

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Movie-Agent · AI 片场</title>
 <meta name="description" content="一句话科幻创意，交给一支 AI 剧组：导演、编剧、美术、分镜、质检、生成、剪辑。">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230d0c0a'/%3E%3Crect x='6' y='12' width='5' height='8' fill='%23e8a34c'/%3E%3Crect x='14' y='12' width='5' height='8' fill='%23e8a34c' opacity='.55'/%3E%3Crect x='22' y='12' width='5' height='8' fill='%23e8a34c' opacity='.3'/%3E%3C/svg%3E">
+<link id="favicon" rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230d0c0a'/%3E%3Crect x='6' y='12' width='5' height='8' fill='%23e8a34c'/%3E%3Crect x='14' y='12' width='5' height='8' fill='%23e8a34c' opacity='.55'/%3E%3Crect x='22' y='12' width='5' height='8' fill='%23e8a34c' opacity='.3'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body data-view="landing">
@@ -21,6 +21,7 @@
     <span class="step" data-step="render"><b>03</b>RENDER</span><i class="sep" aria-hidden="true"></i>
     <span class="step" data-step="deliver"><b>04</b>DELIVER</span>
   </nav>
+  <button class="sound-toggle mono" id="btn-sound" type="button" aria-label="切换界面音效" title="界面音效">♪ OFF</button>
   <div class="rec-clock mono"><span class="rec-dot" aria-hidden="true"></span>REC <span id="clock">00:00:00</span></div>
 </header>
 
@@ -128,6 +129,10 @@
         <div class="filmstrip-viewport">
           <div class="filmstrip" id="filmstrip"></div>
         </div>
+        <div class="edit-timeline-wrap">
+          <div class="timeline-head mono"><span>EDIT TIMELINE</span><span id="timeline-total">—</span></div>
+          <div class="edit-timeline" id="edit-timeline" role="list" aria-label="剪辑时间线"></div>
+        </div>
         <p class="panel-note">点击镜头卡片查看完整画面、动作、声音与最终提示词；对不满意的镜头可单独重新规划。</p>
       </div>
 
@@ -137,9 +142,11 @@
           <span class="panel-meta mono" id="project-id-label">—</span>
         </div>
         <div class="monitor-screen">
+          <div class="viewfinder" aria-hidden="true"><i class="vf tl"></i><i class="vf tr"></i><i class="vf bl"></i><i class="vf br"></i><i class="vf-safe"></i><i class="vf-cross"></i></div>
           <div class="monitor-topline mono">
             <span class="rec-inline" id="render-rec"><span class="rec-dot" aria-hidden="true"></span>REC</span>
             <span id="monitor-shot">STANDBY</span>
+            <span id="monitor-tc" class="hidden">TC 00:00:00:00</span>
             <span id="monitor-pct"></span>
           </div>
           <div class="shot-map" id="shot-map" aria-label="镜头状态"></div>
@@ -180,7 +187,9 @@
           <video id="final-video" controls playsinline preload="metadata"></video>
         </div>
         <div class="delivery">
-          <div class="delivery-info mono" id="delivery-info">—</div>
+          <div class="credits-roll-viewport">
+            <div class="credits-roll mono" id="credits-roll">—</div>
+          </div>
           <div class="delivery-actions">
             <a class="ghost" id="export-json" download>导出 JSON</a>
             <a class="ghost" id="export-md" download>导出 Markdown</a>
@@ -197,6 +206,18 @@
 <!-- 镜头详情抽屉 -->
 <div class="drawer-backdrop hidden" id="drawer-backdrop"></div>
 <aside class="drawer" id="drawer" aria-label="镜头详情"></aside>
+
+<!-- 首映遮罩 -->
+<div class="premiere hidden" id="premiere" role="dialog" aria-label="成片首映">
+  <div class="premiere-card">
+    <p class="premiere-eyebrow mono">WORLD PREMIERE · 世界首映</p>
+    <h2 class="premiere-title" id="premiere-title"></h2>
+    <p class="premiere-meta mono" id="premiere-meta"></p>
+    <p class="premiere-byline">A FILM BY MOVIE·AGENT</p>
+    <button class="cta cta-landing" id="btn-premiere-play" type="button">▶ 播放成片</button>
+    <button class="premiere-skip mono" id="btn-premiere-skip" type="button">跳过 ✕</button>
+  </div>
+</div>
 
 <div class="toast mono" id="toast" role="status"></div>
 

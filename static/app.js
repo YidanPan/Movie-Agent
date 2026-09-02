@@ -15,6 +15,17 @@ const els = {
   btnEnter: $("#btn-enter"),
   brandHome: $("#brand-home"),
   shutter: $(".shutter"),
+  btnSound: $("#btn-sound"),
+  monitorTc: $("#monitor-tc"),
+  editTimeline: $("#edit-timeline"),
+  timelineTotal: $("#timeline-total"),
+  creditsRoll: $("#credits-roll"),
+  premiere: $("#premiere"),
+  premiereTitle: $("#premiere-title"),
+  premiereMeta: $("#premiere-meta"),
+  btnPremierePlay: $("#btn-premiere-play"),
+  btnPremiereSkip: $("#btn-premiere-skip"),
+  favicon: $("#favicon"),
   idea: $("#idea"),
   duration: $("#duration"),
   tcValue: $("#tc-value"),
@@ -108,13 +119,25 @@ const PROJECT_STATUS = {
 
 const state = {
   project: null,
+  assets: {},
+  pendingProjectId: null,
   selectedStyle: STYLE_OPTIONS[0],
   health: null,
   busy: false,
   rendering: false,
+  soundEnabled: localStorage.getItem("movie-agent-sound") === "on",
+  activeShotNumber: 1,
+  renderStartedAt: 0,
   manualTab: "brief",
   hasFinalVideo: false,
 };
+
+let manualTypingRun = 0;
+let monitorTimecodeTimer = null;
+let premiereTimer = null;
+let projectorOscillator = null;
+let projectorGain = null;
+let faviconBlinkTimer = null;
 
 /* ── 小工具 ────────────────────────────────────────────────── */
 
@@ -150,6 +173,79 @@ function toast(message, isError = false) {
 
 function show(el) { el.classList.remove("hidden"); }
 function hide(el) { el.classList.add("hidden"); }
+
+function projectTitle(project = state.project) {
+  return truncate((project && project.brief && project.brief["主题"]) || (project && project.idea) || "未命名短片", 28);
+}
+
+function setBrowserActivity(mode, project = state.project) {
+  const projectId = project && project.project_id ? project.project_id : "Movie-Agent";
+  document.title = mode === "render" ? `● RENDERING ${projectId}` : `Movie-Agent · ${projectTitle(project)}`;
+  clearInterval(faviconBlinkTimer);
+  const setFavicon = (dot) => {
+    if (!els.favicon) return;
+    els.favicon.href = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230d0c0a'/%3E%3Ccircle cx='24' cy='8' r='4' fill='${dot}'/%3E%3Crect x='6' y='12' width='5' height='8' fill='%23e8a34c'/%3E%3Crect x='14' y='12' width='5' height='8' fill='%23e8a34c' opacity='.55'/%3E%3C/svg%3E`;
+  };
+  if (mode !== "render") {
+    setFavicon("%23e8a34c");
+    return;
+  }
+  let lit = true;
+  setFavicon("%23e85a4f");
+  faviconBlinkTimer = setInterval(() => {
+    lit = !lit;
+    setFavicon(lit ? "%23e85a4f" : "%23332a25");
+  }, 700);
+}
+
+function audioContext() {
+  const Context = window.AudioContext || window.webkitAudioContext;
+  if (!Context) return null;
+  state.audioContext ||= new Context();
+  if (state.audioContext.state === "suspended") state.audioContext.resume().catch(() => {});
+  return state.audioContext;
+}
+
+function playUiSound(kind) {
+  if (!state.soundEnabled) return;
+  const context = audioContext();
+  if (!context) return;
+  const now = context.currentTime;
+  const tone = (frequency, duration, gain, type = "sine", offset = 0) => {
+    const oscillator = context.createOscillator();
+    const envelope = context.createGain();
+    oscillator.type = type;
+    oscillator.frequency.setValueAtTime(frequency, now + offset);
+    envelope.gain.setValueAtTime(0.0001, now + offset);
+    envelope.gain.exponentialRampToValueAtTime(gain, now + offset + 0.012);
+    envelope.gain.exponentialRampToValueAtTime(0.0001, now + offset + duration);
+    oscillator.connect(envelope).connect(context.destination);
+    oscillator.start(now + offset);
+    oscillator.stop(now + offset + duration + 0.02);
+  };
+  if (kind === "slate") { tone(150, 0.05, 0.08, "square"); tone(72, 0.1, 0.05, "triangle", 0.018); }
+  if (kind === "done") { tone(660, 0.08, 0.035); tone(880, 0.13, 0.028, "sine", 0.07); }
+  if (kind === "premiere") { tone(262, 0.24, 0.04); tone(392, 0.34, 0.035, "sine", 0.11); tone(523, 0.48, 0.03, "sine", 0.22); }
+}
+
+function startProjectorHum() {
+  if (!state.soundEnabled || projectorOscillator) return;
+  const context = audioContext();
+  if (!context) return;
+  projectorOscillator = context.createOscillator();
+  projectorGain = context.createGain();
+  projectorOscillator.type = "sawtooth";
+  projectorOscillator.frequency.value = 58;
+  projectorGain.gain.value = 0.008;
+  projectorOscillator.connect(projectorGain).connect(context.destination);
+  projectorOscillator.start();
+}
+
+function stopProjectorHum() {
+  if (projectorOscillator) projectorOscillator.stop();
+  projectorOscillator = null;
+  projectorGain = null;
+}
 
 /* ── SSE 流读取（fetch + 手动解析） ────────────────────────── */
 
@@ -289,11 +385,12 @@ function setAgentState(agentId, agentState, data) {
   const summary = card.querySelector(".crew-summary");
   if (agentState === "working") {
     text.textContent = "工作中";
-    summary.textContent = "";
+    summary.innerHTML = '<span class="sk sk-1"></span><span class="sk sk-2"></span>';
   } else if (agentState === "done") {
     text.textContent = "完成";
     const def = AGENT_DEFS.find((d) => d.id === agentId);
     summary.textContent = def ? def.summarize(data || {}) : "";
+    playUiSound("done");
   } else {
     text.textContent = "候场";
     summary.textContent = "";
@@ -318,7 +415,7 @@ function shotStatusInfo(status) {
   return SHOT_STATUS[status] || status || "待拍";
 }
 
-function renderFilmstrip(project) {
+function renderFilmstrip(project, entranceFrom = Number.POSITIVE_INFINITY) {
   const shots = project.storyboard || [];
   els.filmstripMeta.textContent = `${shots.length} 镜 · 共 ${shots.reduce((sum, s) => sum + (s.duration_seconds || 0), 0)} 秒 · ${esc(project.visual_style)}`;
   els.filmstrip.innerHTML = "";
@@ -326,9 +423,9 @@ function renderFilmstrip(project) {
     els.filmstrip.innerHTML = '<p class="empty-note">片场尚未开机。</p>';
     return;
   }
-  for (const shot of shots) {
+  for (const [index, shot] of shots.entries()) {
     const card = document.createElement("article");
-    card.className = "shot-card";
+    card.className = `shot-card${index >= entranceFrom ? " card-enter" : ""}`;
     card.dataset.shot = shot.number;
     card.dataset.status = shot.status || "planned";
     card.tabIndex = 0;
@@ -336,7 +433,7 @@ function renderFilmstrip(project) {
     card.setAttribute("aria-label", `镜头 ${shot.number} 详情`);
     card.innerHTML = `
       <header class="shot-head mono"><span>SHOT ${String(shot.number).padStart(2, "0")}</span><span>${shot.duration_seconds}s</span></header>
-      <div class="shot-frame"><span class="shot-framing">${esc(shot.framing)}</span><span class="shot-mode mono">${esc(shot.generation_mode)}</span></div>
+      <div class="shot-frame"><span class="film-stamp mono">${String(shot.number).padStart(2, "0")} · 24 FPS</span><span class="shot-framing">${esc(shot.framing)}</span><span class="shot-mode mono">${esc(shot.generation_mode)}</span></div>
       <footer class="shot-foot mono">
         <span class="shot-status"><i class="dot" aria-hidden="true"></i>${shotStatusInfo(shot.status)}</span>
         <span class="shot-attempts">${shot.attempts > 0 ? `↻${shot.attempts}` : ""}</span>
@@ -351,6 +448,25 @@ function renderFilmstrip(project) {
     els.filmstrip.appendChild(card);
   }
   attachShotPreviews(project);
+}
+
+function renderTimeline(project) {
+  const shots = project.storyboard || [];
+  const total = shots.reduce((sum, shot) => sum + Number(shot.duration_seconds || 0), 0);
+  els.timelineTotal.textContent = shots.length ? `00:00:${String(total).padStart(2, "0")} · ${shots.length} SHOTS` : "等待分镜";
+  els.editTimeline.innerHTML = "";
+  for (const shot of shots) {
+    const segment = document.createElement("button");
+    segment.type = "button";
+    segment.className = "timeline-segment";
+    segment.dataset.status = shot.status || "planned";
+    segment.style.flexGrow = String(Math.max(1, shot.duration_seconds || 1));
+    segment.title = `镜头 ${shot.number} · ${shot.duration_seconds} 秒 · ${shotStatusInfo(shot.status)}`;
+    segment.setAttribute("aria-label", segment.title);
+    segment.innerHTML = `<span>${String(shot.number).padStart(2, "0")}</span>`;
+    segment.addEventListener("click", () => openDrawer(project, shot.number));
+    els.editTimeline.appendChild(segment);
+  }
 }
 
 function attachShotPreviews(project) {
@@ -393,11 +509,27 @@ function renderLogFeed(project) {
   els.logFeed.scrollTop = els.logFeed.scrollHeight;
 }
 
+function setMonitorTimecode(live) {
+  clearInterval(monitorTimecodeTimer);
+  els.monitorTc.classList.toggle("hidden", !live);
+  if (!live) return;
+  const tick = () => {
+    const elapsed = Math.max(0, performance.now() - state.renderStartedAt);
+    const frames = Math.floor((elapsed / 1000) * 24);
+    const seconds = Math.floor(frames / 24);
+    const ff = String(frames % 24).padStart(2, "0");
+    els.monitorTc.textContent = `TC ${timecode(seconds)}:${ff}`;
+  };
+  tick();
+  monitorTimecodeTimer = setInterval(tick, 42);
+}
+
 function renderMonitor(project, live = false) {
   els.projectIdLabel.textContent = project.project_id;
   els.renderRec.classList.toggle("live", live);
   const shots = project.storyboard || [];
   const approved = shots.filter((s) => String(s.status || "").startsWith("approved")).length;
+  setMonitorTimecode(live);
   if (live) {
     els.monitorShot.textContent = `SHOT ${approved}/${shots.length}`;
     els.monitorPct.textContent = shots.length ? `${Math.round((approved / shots.length) * 100)}%` : "";
@@ -410,14 +542,56 @@ function renderMonitor(project, live = false) {
   }
 }
 
-function renderManual(project, tab = state.manualTab) {
+function typewriteManualBody() {
+  const run = ++manualTypingRun;
+  const nodes = Array.from(els.manualBody.querySelectorAll("dd, .story p, .narration, .checklist li"));
+  let nodeIndex = 0;
+  const typeNext = () => {
+    if (run !== manualTypingRun || nodeIndex >= nodes.length) return;
+    const node = nodes[nodeIndex++];
+    const text = node.textContent || "";
+    if (!text) {
+      typeNext();
+      return;
+    }
+    node.textContent = "";
+    node.classList.add("is-typing");
+    let index = 0;
+    const tick = () => {
+      if (run !== manualTypingRun) return;
+      index = Math.min(text.length, index + 3);
+      node.textContent = text.slice(0, index);
+      if (index < text.length) {
+        setTimeout(tick, 13);
+      } else {
+        node.classList.remove("is-typing");
+        setTimeout(typeNext, 70);
+      }
+    };
+    tick();
+  };
+  typeNext();
+}
+
+function renderManual(project, tab = state.manualTab, animate = false) {
+  manualTypingRun += 1;
   state.manualTab = tab;
-  $$("#manual-tabs .tab").forEach((button) => button.classList.toggle("active", button.dataset.tab === tab));
+  const liveTabs = {
+    brief: Boolean(project && Object.keys(project.brief || {}).length),
+    script: Boolean(project && Object.keys(project.script || {}).length),
+    visual: Boolean(project && Object.keys(project.visual_bible || {}).length),
+    quality: Boolean(project && (project.quality_report || []).length),
+  };
+  $$("#manual-tabs .tab").forEach((button) => {
+    button.classList.toggle("active", button.dataset.tab === tab);
+    button.classList.toggle("is-live", Boolean(liveTabs[button.dataset.tab]));
+  });
   const body = els.manualBody;
   if (!project) {
     body.innerHTML = '<p class="empty-note">制作手册会在项目创建后生成。</p>';
     return;
   }
+  if (animate) typewriteManualBody();
   if (tab === "brief") {
     const rows = Object.entries(project.brief || {})
       .map(([key, value]) => `<dt>${esc(key)}</dt><dd>${esc(value)}</dd>`)
@@ -472,12 +646,21 @@ async function renderScreening(project) {
 }
 
 function renderDelivery(project) {
-  const lines = [
-    `PROJECT  ${project.project_id}`,
-    `STATUS   ${PROJECT_STATUS[project.status] || project.status}`,
-    `FINAL    ${project.final_output_placeholder || "尚未合成"}`,
+  const credits = [
+    ["PROJECT", projectTitle(project)],
+    ["DIRECTED BY", "DIRECTOR AGENT"],
+    ["WRITTEN BY", "WRITER AGENT"],
+    ["ART DIRECTION", "VISUAL BIBLE AGENT"],
+    ["STORYBOARD", "STORYBOARD AGENT"],
+    ["POST PRODUCTION", "GENERATION · QC · EDITOR"],
+    ["DELIVERY", PROJECT_STATUS[project.status] || project.status],
   ];
-  els.deliveryInfo.textContent = lines.join("\n");
+  els.creditsRoll.innerHTML = credits
+    .map(([heading, value]) => `<div class="cr-group"><p class="cr-head">${esc(heading)}</p><p class="cr-strong">${esc(value)}</p></div>`)
+    .join("");
+  els.creditsRoll.classList.remove("is-rolling");
+  void els.creditsRoll.offsetWidth;
+  els.creditsRoll.classList.add("is-rolling");
   els.exportJson.href = `/api/projects/${project.project_id}/export/json`;
   els.exportMd.href = `/api/projects/${project.project_id}/export/markdown`;
 }
@@ -486,13 +669,14 @@ function updatePipelineForProject(project) {
   setPipeline(pipelineFromProject(project, state.hasFinalVideo));
 }
 
-function renderWorkspace(project) {
+function renderWorkspace(project, options = {}) {
   show(els.actWorkspace);
-  renderFilmstrip(project);
+  renderFilmstrip(project, options.entranceFrom);
+  renderTimeline(project);
   renderShotMap(project);
   renderMonitor(project, state.rendering);
   renderLogFeed(project);
-  renderManual(project);
+  renderManual(project, options.tab || state.manualTab, Boolean(options.animateManual));
   renderScreening(project);
   renderDelivery(project);
   updatePipelineForProject(project);
@@ -509,14 +693,11 @@ function renderWorkspace(project) {
 function applyProjectSnapshot(project) {
   state.project = project;
   renderFilmstrip(project);
+  renderTimeline(project);
   renderShotMap(project);
   renderLogFeed(project);
   renderDelivery(project);
-  const shots = project.storyboard || [];
-  const approved = shots.filter((s) => String(s.status || "").startsWith("approved")).length;
-  els.monitorShot.textContent = `SHOT ${approved}/${shots.length}`;
-  els.monitorPct.textContent = shots.length ? `${Math.round((approved / shots.length) * 100)}%` : "";
-  els.monitorBar.style.width = shots.length ? `${(approved / shots.length) * 100}%` : "0%";
+  renderMonitor(project, state.rendering);
 }
 
 /* ── 镜头抽屉 ──────────────────────────────────────────────── */
@@ -524,6 +705,7 @@ function applyProjectSnapshot(project) {
 function openDrawer(project, shotNumber) {
   const shot = (project.storyboard || []).find((s) => s.number === shotNumber);
   if (!shot) return;
+  state.activeShotNumber = shotNumber;
   els.drawer.innerHTML = `
     <div class="drawer-head">
       <span class="drawer-title">镜头 ${String(shot.number).padStart(2, "0")}</span>
@@ -581,15 +763,69 @@ function closeDrawer() {
 
 /* ── 动作：创作 / 渲染 / 重新规划 ──────────────────────────── */
 
+let storyboardStageRun = 0;
+
+function createLiveProject(event) {
+  return {
+    project_id: event.project_id,
+    idea: els.idea.value.trim(),
+    duration_seconds: Number(els.duration.value),
+    visual_style: state.selectedStyle,
+    status: "planning_live",
+    brief: {},
+    script: {},
+    visual_bible: {},
+    storyboard: [],
+    quality_report: [],
+    logs: ["片场开机：正在等待第一份创作资产。"],
+    final_output_placeholder: null,
+  };
+}
+
+function stageStoryboard(shots) {
+  const run = ++storyboardStageRun;
+  state.project.storyboard = [];
+  renderWorkspace(state.project, { tab: "visual" });
+  shots.forEach((shot, index) => {
+    setTimeout(() => {
+      if (run !== storyboardStageRun || !state.project) return;
+      state.project.storyboard.push(shot);
+      renderFilmstrip(state.project, index);
+      renderTimeline(state.project);
+      renderShotMap(state.project);
+    }, index * 125);
+  });
+}
+
+function revealAsset(agent, event) {
+  if (!state.project) return;
+  const mapping = {
+    director: ["brief", "brief"],
+    writer: ["script", "script"],
+    visual_bible: ["visual_bible", "visual"],
+    quality: ["quality_report", "quality"],
+  };
+  const item = mapping[agent];
+  if (!item || !(item[0] in event)) return;
+  state.project[item[0]] = event[item[0]];
+  state.project.logs.push(`${AGENT_DEFS.find((definition) => definition.id === agent)?.name || agent} Agent：创作资产已实时送达。`);
+  renderWorkspace(state.project, { tab: item[1], animateManual: true });
+}
+
 function handleCreateEvent(event) {
   if (event.type === "project") {
+    state.project = createLiveProject(event);
+    state.pendingProjectId = event.project_id;
     els.crewMeta.textContent = `CREW ASSEMBLY · ${event.project_id}`;
     els.modeNote.textContent = `文案引擎：${event.text_mode === "modelscope" ? "ModelScope AI" : "mock"} · 视频引擎：${event.video_mode === "comfyui" ? "Spark 真实生成" : "mock 流程"}`;
   } else if (event.type === "agent_start") {
     setAgentState(event.agent, "working");
   } else if (event.type === "agent_done") {
     setAgentState(event.agent, "done", event);
+    revealAsset(event.agent, event);
     if (event.agent === "storyboard") {
+      state.project.logs.push("分镜师：开始逐张冲印镜头。 ");
+      stageStoryboard(event.storyboard || []);
       setPipeline({ plan: "done", previs: "active" });
     }
   } else if (event.type === "shot_update") {
@@ -598,9 +834,12 @@ function handleCreateEvent(event) {
       card.textContent = `镜头 ${event.shot.number} · ${shotStatusInfo(event.shot.status)}`;
     }
   } else if (event.type === "done") {
+    storyboardStageRun += 1;
     state.project = event.project;
+    state.pendingProjectId = null;
     els.crewMeta.textContent = "CREW ASSEMBLY · 剧组集结完毕";
     renderWorkspace(state.project);
+    setBrowserActivity("idle", state.project);
     toast(`项目 ${state.project.project_id} 已完成并存档。`);
     setTimeout(() => els.actWorkspace.scrollIntoView({ behavior: "smooth", block: "start" }), 350);
   } else if (event.type === "error") {
@@ -619,6 +858,7 @@ async function startCreation() {
   }
   state.busy = true;
   state.project = null;
+  state.pendingProjectId = null;
   state.hasFinalVideo = false;
   els.btnStart.disabled = true;
   buildCrewBoard();
@@ -626,6 +866,7 @@ async function startCreation() {
   hide(els.actWorkspace);
   setPipeline({ plan: "active" });
   els.crewMeta.textContent = "CREW ASSEMBLY · 开机中…";
+  playUiSound("slate");
   els.actCrew.scrollIntoView({ behavior: "smooth", block: "start" });
   const paced = createPacedHandler(handleCreateEvent);
   try {
@@ -643,6 +884,23 @@ async function startCreation() {
   }
 }
 
+function closePremiere(autoplay = false) {
+  clearTimeout(premiereTimer);
+  hide(els.premiere);
+  if (!autoplay) return;
+  els.screen.scrollIntoView({ behavior: REDUCED_MOTION ? "auto" : "smooth", block: "center" });
+  setTimeout(() => els.finalVideo.play().catch(() => {}), 350);
+}
+
+function openPremiere(project) {
+  if (!state.hasFinalVideo) return;
+  els.premiereTitle.textContent = projectTitle(project);
+  els.premiereMeta.textContent = `${project.visual_style} · ${project.duration_seconds} SECONDS · ${project.project_id}`;
+  show(els.premiere);
+  playUiSound("premiere");
+  premiereTimer = setTimeout(() => closePremiere(true), 4200);
+}
+
 function handleRenderEvent(event) {
   if (event.type === "render_progress") {
     els.renderRec.classList.add("live");
@@ -653,7 +911,9 @@ function handleRenderEvent(event) {
     applyProjectSnapshot(event.project);
     els.renderRec.classList.remove("live");
     renderMonitor(event.project, false);
-    renderScreening(event.project);
+    stopProjectorHum();
+    setBrowserActivity("idle", event.project);
+    renderScreening(event.project).then(() => openPremiere(event.project));
     renderManual(event.project);
     state.rendering = false;
     els.btnRender.disabled = false;
@@ -661,6 +921,8 @@ function handleRenderEvent(event) {
     toast("真实成片已生成，可在放映室预览。");
   } else if (event.type === "error") {
     els.renderRec.classList.remove("live");
+    stopProjectorHum();
+    setBrowserActivity("idle", state.project);
     state.rendering = false;
     els.btnRender.disabled = false;
     els.btnRender.textContent = "提交 Spark 真实生成";
@@ -673,9 +935,13 @@ function handleRenderEvent(event) {
 async function startRender() {
   if (!state.project || state.rendering) return;
   state.rendering = true;
+  state.renderStartedAt = performance.now();
   els.btnRender.disabled = true;
   els.btnRender.textContent = "生成中…（可断点续跑）";
   els.monitorDesc.textContent = "正在连接 Spark ComfyUI…";
+  renderMonitor(state.project, true);
+  setBrowserActivity("render", state.project);
+  startProjectorHum();
   setPipeline({ plan: "done", previs: "done", render: "active" });
   try {
     await streamPost(
@@ -685,6 +951,8 @@ async function startRender() {
     );
   } catch (error) {
     els.renderRec.classList.remove("live");
+    stopProjectorHum();
+    setBrowserActivity("idle", state.project);
     state.rendering = false;
     els.btnRender.disabled = false;
     els.btnRender.textContent = "提交 Spark 真实生成";
@@ -895,6 +1163,33 @@ function initLandingInteractions() {
     }
   }, { threshold: 0.2 });
   for (const el of $$(".reveal")) observer.observe(el);
+
+  const hero = $(".landing-hero");
+  let parallaxFrame = null;
+  window.addEventListener("pointermove", (event) => {
+    if (REDUCED_MOTION || currentView() !== "landing" || !hero) return;
+    if (parallaxFrame) cancelAnimationFrame(parallaxFrame);
+    parallaxFrame = requestAnimationFrame(() => {
+      const x = ((event.clientX / window.innerWidth) - 0.5) * 10;
+      const y = ((event.clientY / window.innerHeight) - 0.5) * 8;
+      hero.style.setProperty("--aurora-x", `${x}px`);
+      hero.style.setProperty("--aurora-y", `${y}px`);
+    });
+  });
+}
+
+function updateSoundToggle() {
+  els.btnSound.classList.toggle("is-on", state.soundEnabled);
+  els.btnSound.textContent = state.soundEnabled ? "♪ ON" : "♪ OFF";
+  els.btnSound.setAttribute("aria-pressed", String(state.soundEnabled));
+}
+
+function navigateShot(direction) {
+  const shots = (state.project && state.project.storyboard) || [];
+  if (!shots.length) return;
+  const current = shots.findIndex((shot) => shot.number === state.activeShotNumber);
+  const index = current < 0 ? 0 : (current + direction + shots.length) % shots.length;
+  openDrawer(state.project, shots[index].number);
 }
 
 /* ── 初始化 ────────────────────────────────────────────────── */
@@ -913,8 +1208,18 @@ async function loadHealth() {
 
 function init() {
   applyView(currentView());
-  els.btnEnter.addEventListener("click", () => gotoView("studio"));
+  setBrowserActivity("idle");
+  updateSoundToggle();
+  els.btnEnter.addEventListener("click", () => { playUiSound("slate"); gotoView("studio"); });
   els.brandHome.addEventListener("click", () => gotoView("landing"));
+  els.btnSound.addEventListener("click", () => {
+    state.soundEnabled = !state.soundEnabled;
+    localStorage.setItem("movie-agent-sound", state.soundEnabled ? "on" : "off");
+    updateSoundToggle();
+    if (state.soundEnabled) playUiSound("done");
+  });
+  els.btnPremierePlay.addEventListener("click", () => closePremiere(true));
+  els.btnPremiereSkip.addEventListener("click", () => closePremiere(false));
   initLandingInteractions();
   buildStyleCards();
   startTypewriter();
@@ -934,7 +1239,19 @@ function init() {
   });
   els.drawerBackdrop.addEventListener("click", closeDrawer);
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") closeDrawer();
+    if (event.key === "Escape") {
+      closeDrawer();
+      closePremiere(false);
+      return;
+    }
+    if (event.key === "ArrowLeft") navigateShot(-1);
+    if (event.key === "ArrowRight") navigateShot(1);
+    if (
+      event.key === "Enter"
+      && currentView() === "studio"
+      && document.activeElement !== els.idea
+      && !state.busy
+    ) startCreation();
   });
 }
 
