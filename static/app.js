@@ -1383,10 +1383,84 @@ function initLandingInteractions() {
   });
 
   for (const card of $$(".feature-card")) {
-    card.addEventListener("mousemove", (event) => {
+    const motion = {
+      x: card.offsetWidth / 2,
+      y: card.offsetHeight / 2,
+      targetX: card.offsetWidth / 2,
+      targetY: card.offsetHeight / 2,
+      tiltX: 0,
+      tiltY: 0,
+      targetTiltX: 0,
+      targetTiltY: 0,
+      frame: null,
+      hovering: false,
+    };
+
+    const renderCardMotion = () => {
+      motion.x += (motion.targetX - motion.x) * 0.18;
+      motion.y += (motion.targetY - motion.y) * 0.18;
+      motion.tiltX += (motion.targetTiltX - motion.tiltX) * 0.16;
+      motion.tiltY += (motion.targetTiltY - motion.tiltY) * 0.16;
+      card.style.setProperty("--mx", `${motion.x.toFixed(1)}px`);
+      card.style.setProperty("--my", `${motion.y.toFixed(1)}px`);
+
+      if (!REDUCED_MOTION) {
+        const tiltSettled = Math.abs(motion.tiltX) < 0.02 && Math.abs(motion.tiltY) < 0.02;
+        if (motion.hovering || !tiltSettled) {
+          card.style.transform = `perspective(920px) rotateX(${motion.tiltY.toFixed(2)}deg) rotateY(${motion.tiltX.toFixed(2)}deg) translateY(-3px)`;
+        } else {
+          card.style.transform = "";
+        }
+      }
+
+      const spotlightSettled = Math.abs(motion.targetX - motion.x) < 0.2 && Math.abs(motion.targetY - motion.y) < 0.2;
+      const tiltSettled = Math.abs(motion.targetTiltX - motion.tiltX) < 0.02 && Math.abs(motion.targetTiltY - motion.tiltY) < 0.02;
+      if (motion.hovering || !spotlightSettled || !tiltSettled) {
+        motion.frame = requestAnimationFrame(renderCardMotion);
+      } else {
+        motion.frame = null;
+      }
+    };
+
+    const requestCardMotion = () => {
+      if (motion.frame === null) motion.frame = requestAnimationFrame(renderCardMotion);
+    };
+
+    card.addEventListener("pointerenter", (event) => {
+      if (event.pointerType === "touch") return;
+      motion.hovering = true;
+      card.classList.add("is-hovered");
+      card.style.setProperty("--spotlight-opacity", "1");
+      requestCardMotion();
+    });
+
+    card.addEventListener("pointermove", (event) => {
+      if (event.pointerType === "touch") return;
       const rect = card.getBoundingClientRect();
-      card.style.setProperty("--mx", `${event.clientX - rect.left}px`);
-      card.style.setProperty("--my", `${event.clientY - rect.top}px`);
+      const x = event.clientX - rect.left;
+      const y = event.clientY - rect.top;
+      const px = x / rect.width - 0.5;
+      const py = y / rect.height - 0.5;
+      motion.targetX = x;
+      motion.targetY = y;
+      motion.targetTiltX = REDUCED_MOTION ? 0 : px * 4.2;
+      motion.targetTiltY = REDUCED_MOTION ? 0 : py * -3.2;
+      motion.hovering = true;
+      card.classList.add("is-hovered");
+      card.style.setProperty("--spotlight-opacity", "1");
+      requestCardMotion();
+    });
+
+    card.addEventListener("pointerleave", (event) => {
+      if (event.pointerType === "touch") return;
+      motion.hovering = false;
+      motion.targetX = card.offsetWidth / 2;
+      motion.targetY = card.offsetHeight / 2;
+      motion.targetTiltX = 0;
+      motion.targetTiltY = 0;
+      card.classList.remove("is-hovered");
+      card.style.setProperty("--spotlight-opacity", "0");
+      requestCardMotion();
     });
   }
 

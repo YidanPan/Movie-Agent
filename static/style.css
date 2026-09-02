@@ -1697,7 +1697,8 @@ body[data-view="landing"] .pipeline { display: none; }
   background: linear-gradient(145deg, rgba(23, 20, 15, 0.96), rgba(14, 13, 11, 0.98));
   border: 1px solid var(--line);
   border-radius: 6px;
-  transition: border-color 0.3s ease, transform 0.3s ease;
+  transform-style: preserve-3d;
+  transition: border-color 0.3s ease, box-shadow 0.32s ease, transform 0.32s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .feature-card::after {
@@ -1717,15 +1718,40 @@ body[data-view="landing"] .pipeline { display: none; }
 .feature-card::before {
   content: "";
   position: absolute;
-  inset: 0;
-  opacity: 0;
-  transition: opacity 0.4s ease;
-  background: radial-gradient(420px circle at var(--mx, 50%) var(--my, 50%), rgba(232, 163, 76, 0.09), transparent 45%);
+  z-index: 0;
+  inset: -1px;
+  opacity: var(--spotlight-opacity, 0);
+  transition: opacity 0.24s ease;
+  background:
+    radial-gradient(260px circle at var(--mx, 50%) var(--my, 50%), rgba(255, 218, 137, 0.42) 0%, rgba(232, 163, 76, 0.24) 21%, rgba(215, 166, 74, 0.1) 44%, transparent 72%),
+    radial-gradient(560px circle at var(--mx, 50%) var(--my, 50%), rgba(215, 166, 74, 0.08), transparent 62%);
+  mix-blend-mode: screen;
+  pointer-events: none;
 }
 
-.feature-card:hover { border-color: rgba(232, 163, 76, 0.38); transform: translateY(-3px); }
+.feature-card > * { position: relative; z-index: 1; }
+
+.feature-card:hover,
+.feature-card.is-hovered {
+  border-color: rgba(232, 163, 76, 0.72);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.34), 0 0 0 1px rgba(215, 166, 74, 0.15), 0 0 34px rgba(215, 166, 74, 0.12);
+}
+
+.feature-card:hover .feature-no,
+.feature-card.is-hovered .feature-no {
+  color: #f3c56e;
+  text-shadow: 0 0 16px rgba(232, 163, 76, 0.7);
+}
+
+.feature-card:hover h3,
+.feature-card.is-hovered h3 {
+  color: #fff3d4;
+  text-shadow: 0 0 22px rgba(215, 166, 74, 0.32);
+}
+
 .feature-card { translate: 0 var(--depth-shift, 0px); }
-.feature-card:hover::before { opacity: 1; }
+.feature-card:hover::before,
+.feature-card.is-hovered::before { opacity: 1; }
 
 .feature-no { font-size: 0.66rem; letter-spacing: 0.24em; color: var(--amber); }
 
