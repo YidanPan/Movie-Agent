@@ -568,6 +568,82 @@ main {
 
 .crew-row--secondary .crew-card { flex: 1 1 200px; min-width: 170px; padding: 13px 16px 12px; }
 
+/* ── 剧组对讲机 ────────────────────────────────────────────── */
+
+.crew-radio-wrap {
+  margin-top: 18px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.crew-radio-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--line-soft);
+  font-size: 0.6rem;
+  letter-spacing: 0.18em;
+  color: var(--amber);
+}
+
+.crew-radio {
+  padding: 10px 14px;
+  max-height: 160px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+
+.crew-radio .radio-msg {
+  padding: 6px 0;
+  font-size: 0.72rem;
+  line-height: 1.6;
+  color: var(--dim);
+  border-bottom: 1px dashed var(--line-soft);
+  animation: fade-up 0.4s ease both;
+}
+
+.crew-radio .radio-msg:last-child { border-bottom: 0; }
+
+.crew-radio .radio-from {
+  color: var(--amber);
+  font-weight: 600;
+}
+
+.crew-radio .radio-to {
+  color: var(--faint);
+}
+
+/* ── 中间小产出卡片 ────────────────────────────────────────── */
+
+.crew-artifact {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: var(--bg-deep);
+  border: 1px solid var(--line-soft);
+  border-radius: 3px;
+  animation: fade-up 0.45s ease both;
+}
+
+.crew-artifact .artifact-title {
+  display: block;
+  font-size: 0.62rem;
+  letter-spacing: 0.12em;
+  color: var(--amber);
+  margin-bottom: 3px;
+}
+
+.crew-artifact .artifact-content {
+  display: block;
+  font-size: 0.72rem;
+  line-height: 1.55;
+  color: var(--dim);
+}
+
 /* ── 第三幕 · 分镜墙 ───────────────────────────────────────── */
 
 .filmstrip-viewport {
@@ -855,6 +931,14 @@ main {
 }
 
 .tab:hover { color: var(--text); }
+
+.tab.is-locked {
+  color: var(--faint);
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.tab.is-locked:hover { color: var(--faint); border-bottom-color: transparent; }
 
 .tab.active { color: var(--amber); border-bottom-color: var(--amber); }
 

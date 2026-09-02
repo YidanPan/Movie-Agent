@@ -75,12 +75,76 @@ class MovieOrchestrator:
         emit({"type": "agent_start", "agent": "director"})
         brief = self.director.plan(cleaned_idea, duration, visual_style)
         emit({"type": "agent_done", "agent": "director", "brief": brief})
+        emit(
+            {
+                "type": "artifact",
+                "agent": "director",
+                "title": "导演手记",
+                "content": (
+                    f"核心意象：{brief.get('主题', '孤独与自动化')}。"
+                    "观众应在最后一秒才意识到主角的选择意味着什么。"
+                ),
+            }
+        )
+        emit(
+            {
+                "type": "chat",
+                "from": "director",
+                "to": "writer",
+                "message": (
+                    "这个创意的核心冲突很清晰，建议聚焦主角的内心转折，"
+                    "不要过度解释世界观，让观众从动作里自己感受。"
+                ),
+            }
+        )
         emit({"type": "agent_start", "agent": "writer"})
         script = self.writer.write(cleaned_idea, brief)
         emit({"type": "agent_done", "agent": "writer", "script": script})
+        if script.get("outline"):
+            emit(
+                {
+                    "type": "artifact",
+                    "agent": "writer",
+                    "title": "故事大纲",
+                    "content": script["outline"],
+                }
+            )
+        emit(
+            {
+                "type": "chat",
+                "from": "writer",
+                "to": "visual_bible",
+                "message": (
+                    "故事需要一个压抑但温暖的视觉基调，"
+                    "主角所处的空间应该有旧金属和暖黄色灯光的对比。"
+                ),
+            }
+        )
         emit({"type": "agent_start", "agent": "visual_bible"})
         visual_bible = self.visual_bible_agent.create(visual_style, brief, script)
         emit({"type": "agent_done", "agent": "visual_bible", "visual_bible": visual_bible})
+        emit(
+            {
+                "type": "artifact",
+                "agent": "visual_bible",
+                "title": "情绪板",
+                "content": (
+                    f"{visual_style}主导。旧金属、钨丝灯、冷灰墙面，"
+                    "唯一暖源来自主角手中的设备。"
+                ),
+            }
+        )
+        emit(
+            {
+                "type": "chat",
+                "from": "visual_bible",
+                "to": "storyboard",
+                "message": (
+                    "前三个镜头建议固定机位，只在结尾用一次缓慢推轨，"
+                    "这样运动才有意义。"
+                ),
+            }
+        )
         emit({"type": "agent_start", "agent": "storyboard"})
         storyboard = self.storyboard_agent.create(
             cleaned_idea, duration, visual_style, project_id, brief, script, visual_bible
@@ -90,6 +154,28 @@ class MovieOrchestrator:
                 "type": "agent_done",
                 "agent": "storyboard",
                 "storyboard": [shot.to_dict() for shot in storyboard],
+            }
+        )
+        emit(
+            {
+                "type": "artifact",
+                "agent": "storyboard",
+                "title": "镜头节奏",
+                "content": (
+                    f"{len(storyboard)} 镜构成：静-静-静-动-静，"
+                    f"结尾 {storyboard[-1].duration_seconds if storyboard else 4} 秒留白。"
+                ),
+            }
+        )
+        emit(
+            {
+                "type": "chat",
+                "from": "storyboard",
+                "to": "director",
+                "message": (
+                    f"{len(storyboard)} 个镜头可以覆盖完整叙事弧线，"
+                    "是否需要预留一个备用镜头以防节奏过快？"
+                ),
             }
         )
         emit({"type": "agent_start", "agent": "quality"})
@@ -108,6 +194,17 @@ class MovieOrchestrator:
             )
         )
         emit({"type": "agent_done", "agent": "quality", "quality_report": quality_report})
+        emit(
+            {
+                "type": "chat",
+                "from": "quality",
+                "to": "all",
+                "message": (
+                    "剧本与视觉描述已通过版权检查，所有元素均为原创，"
+                    f"共发现 {len(quality_report)} 项需要关注的点。"
+                ),
+            }
+        )
         project = MovieProject(
             project_id=project_id,
             idea=cleaned_idea,

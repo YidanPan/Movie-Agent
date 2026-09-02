@@ -41,6 +41,7 @@ const els = {
   crewSecondary: $("#crew-secondary"),
   crewMeta: $("#crew-meta"),
   pipeline: $("#pipeline"),
+  crewRadio: $("#crew-radio"),
   filmstrip: $("#filmstrip"),
   filmstripMeta: $("#filmstrip-meta"),
   projectIdLabel: $("#project-id-label"),
@@ -131,6 +132,7 @@ const state = {
   hasFinalVideo: false,
   creditsProjectId: null,
   workingAgent: null,
+  assemblyLocked: false,
 };
 
 let manualTypingRun = 0;
@@ -896,11 +898,13 @@ async function startCreation() {
     return;
   }
   state.busy = true;
+  state.assemblyLocked = true;
   state.project = null;
   state.pendingProjectId = null;
   state.hasFinalVideo = false;
   state.workingAgent = null;
   els.btnStart.disabled = true;
+  els.btnStart.textContent = "🎬 拍摄中…";
   buildCrewBoard();
   show(els.actCrew);
   hide(els.actWorkspace);
@@ -922,6 +926,7 @@ async function startCreation() {
   } finally {
     state.busy = false;
     els.btnStart.disabled = false;
+    els.btnStart.textContent = "🎬 开 机";
   }
 }
 
