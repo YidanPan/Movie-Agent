@@ -17,7 +17,7 @@ from movie_agent.config import Settings
 from movie_agent.models import MovieProject
 from movie_agent.storage.project_store import ProjectStore
 from movie_agent.services.llm import build_creative_llm
-from movie_agent.services.quality import PlanningQualityGate
+from movie_agent.services.quality import PlanningQualityGate, SemanticCopyrightReviewer
 
 
 class MovieOrchestrator:
@@ -35,6 +35,7 @@ class MovieOrchestrator:
         self.reviewer = ReviewerAgent(settings)
         self.editor = EditorAgent(settings)
         self.quality_gate = PlanningQualityGate()
+        self.semantic_copyright_reviewer = SemanticCopyrightReviewer(creative_llm)
 
     def create_project(
         self,
@@ -97,6 +98,14 @@ class MovieOrchestrator:
             script=script,
             visual_bible=visual_bible,
             storyboard=storyboard,
+        )
+        quality_report.extend(
+            self.semantic_copyright_reviewer.review(
+                idea=cleaned_idea,
+                script=script,
+                visual_bible=visual_bible,
+                storyboard=storyboard,
+            )
         )
         emit({"type": "agent_done", "agent": "quality", "quality_report": quality_report})
         project = MovieProject(
@@ -188,7 +197,13 @@ class MovieOrchestrator:
             for attempt in range(1, self.settings.comfy_max_retries + 1):
                 try:
                     project.logs.append(self.generation_agent.generate(project.project_id, shot))
-                    project.logs.append(self.reviewer.review_generated(shot))
+                    project.logs.append(
+                        self.reviewer.review_generated(
+                            shot,
+                            project_id=project.project_id,
+                            visual_bible=project.visual_bible,
+                        )
+                    )
                     self.store.save(project)
                     if progress_callback:
                         progress_callback(index, total_shots, f"镜头 {shot.number} 已生成并通过完整性质检")
@@ -225,6 +240,14 @@ class MovieOrchestrator:
             script=project.script,
             visual_bible=project.visual_bible,
             storyboard=project.storyboard,
+        )
+        project.quality_report.extend(
+            self.semantic_copyright_reviewer.review(
+                idea=project.idea,
+                script=project.script,
+                visual_bible=project.visual_bible,
+                storyboard=project.storyboard,
+            )
         )
         project.logs.append(f"分镜 Agent：已重新规划镜头 {shot_number}，保留其时长和叙事位置。")
         project.logs.extend(project.quality_report)

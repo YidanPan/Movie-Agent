@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import json
+import base64
+import mimetypes
 import time
 import urllib.error
 import urllib.request
+from pathlib import Path
 from typing import Any, Protocol
 
 from movie_agent.config import Settings
@@ -39,6 +42,39 @@ class ModelScopeLLM:
                 {"role": "user", "content": user_prompt + "\n只返回合法 JSON，不要 Markdown 代码块或解释。"},
             ],
         }
+        return self._complete_payload(payload)
+
+    def complete_vision_json(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        image_paths: list[Path],
+    ) -> dict[str, Any]:
+        if not image_paths:
+            raise ValueError("视觉审核至少需要一张关键帧。")
+        content: list[dict[str, Any]] = [
+            {"type": "text", "text": user_prompt + "\n只返回合法 JSON，不要 Markdown 代码块或解释。"}
+        ]
+        for image_path in image_paths:
+            mime_type = mimetypes.guess_type(image_path.name)[0] or "image/jpeg"
+            encoded = base64.b64encode(image_path.read_bytes()).decode("ascii")
+            content.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:{mime_type};base64,{encoded}"},
+                }
+            )
+        payload = {
+            "model": self.model,
+            "temperature": 0.1,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": content},
+            ],
+        }
+        return self._complete_payload(payload)
+
+    def _complete_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
         last_error: Exception | None = None
         for attempt in range(1, self.max_retries + 1):
             request = urllib.request.Request(
@@ -78,6 +114,21 @@ def build_creative_llm(settings: Settings) -> CreativeLLM | None:
         settings.modelscope_api_key,
         settings.modelscope_api_base,
         settings.modelscope_model,
+        timeout_seconds=settings.modelscope_timeout_seconds,
+        max_retries=settings.modelscope_max_retries,
+    )
+
+
+def build_vision_llm(settings: Settings) -> ModelScopeLLM | None:
+    """Return a vision-capable client only when the deployment explicitly opts in."""
+    if settings.model_provider != "modelscope" or not settings.modelscope_api_key:
+        return None
+    if not settings.modelscope_vision_model:
+        return None
+    return ModelScopeLLM(
+        settings.modelscope_api_key,
+        settings.modelscope_api_base,
+        settings.modelscope_vision_model,
         timeout_seconds=settings.modelscope_timeout_seconds,
         max_retries=settings.modelscope_max_retries,
     )
