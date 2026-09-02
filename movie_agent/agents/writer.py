@@ -1,8 +1,9 @@
-"""Writer agent: creates a concise screenplay and narration."""
+"""Writer agent: creates a screenplay plus the canonical dialogue/subtitle assets."""
 
 from typing import Any
 
 from movie_agent.services.llm import CreativeLLM
+from movie_agent.services.subtitles import ensure_dialogue_assets, shot_count_for_duration
 
 
 def _as_text(value: Any) -> str:
@@ -22,21 +23,43 @@ class WriterAgent:
     def __init__(self, llm: CreativeLLM | None = None) -> None:
         self.llm = llm
 
-    def write(self, idea: str, brief: dict[str, str]) -> dict[str, str]:
+    def write(
+        self,
+        idea: str,
+        brief: dict[str, str],
+        *,
+        duration_seconds: int = 48,
+        shot_count: int | None = None,
+    ) -> dict[str, Any]:
+        planned_shot_count = shot_count or shot_count_for_duration(duration_seconds)
         if self.llm:
             result = self.llm.complete_json(
                 "你是科幻短片编剧。故事必须原创、简洁、可拆成 4–8 秒的镜头，避免现有影视 IP。",
                 f"创意：{idea}\n导演设定：{brief}\n"
-                "根据导演设定写一个 30–80 秒短片。返回键：story、narration、outline。"
+                f"根据导演设定写一个 30–80 秒短片，预拆为 {planned_shot_count} 个镜头。"
+                "返回键：story、narration、outline、dialogue_book、subtitle_track。"
                 "story 与 narration 都必须是连贯中文段落，不要返回列表或 JSON 片段。"
-                "outline 用 3-5 句话概括故事起承转合。",
+                "outline 用 3-5 句话概括故事起承转合。"
+                "dialogue_book 与 subtitle_track 都返回按镜头编号的数组，"
+                "每项包含 shot、speaker、text、kind、start_seconds、end_seconds；"
+                "如果没有角色对白，使用 speaker=旁白、kind=narration，台词要短而可听清。",
             )
-            return {
+            script = {
                 "story": _as_text(result["story"]),
                 "narration": _as_text(result["narration"]),
                 "outline": _as_text(result.get("outline", "")),
             }
-        return {
+            # The model may omit or partially format the structured assets.  A
+            # deterministic normaliser guarantees that downstream voice,
+            # subtitle, and edit stages always receive the same shape.
+            script["dialogue_book"] = result.get("dialogue_book")
+            script["subtitle_track"] = result.get("subtitle_track")
+            return ensure_dialogue_assets(
+                script,
+                duration_seconds=duration_seconds,
+                shot_count=planned_shot_count,
+            )
+        script = {
             "story": (
                 f"主角置身于一个安静而高度自动化的空间。{idea} "
                 "他先把异常当成系统噪声，随后发现那个细小变化正迫使自己作出选择。"
@@ -51,3 +74,8 @@ class WriterAgent:
                 "结尾：镜头回到开场场景，同一动作此刻有了完全不同的意义。"
             ),
         }
+        return ensure_dialogue_assets(
+            script,
+            duration_seconds=duration_seconds,
+            shot_count=planned_shot_count,
+        )

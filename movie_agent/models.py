@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from movie_agent.services.subtitles import ensure_dialogue_assets, normalise_subtitle_mode
+
 
 @dataclass
 class Shot:
@@ -32,12 +34,15 @@ class MovieProject:
     visual_style: str
     status: str
     brief: dict[str, str]
-    script: dict[str, str]
+    script: dict[str, Any]
     visual_bible: dict[str, str]
     storyboard: list[Shot]
     quality_report: list[str] = field(default_factory=list)
     logs: list[str] = field(default_factory=list)
     final_output_placeholder: str | None = None
+    rough_cut_placeholder: str | None = None
+    subtitle_mode: str = "burned"
+    edit_plan: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -51,19 +56,47 @@ class MovieProject:
             visual_style=data["visual_style"],
             status=data["status"],
             brief=data["brief"],
-            script=data["script"],
+            script=ensure_dialogue_assets(
+                data.get("script") or {},
+                duration_seconds=int(data.get("duration_seconds", 48)),
+                shot_count=len(data.get("storyboard") or []) or None,
+            ),
             visual_bible=data["visual_bible"],
             storyboard=[Shot(**shot) for shot in data["storyboard"]],
             quality_report=data.get("quality_report", []),
             logs=data.get("logs", []),
             final_output_placeholder=data.get("final_output_placeholder"),
+            rough_cut_placeholder=data.get("rough_cut_placeholder"),
+            subtitle_mode=normalise_subtitle_mode(
+                data.get("subtitle_mode") or (data.get("script") or {}).get("subtitle_mode") or "burned"
+            ),
+            edit_plan=data.get("edit_plan") or {},
         )
 
     def brief_as_markdown(self) -> str:
         return "\n".join(["## 项目设定"] + [f"- **{key}**：{value}" for key, value in self.brief.items()])
 
     def script_as_markdown(self) -> str:
-        return "## 短剧本\n" + self.script["story"] + "\n\n## 旁白\n> " + self.script["narration"]
+        dialogue = self.script.get("dialogue_book") or []
+        subtitles = self.script.get("subtitle_track") or []
+        dialogue_lines = [
+            f"- 镜头 {item.get('shot', index + 1)} · {item.get('speaker', '旁白')}：{item.get('text', '')}"
+            for index, item in enumerate(dialogue)
+            if isinstance(item, dict)
+        ]
+        subtitle_lines = [
+            f"- {item.get('start_seconds', 0):.2f}s–{item.get('end_seconds', 0):.2f}s · 镜头 {item.get('shot', index + 1)}：{item.get('text', '')}"
+            for index, item in enumerate(subtitles)
+            if isinstance(item, dict)
+        ]
+        parts = [
+            "## 短剧本\n" + str(self.script.get("story", "")),
+            "## 旁白\n> " + str(self.script.get("narration", "")),
+            "## 台词本 / Dialogue Book\n" + ("\n".join(dialogue_lines) or "暂无台词。"),
+            "## 字幕轨 / Subtitle Track\n" + ("\n".join(subtitle_lines) or "暂无字幕。"),
+            f"字幕状态：{'已锁定' if self.script.get('dialogue_locked') else '待锁定'} · 输出模式：{self.subtitle_mode}",
+        ]
+        return "\n\n".join(parts)
 
     def visual_bible_as_markdown(self) -> str:
         return "## 视觉设定\n" + "\n".join(

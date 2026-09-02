@@ -14,6 +14,7 @@ import json
 import threading
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
@@ -22,6 +23,7 @@ from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from movie_agent.config import Settings
 from movie_agent.orchestrator import MovieOrchestrator
+from movie_agent.services.subtitles import render_srt, render_vtt, script_subtitle_track
 
 settings = Settings.from_env()
 orchestrator = MovieOrchestrator(settings)
@@ -66,6 +68,17 @@ class UpdateShotPayload(BaseModel):
         if not cleaned:
             raise ValueError("不能保存空文本。")
         return cleaned
+
+
+class UpdateDialoguePayload(BaseModel):
+    """Editable writer output kept separate from visual shot fields."""
+
+    dialogue_book: list[dict[str, Any]] = Field(default_factory=list, max_length=20)
+    subtitle_track: list[dict[str, Any]] | None = Field(default=None, max_length=20)
+
+
+class ApproveEditPayload(BaseModel):
+    subtitle_mode: Literal["none", "soft", "burned"] = "burned"
 
 
 def sse_chunk(payload: dict) -> str:
@@ -171,6 +184,92 @@ async def create_project_stream(request: Request) -> StreamingResponse:
         emit({"type": "done", "project": project.to_dict()})
 
     return run_with_sse(request, work)
+
+
+@app.patch("/api/projects/{project_id}/script")
+async def update_script(project_id: str, request: Request):
+    try:
+        payload = UpdateDialoguePayload.model_validate(await request.json())
+    except (ValidationError, ValueError) as error:
+        if isinstance(error, ValidationError):
+            return invalid_payload(error)
+        return JSONResponse({"error": "请求必须是合法 JSON。"}, status_code=400)
+    try:
+        project = orchestrator.update_dialogue(
+            project_id,
+            dialogue_book=payload.dialogue_book,
+            subtitle_track=payload.subtitle_track,
+        )
+    except FileNotFoundError:
+        return project_not_found(project_id)
+    except ValueError as error:
+        return JSONResponse({"error": str(error)}, status_code=400)
+    return project.to_dict()
+
+
+@app.post("/api/projects/{project_id}/script/lock")
+def lock_script(project_id: str):
+    try:
+        project = orchestrator.lock_dialogue(project_id)
+    except FileNotFoundError:
+        return project_not_found(project_id)
+    except ValueError as error:
+        return JSONResponse({"error": str(error)}, status_code=400)
+    return project.to_dict()
+
+
+@app.post("/api/projects/{project_id}/script/unlock")
+def unlock_script(project_id: str):
+    try:
+        project = orchestrator.unlock_dialogue(project_id)
+    except FileNotFoundError:
+        return project_not_found(project_id)
+    except ValueError as error:
+        return JSONResponse({"error": str(error)}, status_code=400)
+    return project.to_dict()
+
+
+@app.post("/api/projects/{project_id}/edit/stream")
+async def create_rough_cut_stream(project_id: str, request: Request) -> StreamingResponse:
+    try:
+        orchestrator.store.load(project_id)
+    except FileNotFoundError:
+        return project_not_found(project_id)
+    except ValueError as error:
+        return invalid_project_id(error)
+
+    def work(emit: Callable[[dict], None]) -> None:
+        with render_lock:
+            def on_progress(description: str) -> None:
+                try:
+                    snapshot = orchestrator.store.load(project_id).to_dict()
+                except Exception:  # noqa: BLE001 - snapshot is best-effort
+                    snapshot = None
+                emit({"type": "edit_progress", "description": description, "project": snapshot})
+
+            project = orchestrator.create_rough_cut(project_id, progress_callback=on_progress)
+            emit({"type": "done", "project": project.to_dict()})
+
+    return run_with_sse(request, work)
+
+
+@app.post("/api/projects/{project_id}/edit/approve")
+async def approve_edit(project_id: str, request: Request):
+    try:
+        payload = ApproveEditPayload.model_validate(await request.json())
+    except (ValidationError, ValueError) as error:
+        if isinstance(error, ValidationError):
+            return invalid_payload(error)
+        return JSONResponse({"error": "请求必须是合法 JSON。"}, status_code=400)
+    try:
+        project = orchestrator.approve_edit(project_id, payload.subtitle_mode)
+    except FileNotFoundError:
+        return project_not_found(project_id)
+    except ValueError as error:
+        return JSONResponse({"error": str(error)}, status_code=400)
+    except RuntimeError as error:
+        return JSONResponse({"error": str(error)}, status_code=502)
+    return project.to_dict()
 
 
 @app.post("/api/projects/{project_id}/render/stream")
@@ -293,6 +392,35 @@ def export_markdown(project_id: str):
     )
 
 
+def _load_project_or_http(project_id: str):
+    try:
+        return orchestrator.store.load(project_id)
+    except FileNotFoundError as error:
+        raise HTTPException(status_code=404, detail=f"找不到项目 {project_id}。") from error
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.get("/api/projects/{project_id}/subtitles.srt")
+def subtitles_srt(project_id: str):
+    project = _load_project_or_http(project_id)
+    return Response(
+        content=render_srt(script_subtitle_track(project.script)).encode("utf-8"),
+        media_type="application/x-subrip; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{project_id}-subtitles.srt"'},
+    )
+
+
+@app.get("/api/projects/{project_id}/subtitles.vtt")
+def subtitles_vtt(project_id: str):
+    project = _load_project_or_http(project_id)
+    return Response(
+        content=render_vtt(script_subtitle_track(project.script)).encode("utf-8"),
+        media_type="text/vtt",
+        headers={"Content-Disposition": f'attachment; filename="{project_id}-subtitles.vtt"'},
+    )
+
+
 def _resolve_final_video(project_id: str) -> Path:
     try:
         project = orchestrator.store.load(project_id)
@@ -303,6 +431,14 @@ def _resolve_final_video(project_id: str) -> Path:
     path = Path(project.final_output_placeholder or "")
     if not path.is_file():
         raise HTTPException(status_code=404, detail="成片尚未生成。")
+    return path
+
+
+def _resolve_rough_cut(project_id: str) -> Path:
+    project = _load_project_or_http(project_id)
+    path = Path(project.rough_cut_placeholder or "")
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Rough Cut 尚未生成真实视频文件。")
     return path
 
 
@@ -329,6 +465,17 @@ def final_video(project_id: str):
 @app.head("/api/projects/{project_id}/final-video")
 def final_video_head(project_id: str):
     _resolve_final_video(project_id)
+    return Response(status_code=200)
+
+
+@app.get("/api/projects/{project_id}/rough-cut")
+def rough_cut_video(project_id: str):
+    return FileResponse(_resolve_rough_cut(project_id), media_type="video/mp4")
+
+
+@app.head("/api/projects/{project_id}/rough-cut")
+def rough_cut_video_head(project_id: str):
+    _resolve_rough_cut(project_id)
     return Response(status_code=200)
 
 

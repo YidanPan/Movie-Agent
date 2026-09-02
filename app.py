@@ -287,7 +287,7 @@ def create_project(idea: str, duration: int, visual_style: str):
     try:
         project = orchestrator.create_project(idea, duration, visual_style)
     except Exception as error:
-        return ("", "", "", "", "", f"## 任务日志\n- 失败：{error}", f"创作失败：{error}", "", _hidden_video(), gr.update())
+        return _empty_project_outputs(f"创作失败：{error}")
     text_mode = "ModelScope AI 文案" if orchestrator.using_creative_llm else "mock 文案"
     video_mode = "Spark 真实视频待生成" if settings.video_generation_mode == "comfyui" else "mock 视频流程"
     return _project_outputs(
@@ -299,11 +299,11 @@ def create_project(idea: str, duration: int, visual_style: str):
 
 def load_project(project_id: str):
     if not project_id:
-        return ("", "", "", "", "", "## 任务日志\n- 请先选择一个项目。", "尚未选择项目", "", _hidden_video(), gr.update())
+        return _empty_project_outputs("尚未选择项目")
     try:
         project = orchestrator.store.load(project_id)
     except Exception as error:
-        return ("", "", "", "", "", f"## 任务日志\n- 失败：{error}", f"读取失败：{error}", "", _hidden_video(), gr.update())
+        return _empty_project_outputs(f"读取失败：{error}")
     return _project_outputs(project, f"已恢复项目：{project.project_id}", gr.update(value=project.project_id))
 
 
@@ -316,7 +316,7 @@ def regenerate_shot(project_id: str, shot_number: int):
     try:
         project = orchestrator.regenerate_shot(project_id, int(shot_number))
     except Exception as error:
-        return ("", "", "", "", "", f"## 任务日志\n- 失败：{error}", f"重新规划失败：{error}", "", _hidden_video(), gr.update())
+        return _project_error_outputs(project_id, f"重新规划失败：{error}")
     return _project_outputs(project, f"已重新规划镜头 {int(shot_number)}", gr.update(value=project.project_id))
 
 
@@ -330,10 +330,10 @@ def render_project(project_id: str, progress=gr.Progress()):
             ),
         )
     except Exception as error:
-        return ("", "", "", "", "", f"## 任务日志\n- 失败：{error}", f"渲染失败：{error}", "", _hidden_video(), gr.update())
+        return _project_error_outputs(project_id, f"渲染失败：{error}")
     return _project_outputs(
         project,
-        f"真实成片已生成（{project.project_id}）",
+        f"真实镜头已生成，等待 AI Edit Rough Cut（{project.project_id}）",
         gr.update(value=project.project_id),
     )
 
@@ -345,6 +345,15 @@ def export_project(project_id: str):
 
 
 def _project_outputs(project, status_message: str, history_update):
+    status = str(project.status)
+    if status == "rough_cut_ready":
+        edit_status = "Rough Cut 已完成：请预览后批准最终成片。"
+    elif status.startswith("completed"):
+        edit_status = f"最终成片已批准（字幕模式：{project.subtitle_mode}）。"
+    elif status == "ready_for_ai_edit":
+        edit_status = "SHOTS READY：锁定台词本后可启动 AI Edit。"
+    else:
+        edit_status = "等待镜头全部通过质检。"
     return (
         project.project_id,
         project.brief_as_markdown(),
@@ -356,7 +365,90 @@ def _project_outputs(project, status_message: str, history_update):
         project.final_output_placeholder or "",
         _video_update(project.final_output_placeholder),
         history_update,
+        project.script.get("dialogue_book", []),
+        project.script.get("subtitle_track", []),
+        "LOCKED" if project.script.get("dialogue_locked") else "DRAFT · 可编辑",
+        project.subtitle_mode,
+        _video_update(project.rough_cut_placeholder),
+        edit_status,
     )
+
+
+def _empty_project_outputs(message: str):
+    return (
+        "", "", "", "", "", f"## 任务日志\n- {message}", message, "", _hidden_video(), gr.update(),
+        [], [], "DRAFT · 等待项目", "burned", _hidden_video(), "",
+    )
+
+
+def _project_error_outputs(project_id: str, message: str):
+    """Keep the current workspace visible when a downstream action fails."""
+
+    try:
+        project = orchestrator.store.load(project_id)
+    except Exception:
+        return _empty_project_outputs(message)
+    return _project_outputs(project, message, gr.update(value=project.project_id))
+
+
+def save_dialogue(project_id: str, dialogue_book: list[dict], subtitle_track: list[dict]):
+    try:
+        project = orchestrator.update_dialogue(
+            project_id,
+            dialogue_book=dialogue_book or [],
+            subtitle_track=subtitle_track or [],
+        )
+    except Exception as error:
+        return _project_error_outputs(project_id, f"保存台词本失败：{error}")
+    return _project_outputs(project, "台词本草稿已保存，尚未锁定。", gr.update(value=project.project_id))
+
+
+def lock_dialogue(project_id: str):
+    try:
+        project = orchestrator.lock_dialogue(project_id)
+    except Exception as error:
+        return _project_error_outputs(project_id, f"锁定台词本失败：{error}")
+    return _project_outputs(project, "台词本已锁定：后续配音、字幕与剪辑读取此版本。", gr.update(value=project.project_id))
+
+
+def unlock_dialogue(project_id: str):
+    try:
+        project = orchestrator.unlock_dialogue(project_id)
+    except Exception as error:
+        return _project_error_outputs(project_id, f"解锁台词本失败：{error}")
+    return _project_outputs(project, "台词本已解锁，可修改后重新保存并锁定。", gr.update(value=project.project_id))
+
+
+def create_rough_cut(project_id: str, progress=gr.Progress()):
+    try:
+        progress(0, desc="正在读取锁定台词本")
+        project = orchestrator.create_rough_cut(
+            project_id,
+            progress_callback=lambda description: progress(0.55, desc=description),
+        )
+    except Exception as error:
+        return _project_error_outputs(project_id, f"Rough Cut 失败：{error}")
+    progress(1, desc="Rough Cut 已完成")
+    return _project_outputs(project, "Rough Cut 已完成，可预览或批准最终成片。", gr.update(value=project.project_id))
+
+
+def approve_edit(project_id: str, subtitle_mode: str):
+    try:
+        project = orchestrator.approve_edit(project_id, subtitle_mode)
+    except Exception as error:
+        return _project_error_outputs(project_id, f"批准成片失败：{error}")
+    return _project_outputs(project, f"最终成片已批准（字幕模式：{project.subtitle_mode}）。", gr.update(value=project.project_id))
+
+
+def export_subtitles(project_id: str):
+    if not project_id:
+        raise gr.Error("请先创建或打开一个项目。")
+    try:
+        project = orchestrator.store.load(project_id)
+        paths = orchestrator.editor.write_subtitle_exports(project)
+    except Exception as error:
+        raise gr.Error(f"字幕导出失败：{error}") from error
+    return [str(path) for path in paths]
 
 
 def _hidden_video():
@@ -423,7 +515,27 @@ with gr.Blocks(title="Movie-Agent · 流影制片台", css=APP_CSS) as demo:
                     project_id = gr.Textbox(label="项目 ID", interactive=False, placeholder="尚未创建项目")
                     final_output = gr.Textbox(label="成片输出路径", interactive=False, elem_id="final-output", placeholder="成片完成后显示")
                 render = gr.Button("提交 Spark 真实生成", variant="primary", elem_id="render-button")
-                gr.HTML("<p class='render-note'>生成任务会逐镜执行质检；中断后可从已通过的镜头继续。</p>")
+                gr.HTML("<p class='render-note'>镜头全部通过后显示 <b>SHOTS READY</b>；先锁定台词本，再进入 AI Edit Rough Cut。</p>")
+            with gr.Group(elem_classes="panel"):
+                gr.HTML("<div class='panel-heading'><div class='panel-title'>台词本与 AI Edit</div><div class='panel-kicker'>Writer lock → Rough Cut → Delivery</div></div>")
+                gr.HTML("<p class='panel-note'>编剧阶段会生成按镜头拆分的 Dialogue Book 与 Subtitle Track。锁定后，配音、字幕和剪辑只读取这一版。</p>")
+                dialogue_book = gr.JSON(label="Dialogue Book / 台词本（可编辑）", value=[])
+                subtitle_track = gr.JSON(label="Subtitle Track / 字幕轨（可编辑）", value=[])
+                with gr.Row(elem_classes="history-actions"):
+                    save_dialogue_button = gr.Button("保存台词草稿")
+                    lock_dialogue_button = gr.Button("锁定台词本 →", variant="primary")
+                    unlock_dialogue_button = gr.Button("解锁并修改")
+                dialogue_state = gr.Textbox(label="台词版本状态", value="DRAFT · 等待项目", interactive=False)
+                with gr.Row(elem_classes="history-actions"):
+                    rough_cut_button = gr.Button("AI 剪辑成片 →", variant="primary")
+                    subtitle_mode = gr.Dropdown(
+                        ["burned", "soft", "none"], value="burned", label="最终字幕模式", interactive=True
+                    )
+                    approve_edit_button = gr.Button("批准最终成片", variant="primary")
+                rough_video = gr.Video(label="Rough Cut 粗剪预览", interactive=False, visible=False)
+                edit_status = gr.Textbox(label="AI Edit 状态", value="", interactive=False)
+                subtitle_export_button = gr.Button("导出 SRT / VTT")
+                subtitle_exports = gr.File(label="字幕文件", file_count="multiple", interactive=False)
             with gr.Tabs():
                 with gr.Tab("创作资产"):
                     with gr.Group(elem_classes="panel"):
@@ -444,27 +556,33 @@ with gr.Blocks(title="Movie-Agent · 流影制片台", css=APP_CSS) as demo:
                         exports = gr.File(label="项目导出", file_count="multiple", interactive=False)
 
     # Keep creation and history recovery on the same display contract.
-    submit.click(
-        create_project,
-        inputs=[idea, duration, visual_style],
-        outputs=[project_id, brief, script, visual_bible, storyboard, logs, status, final_output, final_video, history],
-    )
+    project_outputs = [
+        project_id, brief, script, visual_bible, storyboard, logs, status, final_output, final_video, history,
+        dialogue_book, subtitle_track, dialogue_state, subtitle_mode, rough_video, edit_status,
+    ]
+    submit.click(create_project, inputs=[idea, duration, visual_style], outputs=project_outputs)
     refresh.click(refresh_history, outputs=history)
     load.click(
         load_project,
         inputs=history,
-        outputs=[project_id, brief, script, visual_bible, storyboard, logs, status, final_output, final_video, history],
+        outputs=project_outputs,
     )
     regenerate.click(
         regenerate_shot,
         inputs=[project_id, shot_number],
-        outputs=[project_id, brief, script, visual_bible, storyboard, logs, status, final_output, final_video, history],
+        outputs=project_outputs,
     )
     render.click(
         render_project,
         inputs=project_id,
-        outputs=[project_id, brief, script, visual_bible, storyboard, logs, status, final_output, final_video, history],
+        outputs=project_outputs,
     )
+    save_dialogue_button.click(save_dialogue, inputs=[project_id, dialogue_book, subtitle_track], outputs=project_outputs)
+    lock_dialogue_button.click(lock_dialogue, inputs=project_id, outputs=project_outputs)
+    unlock_dialogue_button.click(unlock_dialogue, inputs=project_id, outputs=project_outputs)
+    rough_cut_button.click(create_rough_cut, inputs=project_id, outputs=project_outputs)
+    approve_edit_button.click(approve_edit, inputs=[project_id, subtitle_mode], outputs=project_outputs)
+    subtitle_export_button.click(export_subtitles, inputs=project_id, outputs=subtitle_exports)
     export.click(export_project, inputs=project_id, outputs=exports)
 
 

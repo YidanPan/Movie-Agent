@@ -2,15 +2,17 @@
 
 面向 ModelScope「AI + 影视流」创作的电影 Agent：从一句原创科幻创意出发，协同完成项目设定、剧本、视觉规范、可渲染分镜和成片交付。
 
-面向 ModelScope「AI + 影视流」比赛的电影 Agent MVP。输入一句原创科幻创意，应用会生成项目设定、短剧本、视觉设定和可供 ComfyUI 执行的结构化分镜。
+面向 ModelScope「AI + 影视流」比赛的电影 Agent MVP。输入一句原创科幻创意，应用会生成项目设定、短剧本、按镜头拆分的台词本/字幕轨、视觉设定和可供 ComfyUI 执行的结构化分镜。
 
-默认是 **mock 制作模式**：不会调用 ComfyUI 或生成真实视频，但会完整模拟“规划 → 镜头生成 → 质检 → 剪辑”的状态流，并保存每个镜头的任务状态。Spark 上将 `VIDEO_GENERATION_MODE=comfyui` 后，页面的“Spark 真实生成并合成”会逐镜提交已验证的 MiniMax-H3 工作流，保存 MP4 并用 FFmpeg 合片。
+默认是 **mock 制作模式**：不会调用 ComfyUI 或下载模型，但会完整模拟“规划 → 镜头生成 → 质检 → AI Edit 粗剪 → 最终批准”的状态流，并保存每个镜头的任务状态。Spark 上将 `VIDEO_GENERATION_MODE=comfyui` 后，页面会逐镜提交已验证的 MiniMax-H3 工作流；所有镜头通过质检后先进入 `6/6 SHOTS READY`，由用户启动 AI Edit Rough Cut，再选择字幕模式并批准最终 FFmpeg 成片。
 
 ## 工作流
 
 `MovieOrchestrator` 负责共享状态和任务顺序；导演、编剧、分镜、视觉设定、生成、质检和剪辑均为独立 Agent。流程支持实时事件推送、项目断点保存和单镜头重试：
 
-`创意输入 → 导演定调 → 编剧成稿 → 分镜拆解 → 视觉设定 → 逐镜生成 → 关键帧质检 → FFmpeg 合片`
+`创意输入 → 导演定调 → 编剧成稿 + 台词本/字幕轨 → 分镜拆解 → 视觉设定 → 逐镜生成 → 关键帧质检 → 6/6 SHOTS READY → AI Edit Rough Cut → 预览/重剪 → 批准交付`
+
+编剧 Agent 会在剧本完成时同步生成按镜头拆分的 `dialogue_book` 与 `subtitle_track`。用户可在“剧本与旁白”页逐镜编辑并锁定；锁定前不会启动 AI Edit，后续配音、字幕和剪辑只读取这版内容。字幕默认开启，项目可导出 SRT/VTT，并在最终批准时选择无字幕、软字幕（MP4 可选字幕轨 + SRT/VTT）或烧录字幕。
 
 ## 启用魔搭文本 API
 
@@ -47,6 +49,8 @@ VISION_KEYFRAMES_PER_SHOT=3
 - 视频质检：抽取可追溯关键帧；可选视觉模型复核角色、场景一致性与版权风险。
 - 项目自动保存、历史恢复、单镜头重新规划、JSON / Markdown 导出。
 - 真实视频模式逐镜同步运行，支持已完成镜头跳过和失败镜头重试；长项目建议先用 mock 模式验证规划结果。
+- AI Edit 工作流：自动生成镜头排序、Trim、转场、旁白、BGM、SFX、字幕和 FFmpeg Rough Cut；用户预览粗剪后再批准最终成片。
+- 字幕工作流：编剧阶段审阅/编辑/锁定 Dialogue Book 与 Subtitle Track；支持默认烧录字幕、软字幕和无字幕交付，以及 SRT/VTT 导出。
 
 ## 本地启动
 
@@ -59,7 +63,7 @@ python -m pip install -r requirements.txt
 python server.py
 ```
 
-访问 `http://127.0.0.1:9071`。这是「黑场放映室」风格的三幕式界面：第一幕输入创意并开机，第二幕实时观看七位 Agent 剧组成员集结交付，第三幕在分镜墙审阅每个镜头、在监视器跟踪逐镜生成进度、在放映室预览成片并导出档案。创作与渲染过程通过 SSE 流式推送，进度与镜头状态实时刷新。
+访问 `http://127.0.0.1:9071`。这是「黑场放映室」风格的三幕式界面：第一幕输入创意并开机，第二幕实时观看七位 Agent 剧组成员集结交付，第三幕在分镜墙审阅每个镜头、在制作手册编辑并锁定台词、在监视器看到 `SHOTS READY` 后启动 AI Edit，并在放映室预览 Rough Cut、选择字幕模式、批准最终成片和导出档案。创作、渲染和粗剪过程通过 SSE 流式推送，进度与镜头状态实时刷新。
 
 ### Gradio 简版（创空间保底）
 
@@ -67,7 +71,7 @@ python server.py
 python app.py
 ```
 
-创空间部署仍以 `app.py` 为入口（见 docs/DEPLOYMENT.md）；本地演示、录屏与 Spark 真实生成建议使用 `python server.py`。两者共享同一套 orchestrator、项目存档与导出逻辑。
+创空间部署仍以 `app.py` 为入口（见 docs/DEPLOYMENT.md）；Gradio 保底页也提供台词本编辑/锁定、Rough Cut、字幕模式与 SRT/VTT 导出控制。本地演示、录屏与 Spark 真实生成建议使用 `python server.py`，后者提供完整的 SSE 片场交互。两者共享同一套 orchestrator、项目存档与导出逻辑。
 
 Windows 上启动后访问 `http://127.0.0.1:9071`。其他系统请按其终端语法激活 `.venv`。
 
@@ -96,7 +100,7 @@ Windows 上启动后访问 `http://127.0.0.1:9071`。其他系统请按其终端
 - `static/`：三幕式前端（零构建的 HTML/CSS/JS）。
 - `app.py`：创空间 Gradio 保底入口。
 - `movie_agent/agents`：导演、编剧、分镜、视觉设定、生成、质检和剪辑 Agent。
-- `movie_agent/services`：ModelScope、ComfyUI、FFmpeg、项目质量门等外部能力适配层。
+- `movie_agent/services`：ModelScope、ComfyUI、字幕导出、FFmpeg、项目质量门等外部能力适配层。
 - `workflows/`：存放已验证的 ComfyUI API 工作流 JSON 模板；见其中 README。
 - `projects/`：运行时项目数据，不纳入 Git。
 
@@ -106,19 +110,21 @@ Windows 上启动后访问 `http://127.0.0.1:9071`。其他系统请按其终端
 
 ## English Documentation
 
-Movie-Agent is a multi-agent film production workspace for the ModelScope “AI + Film/TV” competition. It turns one original science-fiction idea into a production brief, short script, visual bible, structured storyboard, generated shots, quality reports, and an editable final cut plan.
+Movie-Agent is a multi-agent film production workspace for the ModelScope “AI + Film/TV” competition. It turns one original science-fiction idea into a production brief, short script, locked dialogue/subtitle assets, visual bible, structured storyboard, generated shots, quality reports, a reviewable Rough Cut, and an approved final delivery.
 
 ### Workflow
 
-`Idea → Director → Writer → Storyboard → Visual Bible → Shot Generation → Keyframe QA → FFmpeg Edit`
+`Idea → Director → Writer + Dialogue Book → Storyboard → Visual Bible → Shot Generation → Keyframe QA → SHOTS READY → AI Edit Rough Cut → Review/Re-cut → Approve Delivery`
 
 `MovieOrchestrator` coordinates shared project state and event delivery. Director, writer, storyboard, visual bible, generation, reviewer, and editor are independent modules. Projects are persisted as JSON and can resume from completed shots.
 
 ### Modes
 
-- **Mock mode** runs the complete planning and production state flow without downloading models or calling ComfyUI.
+- **Mock mode** runs the planning, subtitle, shot, and AI Edit state flow without downloading models or calling ComfyUI. It stops at Rough Cut until the user explicitly approves delivery.
 - **ModelScope text mode** uses the OpenAI-compatible ModelScope endpoint for creative planning agents.
-- **Spark ComfyUI mode** submits the verified MiniMax-H3 T2V workflow one shot at a time and uses FFmpeg for assembly.
+- **Spark ComfyUI mode** submits the verified MiniMax-H3 T2V workflow one shot at a time. When every shot passes QA, AI Edit creates a Rough Cut; final FFmpeg assembly happens only after approval.
+
+The writer emits one editable `dialogue_book` and timed `subtitle_track` cue per shot. Users can revise and lock these assets in the screenplay tab. Voiceover, subtitle exports, and AI Edit read the locked revision only. Subtitles are enabled by default, with `none`, `soft` (selectable MP4 track plus SRT/VTT sidecars), and `burned` delivery modes.
 
 The currently verified Spark workflow is T2V. I2V and R2V remain disabled until their corresponding workflows are verified.
 
@@ -139,7 +145,7 @@ copy .env.example .env  # Windows; use cp on Linux/macOS
 python server.py
 ```
 
-Open `http://127.0.0.1:9071`. The FastAPI interface provides the cinematic three-act workspace, SSE progress updates, shot timeline, monitor, premiere flow, and project exports. `python app.py` remains available as the Gradio Space fallback.
+Open `http://127.0.0.1:9071`. The FastAPI interface provides the cinematic three-act workspace, SSE progress updates, shot timeline, monitor, screenplay lock/editor, prominent `SHOTS READY → AI Edit` entry point, Rough Cut preview, subtitle mode selection, premiere flow, and project exports. The Gradio `app.py` fallback also exposes dialogue/subtitle editing and locking, Rough Cut, approval, subtitle mode, and SRT/VTT delivery controls for a Space deployment.
 
 ### Configuration and Compliance
 

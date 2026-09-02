@@ -62,6 +62,10 @@ const els = {
   renderRec: $("#render-rec"),
   btnRender: $("#btn-render"),
   renderNote: $("#render-note"),
+  renderReadiness: $("#render-readiness"),
+  shotsReady: $("#shots-ready"),
+  btnAiEdit: $("#btn-ai-edit"),
+  editStatus: $("#edit-status"),
   logFeed: $("#log-feed"),
   manualTabs: $("#manual-tabs"),
   manualBody: $("#manual-body"),
@@ -70,10 +74,20 @@ const els = {
   activityBody: $("#activity-body"),
   screen: $("#screen"),
   finalVideo: $("#final-video"),
+  editConsole: $("#edit-console"),
+  editConsoleState: $("#edit-console-state"),
+  editConsoleNote: $("#edit-console-note"),
+  roughCutStage: $("#rough-cut-stage"),
+  roughCutVideo: $("#rough-cut-video"),
+  subtitleMode: $("#subtitle-mode"),
+  btnRecut: $("#btn-recut"),
+  btnApproveEdit: $("#btn-approve-edit"),
   posterTitle: $("#poster-title"),
   posterMeta: $("#poster-meta"),
   exportJson: $("#export-json"),
   exportMd: $("#export-md"),
+  exportSrt: $("#export-srt"),
+  exportVtt: $("#export-vtt"),
   drawer: $("#drawer"),
   drawerBackdrop: $("#drawer-backdrop"),
   toast: $("#toast"),
@@ -92,8 +106,8 @@ const SAMPLE_IDEAS = [
 const AGENT_DEFS = [
   { id: "director", index: "01", name: "导演", en: "DIRECTOR", role: "主题与叙事边界", primary: true,
     summarize: (d) => d.brief && d.brief["主题"] ? `THEME / ${truncate(d.brief["主题"], 64)}` : "THEME / PROJECT BRIEF LOCKED" },
-  { id: "writer", index: "02", name: "编剧", en: "WRITER", role: "剧本与旁白", primary: true,
-    summarize: (d) => d.script && d.script.story ? `DRAFT / ${truncate(d.script.story, 66)}` : "DRAFT / SCREENPLAY LOCKED" },
+  { id: "writer", index: "02", name: "编剧", en: "WRITER", role: "剧本 · 台词本 · 字幕", primary: true,
+    summarize: (d) => d.script && d.script.story ? `DRAFT / ${d.script.dialogue_book?.length || 0} dialogue cues · ${d.script.dialogue_locked ? "LOCKED" : "REVIEW"}` : "DRAFT / AWAITING SCRIPT" },
   { id: "visual_bible", index: "03", name: "美术指导", en: "ART DIRECTOR", role: "角色 · 场景 · 风格 · 声音", primary: true,
     summarize: () => "VISUAL RULES / 4 continuity cards locked" },
   { id: "storyboard", index: "04", name: "分镜师", en: "STORYBOARD", role: "可渲染镜头拆解", primary: true,
@@ -102,13 +116,13 @@ const AGENT_DEFS = [
     summarize: (d) => `QC GATE / ${(d.quality_report || []).length} checks complete` },
   { id: "generation", index: "06", name: "生成调度", en: "GENERATION", role: "逐镜生成与重试", primary: false,
     summarize: () => "SHOT QUEUE / render tasks ready" },
-  { id: "editor", index: "07", name: "剪辑", en: "EDITOR", role: "合片成片", primary: false,
-    summarize: (d) => (d.final_output ? "DELIVERY / master cut ready" : "DELIVERY / awaiting shot media") },
+  { id: "editor", index: "07", name: "剪辑", en: "EDITOR", role: "粗剪 · 合片 · 交付", primary: false,
+    summarize: (d) => d.final_output ? "DELIVERY / master cut ready" : d.rough_cut_placeholder ? "ROUGH CUT / review then approve" : "AI EDIT / awaiting locked dialogue" },
 ];
 
 const AGENT_STATUS_COPY = {
   director: { idle: "WAITING", working: "DIRECTING", done: "DIRECTION LOCKED" },
-  writer: { idle: "WAITING", working: "WRITING", done: "SCRIPT LOCKED" },
+  writer: { idle: "WAITING", working: "WRITING", done: "SCRIPT PACKAGE READY" },
   visual_bible: { idle: "WAITING", working: "DESIGNING", done: "VISUAL LOCKED" },
   storyboard: { idle: "WAITING", working: "BOARDING", done: "STORYBOARD READY" },
   quality: { idle: "QUEUED", next: "NEXT · QC GATE", working: "REVIEWING", done: "QC APPROVED" },
@@ -134,6 +148,10 @@ const PROJECT_STATUS = {
   generating_video_mock: "mock 生成中",
   rendering_comfyui: "真实生成中",
   render_failed: "生成中断（可续跑）",
+  ready_for_ai_edit: "SHOTS READY · 待 AI Edit",
+  editing_rough_cut: "AI Edit 粗剪中",
+  rough_cut_ready: "Rough Cut 已完成 · 待批准",
+  editing_final: "最终成片导出中",
   completed_mock: "mock 流程完成",
   completed_text_ai_video_mock: "AI 文案 + mock 视频流程完成",
   completed_comfyui: "真实成片已交付",
@@ -147,6 +165,7 @@ const state = {
   health: null,
   busy: false,
   rendering: false,
+  editing: false,
   soundEnabled: localStorage.getItem("movie-agent-sound") === "on",
   activeShotNumber: 1,
   renderStartedAt: 0,
@@ -241,21 +260,25 @@ function projectTitle(project = state.project) {
 
 function setBrowserActivity(mode, project = state.project) {
   const projectId = project && project.project_id ? project.project_id : "Movie-Agent";
-  document.title = mode === "render" ? `● RENDERING ${projectId}` : `Movie-Agent · ${projectTitle(project)}`;
+  document.title = mode === "render"
+    ? `● RENDERING ${projectId}`
+    : mode === "edit"
+      ? `● AI EDIT ${projectId}`
+      : `Movie-Agent · ${projectTitle(project)}`;
   clearInterval(faviconBlinkTimer);
   const setFavicon = (dot) => {
     if (!els.favicon) return;
     els.favicon.href = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230d0c0a'/%3E%3Ccircle cx='24' cy='8' r='4' fill='${dot}'/%3E%3Crect x='6' y='12' width='5' height='8' fill='%23e8a34c'/%3E%3Crect x='14' y='12' width='5' height='8' fill='%23e8a34c' opacity='.55'/%3E%3C/svg%3E`;
   };
-  if (mode !== "render") {
+  if (!["render", "edit"].includes(mode)) {
     setFavicon("%23e8a34c");
     return;
   }
   let lit = true;
-  setFavicon("%23e85a4f");
+  setFavicon(mode === "edit" ? "%23e8a34c" : "%23e85a4f");
   faviconBlinkTimer = setInterval(() => {
     lit = !lit;
-    setFavicon(lit ? "%23e85a4f" : "%23332a25");
+    setFavicon(lit ? (mode === "edit" ? "%23e8a34c" : "%23e85a4f") : "%23332a25");
   }, 700);
 }
 
@@ -428,10 +451,17 @@ function pipelineFromProject(project, hasVideo) {
   if (!project) return states;
   states.plan = "done";
   if ((project.storyboard || []).length > 0) states.previs = "done";
-  const anyApproved = (project.storyboard || []).some((shot) => String(shot.status || "").startsWith("approved"));
   const status = project.status || "";
-  if (anyApproved || status.startsWith("completed")) states.render = "done";
-  if (status === "completed_comfyui" && hasVideo) states.deliver = "done";
+  const shots = project.storyboard || [];
+  const allReady = shots.length > 0 && shots.every((shot) => String(shot.status || "").startsWith("approved"));
+  const finalApproved = status.startsWith("completed") && (hasVideo || status !== "completed_comfyui");
+  if (["rendering_comfyui", "generating_video_mock", "ready_for_comfyui_render", "render_failed"].includes(status)) {
+    states.render = status === "render_failed" ? "active" : "active";
+  } else if (allReady || status.startsWith("editing_") || status === "rough_cut_ready" || finalApproved) {
+    states.render = "done";
+  }
+  if (finalApproved) states.deliver = "done";
+  else if (allReady || status === "ready_for_ai_edit" || status === "editing_rough_cut" || status === "rough_cut_ready") states.deliver = "active";
   return states;
 }
 
@@ -632,6 +662,9 @@ function markAllAgentsDone(project) {
     final_output: project.final_output_placeholder,
   };
   for (const def of AGENT_DEFS) setAgentState(def.id, "done", dataset);
+  if (!String(project.status || "").startsWith("completed")) {
+    setAgentState("editor", "next", dataset);
+  }
 }
 
 /* ── 第三幕 · 工作区渲染 ───────────────────────────────────── */
@@ -757,16 +790,30 @@ function renderMonitor(project, live = false) {
   els.renderRec.classList.toggle("live", live);
   const shots = project.storyboard || [];
   const approved = shots.filter((s) => String(s.status || "").startsWith("approved")).length;
+  const allReady = shots.length > 0 && approved === shots.length;
+  const finalDelivered = String(project.status || "").startsWith("completed");
+  if (els.shotsReady) els.shotsReady.textContent = `${approved}/${shots.length} SHOTS READY`;
+  if (els.renderReadiness) {
+    els.renderReadiness.classList.toggle("hidden", !allReady || finalDelivered);
+  }
+  if (els.btnAiEdit) {
+    els.btnAiEdit.disabled = state.editing || !allReady;
+    els.btnAiEdit.innerHTML = state.editing
+      ? "AI Edit 粗剪中…"
+      : 'AI 剪辑成片 <span class="cta-arrow" aria-hidden="true">→</span>';
+  }
   setMonitorTimecode(live);
   if (live) {
     els.monitorShot.textContent = `SHOT ${approved}/${shots.length}`;
     els.monitorPct.textContent = shots.length ? `${Math.round((approved / shots.length) * 100)}%` : "";
     els.monitorBar.style.width = shots.length ? `${(approved / shots.length) * 100}%` : "0%";
   } else {
-    els.monitorShot.textContent = "STANDBY";
-    els.monitorPct.textContent = "";
-    els.monitorBar.style.width = "0%";
-    els.monitorDesc.textContent = `${PROJECT_STATUS[project.status] || project.status} · ${shots.length} 个镜头，${approved} 个已通过。`;
+    els.monitorShot.textContent = allReady ? `${shots.length}/${shots.length} READY` : "STANDBY";
+    els.monitorPct.textContent = allReady ? "100%" : "";
+    els.monitorBar.style.width = allReady ? "100%" : "0%";
+    els.monitorDesc.textContent = allReady
+      ? `${shots.length}/${shots.length} SHOTS READY · DELIVER 当前阶段：点击 AI 剪辑成片进入 Rough Cut。`
+      : `${PROJECT_STATUS[project.status] || project.status} · ${shots.length} 个镜头，${approved} 个已通过。`;
   }
 }
 
@@ -823,6 +870,9 @@ function manualProductionStatus(project) {
   const status = String(project?.status || "");
   const shots = project?.storyboard || [];
   if (status.startsWith("completed")) return { key: "complete", symbol: "✓", label: "DELIVERED", copy: "成片已交付" };
+  if (status === "rough_cut_ready") return { key: "active", symbol: "●", label: "ROUGH CUT READY", copy: "待批准成片" };
+  if (status === "editing_rough_cut") return { key: "active", symbol: "●", label: "AI EDITING", copy: "正在生成粗剪" };
+  if (status === "ready_for_ai_edit") return { key: "active", symbol: "●", label: "DELIVER / AI EDIT", copy: "镜头已就绪" };
   if (status.includes("render")) return { key: "active", symbol: "●", label: "RENDERING", copy: "正在生成" };
   if (shots.length >= 6 && (project?.quality_report || []).length) return { key: "complete", symbol: "✓", label: "READY FOR GENERATION", copy: "已通过策划质检" };
   if (shots.length) return { key: "active", symbol: "●", label: "BOARDING", copy: "分镜正在生长" };
@@ -875,7 +925,10 @@ function renderAgentActivity(project) {
   const entries = uniqueLogEntries(project);
   const assets = [project.brief, project.script, project.visual_bible, project.storyboard, project.quality_report]
     .filter((value) => (Array.isArray(value) ? value.length : value && Object.keys(value).length)).length;
-  const agentsDone = String(project.status || "").startsWith("completed") ? 7 : Math.min(7, assets + (project.final_output_placeholder ? 2 : 0));
+  const status = String(project.status || "");
+  const agentsDone = status.startsWith("completed")
+    ? 7
+    : Math.min(7, assets + (project.rough_cut_placeholder ? 1 : 0) + (project.final_output_placeholder ? 1 : 0));
   const checks = (project.quality_report || []).length;
   els.activitySummary.textContent = `${checks || 0} CHECKS · ${agentsDone}/7 AGENTS`;
   els.activityBody.innerHTML = entries.length
@@ -946,13 +999,36 @@ function renderBriefTab(project) {
 }
 
 function renderScriptTab(project) {
-  const story = String((project.script || {}).story || "").split(/\n+/).filter(Boolean);
-  const narration = String((project.script || {}).narration || "").trim();
+  const script = project.script || {};
+  const story = String(script.story || "").split(/\n+/).filter(Boolean);
+  const narration = String(script.narration || "").trim();
+  const dialogue = Array.isArray(script.dialogue_book) ? script.dialogue_book : [];
+  const subtitles = Array.isArray(script.subtitle_track) ? script.subtitle_track : dialogue;
+  const locked = Boolean(script.dialogue_locked);
+  const rows = dialogue.map((entry, index) => {
+    const cue = subtitles[index] || entry || {};
+    const start = Number(entry?.start_seconds ?? cue?.start_seconds ?? 0).toFixed(2);
+    const end = Number(entry?.end_seconds ?? cue?.end_seconds ?? 0).toFixed(2);
+    return `
+      <article class="dialogue-row" data-dialogue-row="${index}">
+        <header class="dialogue-row-head"><span class="dialogue-shot mono">SHOT ${String(entry?.shot || index + 1).padStart(2, "0")}</span><span class="dialogue-time mono">${start}s — ${end}s</span><span class="dialogue-kind mono">${esc(entry?.kind || "narration")}</span></header>
+        <div class="dialogue-row-fields">
+          <label><span class="manual-label mono">DIALOGUE / 台词本</span><textarea data-dialogue-field="text" rows="2" ${locked ? "disabled" : ""}>${esc(entry?.text || "")}</textarea></label>
+          <label><span class="manual-label mono">SUBTITLE / 字幕轨</span><textarea data-dialogue-field="subtitle" rows="2" ${locked ? "disabled" : ""}>${esc(cue?.text || entry?.text || "")}</textarea></label>
+        </div>
+        <label class="dialogue-speaker"><span class="manual-label mono">SPEAKER / 说话人</span><input data-dialogue-field="speaker" value="${esc(entry?.speaker || "旁白")}" ${locked ? "disabled" : ""}></label>
+      </article>`;
+  }).join("");
   return `
     <section class="screenplay-reader">
-      <header class="screenplay-head mono"><span>SCREENPLAY / DRAFT 01</span><span>${story.length ? `${story.length} SCENES` : "AWAITING DRAFT"}</span></header>
+      <header class="screenplay-head mono"><span>SCREENPLAY / DIALOGUE BOOK</span><span>${story.length ? `${story.length} SCENES` : "AWAITING DRAFT"}</span></header>
       <div class="screenplay-body">${story.map((para, index) => `<p><span class="screenplay-line-no mono">${String(index + 1).padStart(2, "0")}</span><span class="manual-type">${esc(para)}</span></p>`).join("") || '<p class="empty-note">暂无剧本。</p>'}</div>
       ${narration ? `<aside class="screenplay-narration"><span class="manual-label mono">NARRATION / 旁白</span><p class="manual-type">${esc(narration)}</p></aside>` : ""}
+      <section class="dialogue-book" aria-label="台词本与字幕轨">
+        <header class="dialogue-book-head"><div><span class="manual-section-kicker mono">WRITER DELIVERABLE / 编剧正式产物</span><h3>台词本 / 字幕稿</h3><p class="manual-type">先审阅每一镜的对白与旁白，锁定后才会进入配音、字幕和 AI Edit。</p></div><span class="dialogue-lock-badge ${locked ? "is-locked" : "is-draft"} mono">${locked ? "LOCKED ✓" : "DRAFT · 待锁定"}</span></header>
+        <div class="dialogue-rows">${rows || '<p class="empty-note">编剧完成后，这里会按镜头生成可编辑台词与字幕。</p>'}</div>
+        <footer class="dialogue-book-actions"><span class="dialogue-revision mono">VERSION ${esc(script.dialogue_revision || 1)} · ${dialogue.length} CUES · ${locked ? "DOWNSTREAM LOCKED" : "EDITABLE BEFORE RENDER"}</span><div>${locked ? '<button class="ghost" data-script-unlock type="button">解锁并修改</button>' : `<button class="ghost" data-script-save type="button" ${!dialogue.length ? "disabled" : ""}>保存台词修改</button><button class="cta" data-script-lock type="button" ${!dialogue.length ? "disabled" : ""}>锁定台词本 →</button>`}</div></footer>
+      </section>
     </section>`;
 }
 
@@ -1055,13 +1131,39 @@ async function renderScreening(project) {
   state.hasFinalVideo = false;
   els.screen.classList.remove("has-video");
   els.finalVideo.removeAttribute("src");
+  els.roughCutVideo?.removeAttribute("src");
+  els.roughCutStage?.classList.remove("has-media");
   els.posterTitle.textContent = truncate(
     (project.brief && (project.brief["主题"] || project.brief["原始创意"])) || project.idea,
     34
   );
   els.posterMeta.textContent = `${project.visual_style} · ${project.duration_seconds}S · ${project.project_id}`;
+  const status = String(project.status || "");
+  const roughStatuses = ["ready_for_ai_edit", "editing_rough_cut", "rough_cut_ready"];
+  const showingRoughCut = roughStatuses.includes(status);
+  if (els.editConsole) els.editConsole.classList.toggle("hidden", !showingRoughCut);
+  if (els.editConsoleState) {
+    els.editConsoleState.textContent = status === "rough_cut_ready" ? "ROUGH CUT READY" : status === "editing_rough_cut" ? "EDITING" : "READY TO EDIT";
+  }
+  if (els.subtitleMode) els.subtitleMode.value = project.subtitle_mode || project.script?.subtitle_mode || "burned";
+  if (els.btnApproveEdit) els.btnApproveEdit.disabled = state.editing || status !== "rough_cut_ready";
+  if (els.btnRecut) els.btnRecut.disabled = state.editing;
+  if (els.editConsoleNote) {
+    els.editConsoleNote.textContent = project.script?.dialogue_locked
+      ? "AI Edit 会严格读取已锁定的台词本与字幕轨。"
+      : "请先在“剧本与旁白”页锁定台词本，剪辑才能继续。";
+  }
+  if (showingRoughCut) {
+    try {
+      const response = await fetch(`/api/projects/${project.project_id}/rough-cut`, { method: "HEAD" });
+      if (response.ok && els.roughCutVideo) {
+        els.roughCutVideo.src = `/api/projects/${project.project_id}/rough-cut`;
+        els.roughCutStage?.classList.add("has-media");
+      }
+    } catch { /* mock mode may only expose the rough-cut metadata */ }
+  }
   // 只有真实生成完成的项目才探测成片文件；mock 模式不把占位路径当真实成片。
-  if (project.status === "completed_comfyui") {
+  if (status === "completed_comfyui") {
     try {
       const response = await fetch(`/api/projects/${project.project_id}/final-video`, { method: "HEAD" });
       if (response.ok) {
@@ -1089,6 +1191,8 @@ function renderDelivery(project) {
     .join("");
   els.exportJson.href = `/api/projects/${project.project_id}/export/json`;
   els.exportMd.href = `/api/projects/${project.project_id}/export/markdown`;
+  if (els.exportSrt) els.exportSrt.href = `/api/projects/${project.project_id}/subtitles.srt`;
+  if (els.exportVtt) els.exportVtt.href = `/api/projects/${project.project_id}/subtitles.vtt`;
   // 字幕滚动只在新项目首次进入时触发，避免逐镜渲染/实时送达时反复重播。
   if (state.creditsProjectId !== project.project_id) {
     state.creditsProjectId = project.project_id;
@@ -1114,12 +1218,20 @@ function renderWorkspace(project, options = {}) {
   renderDelivery(project);
   updatePipelineForProject(project);
   const videoMode = state.health ? state.health.video_mode : "mock";
+  const shots = project.storyboard || [];
+  const allShotsReady = shots.length > 0 && shots.every((shot) => String(shot.status || "").startsWith("approved"));
   if (videoMode === "comfyui") {
-    els.btnRender.disabled = state.rendering;
-    els.renderNote.textContent = "逐镜提交已验证的 MiniMax-H3 工作流；已通过质检的镜头会自动跳过，失败镜头按重试策略重新提交。";
+    els.btnRender.disabled = state.rendering || allShotsReady;
+    els.renderNote.textContent = allShotsReady
+      ? "镜头已全部通过质检，请先锁定台词本，再启动 AI Edit Rough Cut。"
+      : state.project?.script?.dialogue_locked
+        ? "逐镜提交已验证的 MiniMax-H3 工作流；已通过质检的镜头会自动跳过，失败镜头按重试策略重新提交。"
+        : "请先在剧本与旁白页审阅并锁定台词本，再提交 Spark 真实生成。";
   } else {
     els.btnRender.disabled = true;
-    els.renderNote.textContent = "当前为 mock 视频流程：在 Spark 的 .env 设置 VIDEO_GENERATION_MODE=comfyui 后，这里会变成真实逐镜生成与 FFmpeg 合片。";
+    els.renderNote.textContent = allShotsReady
+      ? "mock 镜头已全部就绪：锁定台词本后可直接启动 AI Edit Rough Cut。"
+      : "当前为 mock 视频流程：在 Spark 的 .env 设置 VIDEO_GENERATION_MODE=comfyui 后，这里会变成真实逐镜生成与 FFmpeg 合片。";
   }
 }
 
@@ -1132,6 +1244,7 @@ function applyProjectSnapshot(project) {
   renderManual(project, state.manualTab);
   renderDelivery(project);
   renderMonitor(project, state.rendering);
+  renderScreening(project);
 }
 
 /* ── Inspector：镜头 / 剧组详情 ───────────────────────────── */
@@ -1354,18 +1467,21 @@ function closeDrawer() {
   drawerHideTimer = setTimeout(() => els.drawerBackdrop.classList.add("hidden"), 300);
 }
 
+function crewValueMarkup(value, depth = 0) {
+  if (depth > 3) return `<span>${esc(JSON.stringify(value))}</span>`;
+  if (Array.isArray(value)) {
+    return `<ol class="crew-drawer-list">${value.map((item) => `<li>${crewValueMarkup(item, depth + 1)}</li>`).join("")}</ol>`;
+  }
+  if (value && typeof value === "object") {
+    return `<dl>${Object.entries(value).map(([key, item]) => `<dt>${esc(key)}</dt><dd>${crewValueMarkup(item, depth + 1)}</dd>`).join("")}</dl>`;
+  }
+  return `<span>${esc(value)}</span>`;
+}
+
 function crewAssetMarkup(title, value) {
   if (!value || (typeof value === "object" && !Object.keys(value).length)) return "";
-  if (Array.isArray(value)) {
-    return `<section class="crew-drawer-section"><h3>${esc(title)}</h3><ol class="crew-drawer-list">${value.map((item) => {
-      if (typeof item === "string") return `<li>${esc(item)}</li>`;
-      return `<li><strong>镜头 ${esc(item.number || "")}</strong> · ${esc(item.duration_seconds || "")} 秒 · ${esc(item.framing || "")} · ${esc(item.generation_mode || "")}<br>${esc(item.image_description || "")}<br><span class="drawer-muted">动作：${esc(item.action || "")} · 声音：${esc(item.sound_design || "")}<br>提示词：${esc(item.prompt || "")}</span></li>`;
-    }).join("")}</ol></section>`;
-  }
-  if (typeof value === "object") {
-    return `<section class="crew-drawer-section"><h3>${esc(title)}</h3><dl>${Object.entries(value).map(([key, item]) => `<dt>${esc(key)}</dt><dd>${esc(item)}</dd>`).join("")}</dl></section>`;
-  }
-  return `<section class="crew-drawer-section"><h3>${esc(title)}</h3><p>${esc(value)}</p></section>`;
+  const body = value && typeof value === "object" ? crewValueMarkup(value) : `<p>${esc(value)}</p>`;
+  return `<section class="crew-drawer-section"><h3>${esc(title)}</h3>${body}</section>`;
 }
 
 function buildCrewInspectorMarkup(agentId) {
@@ -1395,7 +1511,7 @@ function buildCrewInspectorMarkup(agentId) {
     : agentId === "storyboard" ? crewAssetMarkup("分镜资产", asset.storyboard)
     : agentId === "quality" ? crewAssetMarkup("质检报告", asset.quality_report)
       : agentId === "generation" ? crewAssetMarkup("逐镜任务", project.storyboard)
-      : agentId === "editor" ? crewAssetMarkup("交付结果", project.final_output_placeholder || "等待镜头素材")
+      : agentId === "editor" ? crewAssetMarkup("剪辑结果", project.final_output_placeholder || project.rough_cut_placeholder || "等待镜头素材")
             : `<section class="crew-drawer-section"><h3>任务说明</h3><p>${esc(def.role)}。${esc(card?.querySelector(".crew-summary")?.textContent || "等待上游素材。")}</p></section>`;
   return `
     <div class="inspector-content inspector-content--agent" data-inspector-type="agent" data-agent-id="${esc(agentId)}">
@@ -1449,6 +1565,78 @@ let storyboardStageRun = 0;
 function refreshWorkspaceAfterShotUpdate(project) {
   state.project = project;
   renderWorkspace(project);
+}
+
+function collectDialogueAssets() {
+  const script = state.project?.script || {};
+  const dialogue = Array.isArray(script.dialogue_book) ? script.dialogue_book : [];
+  const subtitles = Array.isArray(script.subtitle_track) ? script.subtitle_track : dialogue;
+  const rows = Array.from(els.manualBody.querySelectorAll("[data-dialogue-row]"));
+  const dialogueBook = dialogue.map((entry, index) => {
+    const row = rows.find((item) => Number(item.dataset.dialogueRow) === index);
+    const text = row?.querySelector('[data-dialogue-field="text"]')?.value.trim();
+    const speaker = row?.querySelector('[data-dialogue-field="speaker"]')?.value.trim();
+    return { ...entry, text: text || entry.text || "", speaker: speaker || entry.speaker || "旁白" };
+  });
+  const subtitleTrack = dialogueBook.map((entry, index) => {
+    const row = rows.find((item) => Number(item.dataset.dialogueRow) === index);
+    const cue = subtitles[index] || entry;
+    const field = row?.querySelector('[data-dialogue-field="subtitle"]');
+    const text = field ? field.value.trim() : String(cue.text || entry.text || "");
+    return { ...cue, shot: entry.shot, start_seconds: entry.start_seconds, end_seconds: entry.end_seconds, text };
+  });
+  return { dialogueBook, subtitleTrack };
+}
+
+async function unlockDialogue() {
+  if (!state.project) return;
+  try {
+    const response = await fetch(`/api/projects/${state.project.project_id}/script/unlock`, { method: "POST" });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    state.project = payload;
+    renderWorkspace(payload, { tab: "script" });
+    toast("台词本已解锁：修改后请重新保存并锁定。 ");
+  } catch (error) {
+    toast(`解锁台词本失败：${error.message}`, true);
+  }
+}
+
+async function saveDialogueDraft({ lock = false, button = null } = {}) {
+  if (!state.project) return;
+  const assets = collectDialogueAssets();
+  if (!assets.dialogueBook.length || assets.dialogueBook.some((entry) => !String(entry.text || "").trim())) {
+    toast("每个镜头至少需要一条台词或旁白；无对白时可填写留白。", true);
+    return;
+  }
+  const originalText = button?.textContent || "";
+  if (button) {
+    button.disabled = true;
+    button.textContent = lock ? "锁定中…" : "保存中…";
+  }
+  try {
+    let response = await fetch(`/api/projects/${state.project.project_id}/script`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(assets),
+    });
+    let payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    if (lock) {
+      response = await fetch(`/api/projects/${state.project.project_id}/script/lock`, { method: "POST" });
+      payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    }
+    state.project = payload;
+    renderWorkspace(payload, { tab: "script" });
+    toast(lock ? "台词本已锁定，后续配音、字幕与 AI Edit 将以此版本为准。" : "台词本与字幕轨草稿已保存。");
+  } catch (error) {
+    toast(`${lock ? "锁定" : "保存"}台词本失败：${error.message}`, true);
+    if (button) {
+      button.disabled = false;
+      button.textContent = originalText || (lock ? "锁定台词本 →" : "保存台词修改");
+    }
+  }
 }
 
 async function saveShotEdits(shotNumber) {
@@ -1525,6 +1713,9 @@ function createLiveProject(event) {
     quality_report: [],
     logs: ["片场开机：正在等待第一份创作资产。"],
     final_output_placeholder: null,
+    rough_cut_placeholder: null,
+    subtitle_mode: "burned",
+    edit_plan: {},
   };
 }
 
@@ -1599,7 +1790,9 @@ function handleCreateEvent(event) {
     els.crewMeta.textContent = `LOCKED · PROJECT ${String(event.project?.project_id || "").replace(/^film-/, "").toUpperCase()}`;
     renderWorkspace(state.project, { entranceFrom: 0 });
     setBrowserActivity("idle", state.project);
-    toast(`项目 ${state.project.project_id} 已完成并存档。`);
+    toast(state.project.status === "ready_for_ai_edit"
+      ? `${state.project.storyboard?.length || 0}/${state.project.storyboard?.length || 0} SHOTS READY：当前阶段已推进到 DELIVER，请锁定台词本后启动 AI Edit。`
+      : `项目 ${state.project.project_id} 已完成并存档。`);
     setTimeout(() => els.actWorkspace.scrollIntoView({ behavior: "smooth", block: "start" }), 350);
   } else if (event.type === "error") {
     els.crewMeta.textContent = "INTERRUPTED · RETRY AVAILABLE";
@@ -1622,6 +1815,7 @@ async function startCreation() {
   state.crewArtifacts = [];
   state.crewRadioOpen = false;
   state.hasFinalVideo = false;
+  state.editing = false;
   state.workingAgent = null;
   els.btnStart.disabled = true;
   els.btnStart.textContent = "拍摄中…";
@@ -1682,17 +1876,18 @@ function handleRenderEvent(event) {
     els.monitorDesc.textContent = event.description || "生成中…";
   } else if (event.type === "done") {
     state.project = event.project;
+    state.rendering = false;
     applyProjectSnapshot(event.project);
     els.renderRec.classList.remove("live");
     renderMonitor(event.project, false);
     stopProjectorHum();
     setBrowserActivity("idle", event.project);
-    renderScreening(event.project).then(() => openPremiere(event.project));
     renderManual(event.project);
-    state.rendering = false;
-    els.btnRender.disabled = false;
+    // All approved shots now enter DELIVER/AI Edit; do not leave the old
+    // full-render CTA looking actionable after the queue is complete.
+    els.btnRender.disabled = true;
     els.btnRender.textContent = "提交 Spark 真实生成";
-    toast("真实成片已生成，可在放映室预览。");
+    toast(`${event.project.storyboard?.length || 0}/${event.project.storyboard?.length || 0} SHOTS READY，当前阶段已推进到 DELIVER；请启动 AI Edit 粗剪。`);
   } else if (event.type === "error") {
     els.renderRec.classList.remove("live");
     stopProjectorHum();
@@ -1732,6 +1927,92 @@ async function startRender() {
     els.btnRender.textContent = "提交 Spark 真实生成";
     els.monitorDesc.textContent = `生成中断：${error.message}`;
     toast(`渲染失败：${error.message}`, true);
+  }
+}
+
+function handleEditEvent(event) {
+  if (event.type === "edit_progress") {
+    if (event.project) applyProjectSnapshot(event.project);
+    if (els.editStatus) els.editStatus.textContent = event.description || "AI Edit 处理中…";
+    if (els.monitorDesc) els.monitorDesc.textContent = event.description || "AI Edit 处理中…";
+    if (state.project) renderLogFeed(state.project);
+  } else if (event.type === "done") {
+    state.project = event.project;
+    state.editing = false;
+    applyProjectSnapshot(event.project);
+    setBrowserActivity("idle", event.project);
+    if (els.editStatus) els.editStatus.textContent = "ROUGH CUT READY · 可预览并批准最终成片";
+    toast("Rough Cut 已完成：镜头、声音与字幕轨已汇合，请先预览。");
+    els.editConsole?.scrollIntoView({ behavior: REDUCED_MOTION ? "auto" : "smooth", block: "center" });
+  } else if (event.type === "error") {
+    state.editing = false;
+    setBrowserActivity("idle", state.project);
+    if (els.editStatus) els.editStatus.textContent = `AI Edit 中断：${event.message || "服务暂时不可用"}`;
+    toast(`AI Edit 失败：${event.message || "服务暂时不可用"}`, true);
+    if (state.project) renderWorkspace(state.project);
+  }
+}
+
+async function startAiEdit() {
+  if (!state.project || state.editing || state.rendering) return;
+  if (!state.project.script?.dialogue_locked) {
+    state.manualTab = "script";
+    renderManual(state.project, "script");
+    toast("请先审阅并锁定台词本 / 字幕稿，再启动 AI Edit。", true);
+    els.manualBody?.scrollIntoView({ behavior: REDUCED_MOTION ? "auto" : "smooth", block: "center" });
+    return;
+  }
+  state.editing = true;
+  if (els.btnAiEdit) {
+    els.btnAiEdit.disabled = true;
+    els.btnAiEdit.textContent = "AI Edit 粗剪中…";
+  }
+  if (els.editStatus) els.editStatus.textContent = "AI Edit：正在读取锁定台词本…";
+  setBrowserActivity("edit", state.project);
+  setPipeline({ plan: "done", previs: "done", render: "done", deliver: "active" });
+  try {
+    await streamPost(
+      `/api/projects/${state.project.project_id}/edit/stream`,
+      {},
+      handleEditEvent
+    );
+  } catch (error) {
+    state.editing = false;
+    setBrowserActivity("idle", state.project);
+    if (els.editStatus) els.editStatus.textContent = `AI Edit 中断：${error.message}`;
+    toast(`AI Edit 失败：${error.message}`, true);
+  } finally {
+    if (els.btnAiEdit && state.project) renderMonitor(state.project, false);
+  }
+}
+
+async function approveAiEdit() {
+  if (!state.project || state.editing) return;
+  const mode = els.subtitleMode?.value || "burned";
+  if (els.btnApproveEdit) {
+    els.btnApproveEdit.disabled = true;
+    els.btnApproveEdit.textContent = "交付中…";
+  }
+  try {
+    const response = await fetch(`/api/projects/${state.project.project_id}/edit/approve`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ subtitle_mode: mode }),
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    state.project = payload;
+    renderWorkspace(payload);
+    toast(`最终成片已批准（${mode === "burned" ? "烧录字幕" : mode === "soft" ? "软字幕" : "无字幕"}）。`);
+    renderScreening(payload).then(() => {
+      if (state.hasFinalVideo) openPremiere(payload);
+    });
+  } catch (error) {
+    toast(`批准成片失败：${error.message}`, true);
+    if (els.btnApproveEdit) {
+      els.btnApproveEdit.disabled = false;
+      els.btnApproveEdit.innerHTML = '批准最终成片 <span class="cta-arrow" aria-hidden="true">→</span>';
+    }
   }
 }
 
@@ -1798,6 +2079,7 @@ async function loadSelectedProject() {
     if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
     state.project = payload;
     state.hasFinalVideo = false;
+    state.editing = false;
     buildCrewBoard();
     markAllAgentsDone(payload);
     show(els.actCrew);
@@ -2129,9 +2411,20 @@ function init() {
   els.btnLoad.addEventListener("click", loadSelectedProject);
   els.btnRefresh.addEventListener("click", refreshLibrary);
   els.btnRender.addEventListener("click", startRender);
+  els.btnAiEdit?.addEventListener("click", startAiEdit);
+  els.btnRecut?.addEventListener("click", startAiEdit);
+  els.btnApproveEdit?.addEventListener("click", approveAiEdit);
   els.manualTabs.addEventListener("click", (event) => {
     const button = event.target.closest(".tab");
     if (button) renderManual(state.project, button.dataset.tab);
+  });
+  els.manualBody.addEventListener("click", (event) => {
+    const save = event.target.closest("[data-script-save]");
+    const lock = event.target.closest("[data-script-lock]");
+    const unlock = event.target.closest("[data-script-unlock]");
+    if (save) saveDialogueDraft({ button: save });
+    else if (lock) saveDialogueDraft({ lock: true, button: lock });
+    else if (unlock) unlockDialogue();
   });
   els.drawerBackdrop.addEventListener("click", closeDrawer);
   document.addEventListener("click", (event) => {

@@ -1204,6 +1204,25 @@ main {
 
 .render-note { font-size: 0.76rem; color: var(--faint); line-height: 1.7; max-width: 560px; }
 
+.render-readiness {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  width: 100%;
+  padding: 15px 16px;
+  background: linear-gradient(90deg, rgba(215, 166, 74, 0.11), rgba(215, 166, 74, 0.025));
+  border: 1px solid rgba(215, 166, 74, 0.58);
+  border-left: 3px solid var(--amber);
+}
+
+.readiness-copy { display: grid; gap: 5px; min-width: 0; }
+.readiness-count { color: var(--amber); font-size: 0.78rem; letter-spacing: 0.18em; }
+.readiness-note { color: var(--dim); font-family: var(--serif); font-size: 0.84rem; line-height: 1.5; }
+.cta--edit { min-width: 190px; padding-inline: 22px; color: #0e0c08; background: var(--amber); border-color: var(--amber); }
+.cta--edit:hover:not(:disabled) { color: #0e0c08; background: #f1c36f; box-shadow: 0 8px 26px rgba(215, 166, 74, 0.24); }
+.edit-status { min-height: 1.2em; color: var(--amber); font-size: 0.62rem; letter-spacing: 0.12em; }
+
 .log-feed {
   margin-top: 18px;
   padding: 14px 16px;
@@ -1377,6 +1396,64 @@ main {
 .screenplay-narration { margin-top: 22px; padding: 16px 20px; border-left: 2px solid var(--amber); background: linear-gradient(90deg, rgba(215, 166, 74, 0.1), transparent 75%); }
 .screenplay-narration p { margin-top: 8px; color: var(--dim); font-family: var(--serif); font-size: 0.95rem; font-style: italic; line-height: 1.9; }
 
+.dialogue-book {
+  margin-top: 26px;
+  padding: 20px;
+  background: rgba(215, 166, 74, 0.045);
+  border: 1px solid rgba(215, 166, 74, 0.26);
+  border-left: 2px solid var(--amber-deep);
+}
+
+.dialogue-book-head,
+.dialogue-book-actions {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.dialogue-book-head h3 { margin-top: 8px; font-family: var(--serif); font-size: 1.35rem; font-weight: 600; letter-spacing: 0.08em; }
+.dialogue-book-head p { max-width: 620px; margin-top: 8px; color: var(--dim); font-size: 0.84rem; line-height: 1.7; }
+.dialogue-lock-badge { flex: 0 0 auto; padding: 6px 9px; border: 1px solid var(--line); font-size: 0.54rem; letter-spacing: 0.12em; }
+.dialogue-lock-badge.is-locked { color: var(--ok); border-color: rgba(111, 184, 132, 0.42); }
+.dialogue-lock-badge.is-draft { color: var(--amber); border-color: rgba(215, 166, 74, 0.42); }
+.dialogue-rows { display: grid; gap: 10px; margin-top: 20px; }
+.dialogue-row { padding: 13px 14px 14px; background: rgba(4, 3, 2, 0.42); border: 1px solid var(--line-soft); }
+.dialogue-row-head { display: flex; align-items: center; gap: 14px; padding-bottom: 9px; border-bottom: 1px dashed var(--line-soft); }
+.dialogue-shot { color: var(--amber); font-size: 0.58rem; letter-spacing: 0.14em; }
+.dialogue-time, .dialogue-kind { color: var(--faint); font-size: 0.54rem; letter-spacing: 0.08em; }
+.dialogue-kind { margin-left: auto; }
+.dialogue-row-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 12px; }
+.dialogue-row label { display: grid; gap: 6px; min-width: 0; }
+.dialogue-row textarea,
+.dialogue-row input,
+.subtitle-mode-control select {
+  width: 100%;
+  padding: 9px 10px;
+  color: var(--text);
+  background: #0b0907;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  font-family: var(--serif);
+  font-size: 0.86rem;
+  line-height: 1.55;
+  resize: vertical;
+  outline: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.dialogue-row input { min-height: 36px; }
+.dialogue-row textarea:focus,
+.dialogue-row input:focus,
+.subtitle-mode-control select:focus { border-color: var(--amber); box-shadow: 0 0 0 2px rgba(215, 166, 74, 0.1); }
+.dialogue-row textarea:disabled,
+.dialogue-row input:disabled { color: var(--dim); opacity: 0.82; cursor: not-allowed; }
+.dialogue-speaker { max-width: 240px; margin-top: 10px; }
+.dialogue-book-actions { align-items: center; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line-soft); }
+.dialogue-revision { color: var(--faint); font-size: 0.54rem; letter-spacing: 0.1em; line-height: 1.6; }
+.dialogue-book-actions > div { display: flex; gap: 9px; }
+.dialogue-book-actions .cta { padding: 10px 16px; font-size: 0.68rem; }
+.dialogue-book-actions .ghost { padding: 10px 14px; }
+
 .visual-board { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 34px; border-top: 1px solid var(--line-soft); }
 .visual-spec { min-height: 150px; padding: 18px 0 22px; border-bottom: 1px solid var(--line-soft); }
 .visual-spec header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
@@ -1547,6 +1624,39 @@ main {
 
 .poster-meta { font-size: 0.66rem; letter-spacing: 0.2em; color: var(--faint); }
 
+.edit-console {
+  margin-bottom: 20px;
+  padding: 18px;
+  background: linear-gradient(135deg, rgba(215, 166, 74, 0.09), rgba(4, 3, 2, 0.12));
+  border: 1px solid rgba(215, 166, 74, 0.46);
+  border-left: 3px solid var(--amber);
+}
+
+.edit-console-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.edit-console-head h3 { margin-top: 7px; font-family: var(--serif); font-size: 1.18rem; font-weight: 600; letter-spacing: 0.06em; }
+.edit-console-state { color: var(--amber); font-size: 0.56rem; letter-spacing: 0.16em; }
+.rough-cut-stage { position: relative; aspect-ratio: 16 / 9; margin-top: 16px; overflow: hidden; background: #050403; border: 1px solid var(--line); }
+.rough-cut-placeholder { position: absolute; inset: 0; z-index: 1; display: grid; place-items: center; align-content: center; gap: 7px; padding: 20px; color: var(--faint); text-align: center; background: radial-gradient(ellipse at 50% 42%, rgba(215, 166, 74, 0.1), transparent 64%); }
+.rough-cut-placeholder span { color: var(--amber); font-size: 0.58rem; letter-spacing: 0.2em; }
+.rough-cut-placeholder strong { color: var(--text); font-family: var(--serif); font-size: 1.3rem; font-weight: 500; letter-spacing: 0.08em; }
+.rough-cut-placeholder small { max-width: 420px; font-size: 0.68rem; line-height: 1.6; }
+.rough-cut-stage video { position: absolute; inset: 0; z-index: 2; display: none; width: 100%; height: 100%; object-fit: contain; background: #000; }
+.rough-cut-stage.has-media video { display: block; }
+.rough-cut-stage.has-media .rough-cut-placeholder { display: none; }
+.edit-console-controls { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; margin-top: 16px; }
+.subtitle-mode-control { display: grid; gap: 7px; min-width: min(300px, 100%); }
+.subtitle-mode-control select { min-height: 38px; font-family: var(--mono); font-size: 0.64rem; }
+.edit-console-actions { display: flex; gap: 10px; }
+.edit-console-actions .cta { padding: 11px 18px; }
+.edit-console-actions .ghost { padding: 11px 14px; }
+.edit-console-note { margin-top: 12px; color: var(--faint); font-size: 0.56rem; letter-spacing: 0.08em; }
+
 .delivery {
   display: flex;
   align-items: center;
@@ -1564,7 +1674,7 @@ main {
   white-space: pre-line;
 }
 
-.delivery-actions { display: flex; gap: 10px; }
+.delivery-actions { display: flex; flex-wrap: wrap; gap: 10px; }
 
 /* ── Inspector：镜头 / 剧组详情 ───────────────────────────── */
 
@@ -2661,6 +2771,19 @@ body[data-view="landing"] .pipeline { display: none; }
   .inspector-actions button { width: 100%; }
   .inspector-agent-content dl { grid-template-columns: 1fr; }
   .monitor-actions { flex-direction: column; align-items: stretch; }
+  .render-readiness { align-items: stretch; flex-direction: column; }
+  .cta--edit { width: 100%; }
+  .dialogue-book { padding: 15px; }
+  .dialogue-book-head, .dialogue-book-actions { align-items: flex-start; flex-direction: column; }
+  .dialogue-row-fields { grid-template-columns: 1fr; }
+  .dialogue-speaker { max-width: none; }
+  .dialogue-book-actions > div { width: 100%; }
+  .dialogue-book-actions > div button { flex: 1; }
+  .edit-console { padding: 14px; }
+  .edit-console-controls { align-items: stretch; flex-direction: column; }
+  .subtitle-mode-control { min-width: 0; }
+  .edit-console-actions { flex-direction: column-reverse; }
+  .edit-console-actions button { width: 100%; }
   .manual-panel-head { align-items: flex-start; }
   .manual-panel-head .panel-meta { display: none; }
   .manual-project-line { align-items: flex-start; flex-direction: column; gap: 12px; }

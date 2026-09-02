@@ -18,6 +18,12 @@ from movie_agent.models import MovieProject
 from movie_agent.storage.project_store import ProjectStore
 from movie_agent.services.llm import build_creative_llm
 from movie_agent.services.quality import PlanningQualityGate, SemanticCopyrightReviewer
+from movie_agent.services.subtitles import (
+    align_script_to_shots,
+    ensure_dialogue_assets,
+    normalise_subtitle_mode,
+    shot_count_for_duration,
+)
 
 
 class MovieOrchestrator:
@@ -66,11 +72,12 @@ class MovieOrchestrator:
         creative_source = "ModelScope 文本模型" if self.using_creative_llm else "mock 规则引擎"
         logs = [
             f"导演 Agent：已通过{creative_source}确定创作边界。",
-            f"编剧 Agent：已通过{creative_source}生成短剧本、旁白与情绪节奏。",
+            f"编剧 Agent：已通过{creative_source}生成短剧本、旁白、台词本与字幕轨。",
             f"分镜 Agent：已通过{creative_source}拆分独立镜头并标记生成方式。",
             f"视觉设定 Agent：已通过{creative_source}锁定角色、场景和风格规范。",
             "生成调度 Agent：已准备好逐镜生成任务。",
-            "项目归档：已保存项目 JSON，可继续渲染或导出。",
+            "台词本：Dialogue Book 与 Subtitle Track 已生成，等待用户锁定。",
+            "项目归档：已保存项目 JSON，可继续审阅、AI 剪辑或导出。",
         ]
         emit({"type": "agent_start", "agent": "director"})
         emit(
@@ -122,8 +129,25 @@ class MovieOrchestrator:
                 "content": "正在把世界观压缩成一个人物、一个异常和一次不可逆的选择。",
             }
         )
-        script = self.writer.write(cleaned_idea, brief)
+        planned_shot_count = shot_count_for_duration(duration)
+        script = self.writer.write(
+            cleaned_idea,
+            brief,
+            duration_seconds=duration,
+            shot_count=planned_shot_count,
+        )
         emit({"type": "agent_done", "agent": "writer", "script": script})
+        emit(
+            {
+                "type": "artifact",
+                "agent": "writer",
+                "title": "台词本 / 字幕稿",
+                "content": (
+                    f"已按 {planned_shot_count} 个镜头生成 Dialogue Book 与 Subtitle Track，"
+                    "请在制作手册中审阅、编辑并锁定。"
+                ),
+            }
+        )
         if script.get("outline"):
             emit(
                 {
@@ -189,6 +213,7 @@ class MovieOrchestrator:
         storyboard = self.storyboard_agent.create(
             cleaned_idea, duration, visual_style, project_id, brief, script, visual_bible
         )
+        script = align_script_to_shots(script, storyboard)
         emit(
             {
                 "type": "agent_done",
@@ -270,7 +295,7 @@ class MovieOrchestrator:
         emit({"type": "archived", "project_id": project_id})
         if self.settings.video_generation_mode == "comfyui":
             project.status = "ready_for_comfyui_render"
-            project.logs.append("生成调度 Agent：项目已就绪，点击“Spark 真实生成并合成”后提交逐镜任务。")
+            project.logs.append("生成调度 Agent：项目已就绪，点击“Spark 真实生成”后提交逐镜任务。")
             self.store.save(project)
             return project
         return self.run_mock_production(project_id, event_callback)
@@ -295,19 +320,14 @@ class MovieOrchestrator:
             emit({"type": "shot_update", "shot": shot.to_dict()})
             project.logs.append(self.reviewer.review_mock(shot))
             emit({"type": "shot_update", "shot": shot.to_dict()})
+            # Keep the mock path resumable too: a refresh during the staged
+            # reveal should not discard completed shot states.
+            self.store.save(project)
         emit({"type": "agent_done", "agent": "generation"})
 
-        project.status = "completed_text_ai_video_mock" if self.using_creative_llm else "completed_mock"
-        emit({"type": "agent_start", "agent": "editor"})
-        project.logs.append(self.editor.assemble_mock(project))
-        emit(
-            {
-                "type": "agent_done",
-                "agent": "editor",
-                "final_output": project.final_output_placeholder,
-            }
-        )
-        project.logs.append(f"项目完成：最终成片预留路径为 {project.final_output_placeholder}。")
+        project.status = "ready_for_ai_edit"
+        project.logs.append(f"生成 Agent：{len(project.storyboard)}/{len(project.storyboard)} SHOTS READY，当前阶段已推进到 DELIVER。")
+        project.logs.append("剪辑 Agent：等待用户锁定台词本后启动 AI Edit Rough Cut。")
         self.store.save(project)
         return project
 
@@ -319,6 +339,7 @@ class MovieOrchestrator:
         if self.settings.video_generation_mode != "comfyui":
             raise ValueError("当前为 mock 模式。请在 Spark 的 .env 设置 VIDEO_GENERATION_MODE=comfyui 后再渲染。")
         project = self.store.load(project_id)
+        self._require_dialogue_locked(project)
         unsupported_modes = sorted(
             {shot.generation_mode for shot in project.storyboard if shot.generation_mode != "T2V"}
         )
@@ -329,6 +350,9 @@ class MovieOrchestrator:
                 "请重新规划这些镜头后再提交真实生成。"
             )
         project.status = "rendering_comfyui"
+        project.final_output_placeholder = None
+        project.rough_cut_placeholder = None
+        project.edit_plan = {}
         project.logs.append("生成调度 Agent：开始提交 Spark ComfyUI 逐镜任务。")
         self.store.save(project)
         total_shots = len(project.storyboard)
@@ -366,12 +390,16 @@ class MovieOrchestrator:
                 self.store.save(project)
                 raise RuntimeError(f"镜头 {shot.number} 多次生成失败：{last_error}") from last_error
 
-        project.logs.append(self.editor.assemble(project))
-        project.status = "completed_comfyui"
-        project.logs.append(f"项目完成：真实成片已输出到 {project.final_output_placeholder}。")
+        project.status = "ready_for_ai_edit"
+        project.logs.append(f"生成 Agent：{len(project.storyboard)}/{len(project.storyboard)} SHOTS READY，当前阶段已推进到 DELIVER。")
+        project.logs.append("剪辑 Agent：等待用户启动 AI Edit，先生成 Rough Cut 再批准最终成片。")
         self.store.save(project)
         if progress_callback:
-            progress_callback(total_shots, total_shots, "FFmpeg 合成完成")
+            progress_callback(
+                total_shots,
+                total_shots,
+                f"{total_shots}/{total_shots} SHOTS READY · 等待 AI Edit",
+            )
         return project
 
     def render_shot(self, project_id: str, shot_number: int) -> MovieProject:
@@ -390,6 +418,8 @@ class MovieOrchestrator:
         shot.status = "replanned"
         project.status = "rendering_comfyui"
         project.final_output_placeholder = None
+        project.rough_cut_placeholder = None
+        project.edit_plan = {}
         project.logs.append(f"生成调度 Agent：Inspector 已提交镜头 {shot_number} 的单镜重生成。")
         self.store.save(project)
         try:
@@ -407,8 +437,141 @@ class MovieOrchestrator:
             self.store.save(project)
             raise
 
-        project.status = "ready_for_comfyui_render"
+        project.status = (
+            "ready_for_ai_edit"
+            if all(str(item.status).startswith("approved") for item in project.storyboard)
+            else "ready_for_comfyui_render"
+        )
         project.logs.append(f"质检 Agent：镜头 {shot_number} 已通过单镜检查，可继续合成完整成片。")
+        self.store.save(project)
+        return project
+
+    @staticmethod
+    def _require_dialogue_locked(project: MovieProject) -> None:
+        if not bool((project.script or {}).get("dialogue_locked")):
+            raise ValueError("请先在编剧阶段审阅并锁定台词本 / 字幕稿。")
+
+    @staticmethod
+    def _invalidate_edit_outputs(project: MovieProject) -> None:
+        """Drop stale rough/final media whenever an upstream asset changes."""
+
+        project.final_output_placeholder = None
+        project.rough_cut_placeholder = None
+        project.edit_plan = {}
+        shots_ready = bool(project.storyboard) and all(
+            str(shot.status).startswith("approved") for shot in project.storyboard
+        )
+        if shots_ready:
+            project.status = "ready_for_ai_edit"
+        elif str(project.status).startswith("completed"):
+            project.status = "ready_for_comfyui_render"
+
+    def update_dialogue(
+        self,
+        project_id: str,
+        *,
+        dialogue_book: list[dict],
+        subtitle_track: list[dict] | None = None,
+    ) -> MovieProject:
+        project = self.store.load(project_id)
+        if bool((project.script or {}).get("dialogue_locked")):
+            raise ValueError("台词本已锁定。如需修改，请先解锁当前版本并重新审核。")
+        script = ensure_dialogue_assets(
+            {
+                **project.script,
+                "dialogue_book": dialogue_book,
+                "subtitle_track": subtitle_track if subtitle_track else dialogue_book,
+            },
+            duration_seconds=project.duration_seconds,
+            shot_count=len(project.storyboard) or None,
+        )
+        script["dialogue_revision"] = int(script.get("dialogue_revision", 1)) + 1
+        project.script = align_script_to_shots(script, project.storyboard)
+        self._invalidate_edit_outputs(project)
+        project.logs.append("场记：已保存台词本与字幕轨草稿，尚未锁定。")
+        self.store.save(project)
+        return project
+
+    def lock_dialogue(self, project_id: str) -> MovieProject:
+        project = self.store.load(project_id)
+        # Do not silently lock a brand-new empty payload that the normaliser
+        # would otherwise turn into placeholder lines.
+        if not (project.script or {}).get("dialogue_book") or not (project.script or {}).get("subtitle_track"):
+            raise ValueError("台词本或字幕轨为空，无法锁定。")
+        project.script = ensure_dialogue_assets(
+            project.script,
+            duration_seconds=project.duration_seconds,
+            shot_count=len(project.storyboard) or None,
+        )
+        if not project.script.get("dialogue_book") or not project.script.get("subtitle_track"):
+            raise ValueError("台词本或字幕轨为空，无法锁定。")
+        project.script["dialogue_locked"] = True
+        project.logs.append(
+            f"场记：已锁定台词本 / 字幕稿第 {project.script.get('dialogue_revision', 1)} 版，后续配音、字幕与剪辑均以此为准。"
+        )
+        self.store.save(project)
+        return project
+
+    def unlock_dialogue(self, project_id: str) -> MovieProject:
+        """Allow an explicit revision pass and invalidate downstream edits."""
+
+        project = self.store.load(project_id)
+        if not bool((project.script or {}).get("dialogue_locked")):
+            return project
+        project.script["dialogue_locked"] = False
+        self._invalidate_edit_outputs(project)
+        project.logs.append("场记：已解锁台词本，允许修改后重新审核并锁定。")
+        self.store.save(project)
+        return project
+
+    def set_subtitle_mode(self, project_id: str, mode: str) -> MovieProject:
+        project = self.store.load(project_id)
+        project.subtitle_mode = normalise_subtitle_mode(mode)
+        project.script["subtitle_mode"] = project.subtitle_mode
+        self.store.save(project)
+        return project
+
+    def create_rough_cut(
+        self,
+        project_id: str,
+        progress_callback: Callable[[str], None] | None = None,
+    ) -> MovieProject:
+        project = self.store.load(project_id)
+        self._require_dialogue_locked(project)
+        if not project.storyboard or not all(str(shot.status).startswith("approved") for shot in project.storyboard):
+            raise ValueError("全部镜头通过质检后才能启动 AI Edit。")
+        project.status = "editing_rough_cut"
+        project.logs.append("剪辑 Agent：启动 AI Edit，读取已锁定台词本与字幕轨。")
+        self.store.save(project)
+        if progress_callback:
+            progress_callback("AI Edit：正在排序镜头并计算 Trim / 转场。")
+        project.logs.append("剪辑 Agent：镜头排序、Trim 与转场已完成。")
+        if progress_callback:
+            progress_callback("AI Edit：正在编排旁白、BGM、SFX 与字幕轨。")
+        project.logs.append("剪辑 Agent：旁白、BGM、SFX 与字幕轨已挂接。")
+        project.logs.append(self.editor.create_rough_cut(project))
+        project.status = "rough_cut_ready"
+        project.logs.append("剪辑 Agent：Rough Cut 已完成，可预览、重新剪辑或批准最终成片。")
+        self.store.save(project)
+        return project
+
+    def approve_edit(self, project_id: str, subtitle_mode: str | None = None) -> MovieProject:
+        project = self.store.load(project_id)
+        self._require_dialogue_locked(project)
+        if project.status not in {"rough_cut_ready", "editing_rough_cut"}:
+            raise ValueError("请先完成 Rough Cut，再批准最终成片。")
+        if subtitle_mode:
+            project.subtitle_mode = normalise_subtitle_mode(subtitle_mode)
+        project.status = "editing_final"
+        project.logs.append(f"剪辑 Agent：收到最终批准，按 {project.subtitle_mode} 字幕模式导出。")
+        self.store.save(project)
+        if self.settings.video_generation_mode == "comfyui":
+            project.logs.append(self.editor.assemble(project, project.subtitle_mode))
+            project.status = "completed_comfyui"
+        else:
+            project.logs.append(self.editor.assemble_mock(project))
+            project.status = "completed_text_ai_video_mock" if self.using_creative_llm else "completed_mock"
+        project.logs.append(f"项目完成：最终成片已批准，交付模式为 {project.subtitle_mode}。")
         self.store.save(project)
         return project
 
@@ -432,6 +595,12 @@ class MovieOrchestrator:
                 storyboard=project.storyboard,
             )
         )
+        project.final_output_placeholder = None
+        project.rough_cut_placeholder = None
+        project.edit_plan = {}
+        project.status = "ready_for_ai_edit" if all(
+            str(shot.status).startswith("approved") for shot in project.storyboard
+        ) else "ready_for_comfyui_render"
         project.logs.append(f"分镜 Agent：已重新规划镜头 {shot_number}，保留其时长和叙事位置。")
         project.logs.extend(project.quality_report)
         self.store.save(project)
