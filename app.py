@@ -70,8 +70,8 @@ body, .gradio-container {
   letter-spacing: .18em;
   text-transform: uppercase;
 }
-.movie-hero h1 { margin: 0; font-family: "Noto Serif SC", "Songti SC", Georgia, serif; font-size: clamp(2.2rem, 4vw, 3.55rem); font-weight: 600; letter-spacing: .08em; }
-.movie-hero p:last-child { max-width: 630px; margin: 12px 0 0; color: #dfeaf0; font-size: 1rem; line-height: 1.85; }
+.movie-hero h1 { margin: 0; color: #f5f6f4 !important; font-family: "Noto Serif SC", "Songti SC", Georgia, serif; font-size: clamp(2.2rem, 4vw, 3.55rem); font-weight: 600; letter-spacing: .08em; }
+.movie-hero p:last-child { max-width: 630px; margin: 12px 0 0; color: #dfeaf0 !important; font-size: 1rem; line-height: 1.85; }
 .hero-status { position: relative; z-index: 1; display: grid; gap: 6px; min-width: 178px; padding: 13px 15px; border: 1px solid rgba(215,214,210,.3); border-radius: 10px; background: rgba(15,29,45,.16); backdrop-filter: blur(6px); font-size: .78rem; line-height: 1.45; }
 .hero-status strong { font-size: .9rem; letter-spacing: .05em; }
 .hero-status span { color: #c6ddeb; }
@@ -103,7 +103,7 @@ body, .gradio-container {
 }
 .stage-strip b { display: block; margin-bottom: 3px; color: var(--ocean); font-size: .7rem; letter-spacing: .09em; }
 .stage-strip span:nth-child(3) { border-color: rgba(63,118,159,.5); background: #e0edf3; }
-#create-button button, #render-button button {
+#create-button, #create-button button, #render-button, #render-button button {
   min-height: 46px;
   border: 1px solid transparent !important;
   border-radius: 8px !important;
@@ -113,13 +113,14 @@ body, .gradio-container {
   font-weight: 700 !important;
   letter-spacing: .06em;
 }
-#render-button button { background: var(--ocean) !important; }
-#create-button button:hover, #render-button button:hover { filter: brightness(1.08); box-shadow: 0 8px 18px rgba(33,50,74,.21) !important; }
+#render-button, #render-button button { background: var(--ocean) !important; }
+#create-button:hover, #create-button button:hover, #render-button:hover, #render-button button:hover { filter: brightness(1.08); box-shadow: 0 8px 18px rgba(33,50,74,.21) !important; }
 button, textarea, input, .wrap, .prose, .markdown { font-family: "Noto Sans SC", "Microsoft YaHei UI", Arial, sans-serif !important; }
 .prose h1, .prose h2, .prose h3, .markdown h1, .markdown h2, .markdown h3 { font-family: "Noto Serif SC", "Songti SC", Georgia, serif !important; color: var(--ink); }
 .block, .form, .gr-box, .gr-panel { border-color: var(--line) !important; }
 label span { color: var(--ink) !important; font-weight: 700; }
 #create-button button:focus-visible, #render-button button:focus-visible, button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 3px solid rgba(63,118,159,.4) !important; outline-offset: 2px !important; }
+input[type="range"] { accent-color: var(--ocean) !important; }
 #status textarea, #final-output textarea { color: var(--ink) !important; background: rgba(215,214,210,.5) !important; }
 #final-video { overflow: hidden; border: 1px solid rgba(43,58,83,.18); border-radius: 12px; }
 .tabs > .tab-nav button { color: var(--muted) !important; font-weight: 700 !important; }
@@ -139,7 +140,7 @@ def create_project(idea: str, duration: int, visual_style: str):
     try:
         project = orchestrator.create_project(idea, duration, visual_style)
     except Exception as error:
-        return ("", "", "", "", "", f"## 任务日志\n- 失败：{error}", f"创作失败：{error}", "", None, gr.update())
+        return ("", "", "", "", "", f"## 任务日志\n- 失败：{error}", f"创作失败：{error}", "", _hidden_video(), gr.update())
     text_mode = "ModelScope AI 文案" if orchestrator.using_creative_llm else "mock 文案"
     video_mode = "Spark 真实视频待生成" if settings.video_generation_mode == "comfyui" else "mock 视频流程"
     return _project_outputs(
@@ -151,11 +152,11 @@ def create_project(idea: str, duration: int, visual_style: str):
 
 def load_project(project_id: str):
     if not project_id:
-        return ("", "", "", "", "", "## 任务日志\n- 请先选择一个项目。", "尚未选择项目", "", None, gr.update())
+        return ("", "", "", "", "", "## 任务日志\n- 请先选择一个项目。", "尚未选择项目", "", _hidden_video(), gr.update())
     try:
         project = orchestrator.store.load(project_id)
     except Exception as error:
-        return ("", "", "", "", "", f"## 任务日志\n- 失败：{error}", f"读取失败：{error}", "", None, gr.update())
+        return ("", "", "", "", "", f"## 任务日志\n- 失败：{error}", f"读取失败：{error}", "", _hidden_video(), gr.update())
     return _project_outputs(project, f"已恢复项目：{project.project_id}", gr.update(value=project.project_id))
 
 
@@ -168,7 +169,7 @@ def regenerate_shot(project_id: str, shot_number: int):
     try:
         project = orchestrator.regenerate_shot(project_id, int(shot_number))
     except Exception as error:
-        return ("", "", "", "", "", f"## 任务日志\n- 失败：{error}", f"重新规划失败：{error}", "", None, gr.update())
+        return ("", "", "", "", "", f"## 任务日志\n- 失败：{error}", f"重新规划失败：{error}", "", _hidden_video(), gr.update())
     return _project_outputs(project, f"已重新规划镜头 {int(shot_number)}", gr.update(value=project.project_id))
 
 
@@ -182,7 +183,7 @@ def render_project(project_id: str, progress=gr.Progress()):
             ),
         )
     except Exception as error:
-        return ("", "", "", "", "", f"## 任务日志\n- 失败：{error}", f"渲染失败：{error}", "", None, gr.update())
+        return ("", "", "", "", "", f"## 任务日志\n- 失败：{error}", f"渲染失败：{error}", "", _hidden_video(), gr.update())
     return _project_outputs(
         project,
         f"真实成片已生成（{project.project_id}）",
@@ -206,13 +207,19 @@ def _project_outputs(project, status_message: str, history_update):
         project.log_as_markdown(),
         status_message,
         project.final_output_placeholder or "",
-        _video_value(project.final_output_placeholder),
+        _video_update(project.final_output_placeholder),
         history_update,
     )
 
 
-def _video_value(path: str | None) -> str | None:
-    return path if path and Path(path).is_file() else None
+def _hidden_video():
+    return gr.update(value=None, visible=False)
+
+
+def _video_update(path: str | None):
+    if path and Path(path).is_file():
+        return gr.update(value=path, visible=True)
+    return _hidden_video()
 
 
 with gr.Blocks(title="Movie-Agent · 流影制片台", css=APP_CSS) as demo:
@@ -260,7 +267,7 @@ with gr.Blocks(title="Movie-Agent · 流影制片台", css=APP_CSS) as demo:
                 status = gr.Textbox(label="制作状态", interactive=False, elem_id="status")
                 project_id = gr.Textbox(label="项目 ID", interactive=False)
                 final_output = gr.Textbox(label="成片输出路径", interactive=False, elem_id="final-output")
-                final_video = gr.Video(label="最终成片", interactive=False, elem_id="final-video")
+                final_video = gr.Video(label="最终成片", interactive=False, visible=False, elem_id="final-video")
             with gr.Tabs():
                 with gr.Tab("创作蓝图"):
                     with gr.Group(elem_classes="panel"):
