@@ -40,6 +40,9 @@ const els = {
   crewPrimary: $("#crew-primary"),
   crewSecondary: $("#crew-secondary"),
   crewMeta: $("#crew-meta"),
+  crewRadioWrap: $(".crew-radio-wrap"),
+  crewRadioToggle: $("#crew-radio-toggle"),
+  crewRadioSummary: $("#crew-radio-summary"),
   pipeline: $("#pipeline"),
   crewRadio: $("#crew-radio"),
   filmstrip: $("#filmstrip"),
@@ -82,19 +85,19 @@ const SAMPLE_IDEAS = [
 
 const AGENT_DEFS = [
   { id: "director", index: "01", name: "导演", en: "DIRECTOR", role: "主题与叙事边界", primary: true,
-    summarize: (d) => (d.brief && d.brief["主题"]) || "项目设定已确认" },
+    summarize: (d) => d.brief && d.brief["主题"] ? `THEME / ${truncate(d.brief["主题"], 64)}` : "THEME / PROJECT BRIEF LOCKED" },
   { id: "writer", index: "02", name: "编剧", en: "WRITER", role: "剧本与旁白", primary: true,
-    summarize: (d) => truncate(d.script && d.script.story, 90) || "剧本已交付" },
+    summarize: (d) => d.script && d.script.story ? `DRAFT / ${truncate(d.script.story, 66)}` : "DRAFT / SCREENPLAY LOCKED" },
   { id: "visual_bible", index: "03", name: "美术指导", en: "ART DIRECTOR", role: "角色 · 场景 · 风格 · 声音", primary: true,
-    summarize: () => "四张视觉规范卡已锁定" },
+    summarize: () => "VISUAL RULES / 4 continuity cards locked" },
   { id: "storyboard", index: "04", name: "分镜师", en: "STORYBOARD", role: "可渲染镜头拆解", primary: true,
-    summarize: (d) => `${(d.storyboard || []).length} 个镜头已就位` },
+    summarize: (d) => `SHOT LIST / ${(d.storyboard || []).length} shots locked` },
   { id: "quality", index: "05", name: "质检", en: "QC GATE", role: "结构与版权风险", primary: false,
-    summarize: (d) => `${(d.quality_report || []).length} 项检查完成` },
+    summarize: (d) => `QC GATE / ${(d.quality_report || []).length} checks complete` },
   { id: "generation", index: "06", name: "生成调度", en: "GENERATION", role: "逐镜生成与重试", primary: false,
-    summarize: () => "逐镜任务队列就绪" },
+    summarize: () => "SHOT QUEUE / render tasks ready" },
   { id: "editor", index: "07", name: "剪辑", en: "EDITOR", role: "合片成片", primary: false,
-    summarize: (d) => (d.final_output ? "成片已交付" : "等待镜头素材") },
+    summarize: (d) => (d.final_output ? "DELIVERY / master cut ready" : "DELIVERY / awaiting shot media") },
 ];
 
 const AGENT_STATUS_COPY = {
@@ -150,6 +153,7 @@ const state = {
   crewDetails: {},
   crewMessages: [],
   crewArtifacts: [],
+  crewRadioOpen: false,
 };
 
 let manualTypingRun = 0;
@@ -433,11 +437,11 @@ function setAgentState(agentId, agentState, data) {
   } else if (agentState === "next") {
     delete card.dataset.startedAt;
     text.textContent = AGENT_STATUS_COPY[agentId]?.next || "NEXT";
-    summary.textContent = "上游资产已到位，等待这一棒开始。";
+    summary.textContent = "UPSTREAM LOCKED / WAITING FOR THIS PASS";
   } else if (agentState === "failed") {
     delete card.dataset.startedAt;
     text.textContent = "INTERRUPTED";
-    summary.textContent = "这一棒没有跑完，可重新开机再试。";
+    summary.textContent = "INTERRUPTED / RETRY AVAILABLE";
   } else {
     delete card.dataset.startedAt;
     text.textContent = AGENT_STATUS_COPY[agentId]?.idle || "WAITING";
@@ -511,17 +515,26 @@ function renderCrewRadio() {
   ].slice(-18);
   if (!entries.length) {
     els.crewRadio.innerHTML = '<div class="radio-msg radio-system"><span class="radio-time">--:--:--</span><span class="radio-from">SYSTEM</span><span class="radio-to"> · STANDBY</span><br>Waiting for the first creative signal…</div>';
-    return;
+  } else {
+    for (const item of entries) {
+      const row = document.createElement("div");
+      row.className = item.type === "chat" ? "radio-msg" : "radio-msg radio-artifact";
+      row.innerHTML = item.type === "chat"
+        ? `<span class="radio-time">${esc(item.time || "--:--:--")}</span><span class="radio-from">${esc(item.from)}</span><span class="radio-to"> → ${esc(item.to)}</span><br>${esc(item.message)}`
+        : `<span class="radio-time">${esc(item.time || "--:--:--")}</span><span class="radio-from">✦ ${esc(item.title)}</span><span class="radio-to"> · ${esc(item.agent)}</span><br>${esc(truncate(item.content, 180))}`;
+      els.crewRadio.appendChild(row);
+    }
   }
-  for (const item of entries) {
-    const row = document.createElement("div");
-    row.className = item.type === "chat" ? "radio-msg" : "radio-msg radio-artifact";
-    row.innerHTML = item.type === "chat"
-      ? `<span class="radio-time">${esc(item.time || "--:--:--")}</span><span class="radio-from">${esc(item.from)}</span><span class="radio-to"> → ${esc(item.to)}</span><br>${esc(item.message)}`
-      : `<span class="radio-time">${esc(item.time || "--:--:--")}</span><span class="radio-from">✦ ${esc(item.title)}</span><span class="radio-to"> · ${esc(item.agent)}</span><br>${esc(truncate(item.content, 180))}`;
-    els.crewRadio.appendChild(row);
+  const latest = entries.at(-1);
+  const latestLabel = latest
+    ? latest.type === "chat" ? `${latest.from} → ${latest.to}` : `${latest.title || "NEW ARTIFACT"}`
+    : "STANDBY";
+  if (els.crewRadioSummary) {
+    els.crewRadioSummary.textContent = `${entries.length} MESSAGES · ${truncate(latestLabel, 34).toUpperCase()}`;
   }
-  els.crewRadio.scrollTop = els.crewRadio.scrollHeight;
+  if (els.crewRadioWrap) els.crewRadioWrap.classList.toggle("is-open", state.crewRadioOpen);
+  if (els.crewRadioToggle) els.crewRadioToggle.setAttribute("aria-expanded", String(state.crewRadioOpen));
+  if (state.crewRadioOpen) els.crewRadio.scrollTop = els.crewRadio.scrollHeight;
 }
 
 /* 集结期间的现场感：给"工作中"的成员卡实时计时 */
@@ -1235,7 +1248,7 @@ function handleCreateEvent(event) {
   if (event.type === "project") {
     state.project = createLiveProject(event);
     state.pendingProjectId = event.project_id;
-    els.crewMeta.textContent = `PRODUCTION / 01 · ${String(event.project_id || "").replace(/^film-/, "").toUpperCase()}`;
+    els.crewMeta.textContent = `LIVE · PROJECT ${String(event.project_id || "").replace(/^film-/, "").toUpperCase()}`;
     els.modeNote.textContent = `文案引擎：${event.text_mode === "modelscope" ? "ModelScope AI" : "mock"} · 视频引擎：${event.video_mode === "comfyui" ? "Spark 真实生成" : "mock 流程"}`;
   } else if (event.type === "agent_start") {
     state.workingAgent = event.agent;
@@ -1265,13 +1278,13 @@ function handleCreateEvent(event) {
     storyboardStageRun += 1;
     state.project = event.project;
     state.pendingProjectId = null;
-    els.crewMeta.textContent = `PRODUCTION / 01 · ${String(event.project?.project_id || "").replace(/^film-/, "").toUpperCase()} · LOCKED`;
+    els.crewMeta.textContent = `LOCKED · PROJECT ${String(event.project?.project_id || "").replace(/^film-/, "").toUpperCase()}`;
     renderWorkspace(state.project, { entranceFrom: 0 });
     setBrowserActivity("idle", state.project);
     toast(`项目 ${state.project.project_id} 已完成并存档。`);
     setTimeout(() => els.actWorkspace.scrollIntoView({ behavior: "smooth", block: "start" }), 350);
   } else if (event.type === "error") {
-    els.crewMeta.textContent = "CREW ASSEMBLY · 中断";
+    els.crewMeta.textContent = "INTERRUPTED · RETRY AVAILABLE";
     failWorkingAgent();
     toast(`创作失败：${event.message}`, true);
   }
@@ -1292,6 +1305,7 @@ async function startCreation() {
   state.crewDetails = {};
   state.crewMessages = [];
   state.crewArtifacts = [];
+  state.crewRadioOpen = false;
   state.hasFinalVideo = false;
   state.workingAgent = null;
   els.btnStart.disabled = true;
@@ -1300,7 +1314,7 @@ async function startCreation() {
   show(els.actCrew);
   hide(els.actWorkspace);
   setPipeline({ plan: "active" });
-  els.crewMeta.textContent = "CREW ASSEMBLY · 开机中…";
+  els.crewMeta.textContent = "STARTING · WAITING FOR CREW";
   playUiSound("slate");
   els.actCrew.scrollIntoView({ behavior: "smooth", block: "start" });
   const paced = createPacedHandler(handleCreateEvent);
@@ -1312,7 +1326,7 @@ async function startCreation() {
     );
   } catch (error) {
     toast(`创作失败：${error.message}`, true);
-    els.crewMeta.textContent = "CREW ASSEMBLY · 中断";
+    els.crewMeta.textContent = "INTERRUPTED · RETRY AVAILABLE";
     failWorkingAgent();
   } finally {
     state.busy = false;
@@ -1468,7 +1482,7 @@ async function loadSelectedProject() {
     buildCrewBoard();
     markAllAgentsDone(payload);
     show(els.actCrew);
-    els.crewMeta.textContent = `CREW ASSEMBLY · 已恢复 ${projectId}`;
+    els.crewMeta.textContent = `RESTORED · PROJECT ${projectId.replace(/^film-/, "").toUpperCase()}`;
     renderWorkspace(payload, { entranceFrom: 0 });
     els.actCrew.scrollIntoView({ behavior: "smooth", block: "start" });
     toast(`已恢复项目 ${projectId}。`);
@@ -1762,6 +1776,10 @@ function init() {
     localStorage.setItem("movie-agent-sound", state.soundEnabled ? "on" : "off");
     updateSoundToggle();
     if (state.soundEnabled) playUiSound("done");
+  });
+  els.crewRadioToggle.addEventListener("click", () => {
+    state.crewRadioOpen = !state.crewRadioOpen;
+    renderCrewRadio();
   });
   els.btnPremierePlay.addEventListener("click", () => closePremiere(true));
   els.btnPremiereSkip.addEventListener("click", () => closePremiere(false));
