@@ -10,6 +10,11 @@ const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
 const els = {
   clock: $("#clock"),
+  viewLanding: $("#view-landing"),
+  viewStudio: $("#view-studio"),
+  btnEnter: $("#btn-enter"),
+  brandHome: $("#brand-home"),
+  shutter: $(".shutter"),
   idea: $("#idea"),
   duration: $("#duration"),
   tcValue: $("#tc-value"),
@@ -820,6 +825,78 @@ function buildStyleCards() {
   }
 }
 
+/* ── 视图路由：首页 ⇄ 创作页（电影遮幅转场） ────────────────── */
+
+const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+const views = { landing: els.viewLanding, studio: els.viewStudio };
+let viewTransitioning = false;
+
+function currentView() {
+  return location.hash === "#/studio" ? "studio" : "landing";
+}
+
+function applyView(name) {
+  document.body.dataset.view = name;
+  views.landing.classList.toggle("hidden", name !== "landing");
+  views.studio.classList.toggle("hidden", name !== "studio");
+}
+
+function gotoView(name) {
+  if (viewTransitioning || currentView() === name) return;
+  if (REDUCED_MOTION) {
+    location.hash = name === "studio" ? "#/studio" : "#/";
+    applyView(name);
+    window.scrollTo(0, 0);
+    return;
+  }
+  viewTransitioning = true;
+  els.shutter.classList.add("is-closed");
+  setTimeout(() => {
+    location.hash = name === "studio" ? "#/studio" : "#/";
+    applyView(name);
+    window.scrollTo(0, 0);
+    els.shutter.classList.remove("is-closed");
+    setTimeout(() => {
+      viewTransitioning = false;
+    }, 460);
+  }, 440);
+}
+
+window.addEventListener("hashchange", () => applyView(currentView()));
+
+/* ── 首页交互：磁性按钮 / 聚光灯卡片 / 滚动渐显 ────────────── */
+
+function initLandingInteractions() {
+  const cta = els.btnEnter;
+  cta.addEventListener("mousemove", (event) => {
+    const rect = cta.getBoundingClientRect();
+    const dx = (event.clientX - (rect.left + rect.width / 2)) / rect.width;
+    const dy = (event.clientY - (rect.top + rect.height / 2)) / rect.height;
+    cta.style.transform = `translate(${dx * 14}px, ${dy * 10}px)`;
+  });
+  cta.addEventListener("mouseleave", () => {
+    cta.style.transform = "";
+  });
+
+  for (const card of $$(".feature-card")) {
+    card.addEventListener("mousemove", (event) => {
+      const rect = card.getBoundingClientRect();
+      card.style.setProperty("--mx", `${event.clientX - rect.left}px`);
+      card.style.setProperty("--my", `${event.clientY - rect.top}px`);
+    });
+  }
+
+  const observer = new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      if (entry.isIntersecting) {
+        entry.target.classList.add("is-revealed");
+        observer.unobserve(entry.target);
+      }
+    }
+  }, { threshold: 0.2 });
+  for (const el of $$(".reveal")) observer.observe(el);
+}
+
 /* ── 初始化 ────────────────────────────────────────────────── */
 
 async function loadHealth() {
@@ -835,6 +912,10 @@ async function loadHealth() {
 }
 
 function init() {
+  applyView(currentView());
+  els.btnEnter.addEventListener("click", () => gotoView("studio"));
+  els.brandHome.addEventListener("click", () => gotoView("landing"));
+  initLandingInteractions();
   buildStyleCards();
   startTypewriter();
   startClock();

@@ -8,12 +8,13 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230d0c0a'/%3E%3Crect x='6' y='12' width='5' height='8' fill='%23e8a34c'/%3E%3Crect x='14' y='12' width='5' height='8' fill='%23e8a34c' opacity='.55'/%3E%3Crect x='22' y='12' width='5' height='8' fill='%23e8a34c' opacity='.3'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="/static/style.css">
 </head>
-<body>
+<body data-view="landing">
 <div class="grain" aria-hidden="true"></div>
 <div class="vignette" aria-hidden="true"></div>
+<div class="shutter" aria-hidden="true"></div>
 
 <header class="topbar">
-  <div class="brand"><span class="brand-mark" aria-hidden="true">▮▮</span><span class="brand-name">MOVIE·AGENT</span></div>
+  <button class="brand" id="brand-home" type="button" title="返回首页"><span class="brand-mark" aria-hidden="true">▮▮</span><span class="brand-name">MOVIE·AGENT</span></button>
   <nav class="pipeline" id="pipeline" aria-label="制作阶段">
     <span class="step" data-step="plan"><b>01</b>PLAN</span><i class="sep" aria-hidden="true"></i>
     <span class="step" data-step="previs"><b>02</b>PREVIS</span><i class="sep" aria-hidden="true"></i>
@@ -25,118 +26,170 @@
 
 <main>
 
-  <!-- ═══════════ 第一幕 · 开机 ═══════════ -->
-  <section class="act hero" id="act-hero">
-    <h1 class="hero-title">一句话，<em>开机</em>。</h1>
-    <p class="hero-sub">把一句原创科幻创意交给一支 AI 剧组：导演定调、编剧落笔、美术立规矩、分镜拆镜头，随后逐镜生成、质检、合片。每一步可审阅、可恢复、可导出。</p>
-
-    <div class="slate">
-      <div class="slugline mono" id="slugline">INT. 未命名的科幻短片 — 夜</div>
-      <textarea id="idea" rows="3" placeholder="" aria-label="原创科幻创意"></textarea>
-      <div class="spec-row">
-        <label class="timecode-control">
-          <span class="tc-caption mono">时长</span>
-          <span class="tc-value mono" id="tc-value">00:00:48</span>
-          <input type="range" id="duration" min="30" max="80" value="48" aria-label="目标时长（秒）">
-        </label>
-        <div class="style-cards" id="style-cards" role="radiogroup" aria-label="视觉风格"></div>
+  <!-- ═══════════ 首页 · 片场大门 ═══════════ -->
+  <section class="view view-landing" id="view-landing">
+    <div class="landing-hero">
+      <div class="aurora" aria-hidden="true"><i></i><i></i><i></i></div>
+      <p class="landing-eyebrow mono">AI FILM STUDIO — MOVIE AGENT</p>
+      <h1 class="landing-title">
+        <span class="landing-line"><span>把一句话，</span></span>
+        <span class="landing-line"><span>拍成一部<em>电影</em>。</span></span>
+      </h1>
+      <p class="landing-sub">导演、编剧、美术、分镜、质检、生成、剪辑——七位 AI 剧组成员已就位，等你开机。</p>
+      <div class="landing-actions">
+        <button class="cta cta-landing" id="btn-enter" type="button">进入片场 →</button>
+        <p class="landing-hint mono">原创科幻 · 全程可审阅 · 项目随时导出</p>
       </div>
-      <div class="slate-actions">
-        <button class="cta" id="btn-start">🎬 开 机</button>
-        <p class="mode-note mono" id="mode-note">正在确认制作引擎状态…</p>
-      </div>
-    </div>
-
-    <div class="library">
-      <span class="library-label mono">片库</span>
-      <select id="library-select" aria-label="已保存项目"></select>
-      <button class="ghost" id="btn-load" type="button">恢复项目</button>
-      <button class="ghost" id="btn-refresh" type="button">刷新</button>
-    </div>
-  </section>
-
-  <!-- ═══════════ 第二幕 · 剧组集结 ═══════════ -->
-  <section class="act crew hidden" id="act-crew" aria-live="polite">
-    <div class="act-head">
-      <h2>剧组集结</h2>
-      <p class="act-meta mono" id="crew-meta">CREW ASSEMBLY</p>
-    </div>
-    <div class="crew-row" id="crew-primary"></div>
-    <div class="crew-row crew-row--secondary" id="crew-secondary"></div>
-  </section>
-
-  <!-- ═══════════ 第三幕 · 制片工作区 ═══════════ -->
-  <section class="act workspace hidden" id="act-workspace">
-
-    <div class="panel filmstrip-panel">
-      <div class="panel-head">
-        <h2>分镜墙</h2>
-        <span class="panel-meta mono" id="filmstrip-meta">—</span>
-      </div>
-      <div class="filmstrip-viewport">
-        <div class="filmstrip" id="filmstrip"></div>
-      </div>
-      <p class="panel-note">点击镜头卡片查看完整画面、动作、声音与最终提示词；对不满意的镜头可单独重新规划。</p>
-    </div>
-
-    <div class="panel monitor-panel">
-      <div class="panel-head">
-        <h2>片场监视器</h2>
-        <span class="panel-meta mono" id="project-id-label">—</span>
-      </div>
-      <div class="monitor-screen">
-        <div class="monitor-topline mono">
-          <span class="rec-inline" id="render-rec"><span class="rec-dot" aria-hidden="true"></span>REC</span>
-          <span id="monitor-shot">STANDBY</span>
-          <span id="monitor-pct"></span>
-        </div>
-        <div class="shot-map" id="shot-map" aria-label="镜头状态"></div>
-        <div class="monitor-progress"><div class="bar"><i id="monitor-bar"></i></div></div>
-        <p class="monitor-desc" id="monitor-desc">尚未开机。</p>
-      </div>
-      <div class="monitor-actions">
-        <button class="cta cta--render" id="btn-render" type="button">提交 Spark 真实生成</button>
-        <p class="render-note" id="render-note"></p>
-      </div>
-      <pre class="log-feed mono" id="log-feed" aria-label="任务日志"></pre>
-    </div>
-
-    <div class="panel manual-panel">
-      <div class="panel-head">
-        <h2>制作手册</h2>
-        <span class="panel-meta mono">PRODUCTION BIBLE</span>
-      </div>
-      <div class="tabs" id="manual-tabs" role="tablist">
-        <button class="tab active" data-tab="brief" type="button" role="tab">项目设定</button>
-        <button class="tab" data-tab="script" type="button" role="tab">剧本与旁白</button>
-        <button class="tab" data-tab="visual" type="button" role="tab">视觉规范</button>
-        <button class="tab" data-tab="quality" type="button" role="tab">场记单</button>
-      </div>
-      <div class="tab-body" id="manual-body" role="tabpanel"></div>
-    </div>
-
-    <div class="panel screening-panel">
-      <div class="panel-head">
-        <h2>放映室</h2>
-        <span class="panel-meta mono">SCREENING ROOM</span>
-      </div>
-      <div class="screen" id="screen">
-        <div class="screen-poster" id="screen-poster">
-          <p class="poster-title" id="poster-title">成片尚未生成</p>
-          <p class="poster-meta mono" id="poster-meta"></p>
-        </div>
-        <video id="final-video" controls playsinline preload="metadata"></video>
-      </div>
-      <div class="delivery">
-        <div class="delivery-info mono" id="delivery-info">—</div>
-        <div class="delivery-actions">
-          <a class="ghost" id="export-json" download>导出 JSON</a>
-          <a class="ghost" id="export-md" download>导出 Markdown</a>
+      <div class="landing-marquee" aria-hidden="true">
+        <div class="marquee-track">
+          <span class="marquee-group">
+            <span>导演 DIRECTOR</span><i>→</i><span>编剧 WRITER</span><i>→</i><span>美术指导 ART DIRECTOR</span><i>→</i><span>分镜师 STORYBOARD</span><i>→</i><span>质检 QC GATE</span><i>→</i><span>生成调度 GENERATION</span><i>→</i><span>剪辑 EDITOR</span><i>→</i>
+          </span>
+          <span class="marquee-group">
+            <span>导演 DIRECTOR</span><i>→</i><span>编剧 WRITER</span><i>→</i><span>美术指导 ART DIRECTOR</span><i>→</i><span>分镜师 STORYBOARD</span><i>→</i><span>质检 QC GATE</span><i>→</i><span>生成调度 GENERATION</span><i>→</i><span>剪辑 EDITOR</span><i>→</i>
+          </span>
         </div>
       </div>
     </div>
 
+    <div class="landing-features">
+      <div class="feature-card reveal">
+        <span class="feature-no mono">01</span>
+        <h3>开机</h3>
+        <p class="feature-en mono">GREENLIGHT</p>
+        <p class="feature-desc">写下一句原创科幻创意，选定时长与视觉风格，场记板随即合上。</p>
+      </div>
+      <div class="feature-card reveal">
+        <span class="feature-no mono">02</span>
+        <h3>集结</h3>
+        <p class="feature-en mono">CREW ASSEMBLY</p>
+        <p class="feature-desc">七位 Agent 实时协作：项目设定、剧本旁白、视觉规范与 6–10 个可渲染分镜。</p>
+      </div>
+      <div class="feature-card reveal">
+        <span class="feature-no mono">03</span>
+        <h3>成片</h3>
+        <p class="feature-en mono">DELIVERY</p>
+        <p class="feature-desc">逐镜生成、完整性质检、FFmpeg 合片；项目 JSON 与制作档案随时导出。</p>
+      </div>
+    </div>
   </section>
+
+  <!-- ═══════════ 创作页 · 制片台 ═══════════ -->
+  <div class="view view-studio hidden" id="view-studio">
+
+    <!-- 第一幕 · 开机 -->
+    <section class="act hero" id="act-hero">
+      <h1 class="hero-title">一句话，<em>开机</em>。</h1>
+      <p class="hero-sub">把一句原创科幻创意交给一支 AI 剧组：导演定调、编剧落笔、美术立规矩、分镜拆镜头，随后逐镜生成、质检、合片。每一步可审阅、可恢复、可导出。</p>
+
+      <div class="slate">
+        <div class="slugline mono" id="slugline">INT. 未命名的科幻短片 — 夜</div>
+        <textarea id="idea" rows="3" placeholder="" aria-label="原创科幻创意"></textarea>
+        <div class="spec-row">
+          <label class="timecode-control">
+            <span class="tc-caption mono">时长</span>
+            <span class="tc-value mono" id="tc-value">00:00:48</span>
+            <input type="range" id="duration" min="30" max="80" value="48" aria-label="目标时长（秒）">
+          </label>
+          <div class="style-cards" id="style-cards" role="radiogroup" aria-label="视觉风格"></div>
+        </div>
+        <div class="slate-actions">
+          <button class="cta" id="btn-start" type="button">🎬 开 机</button>
+          <p class="mode-note mono" id="mode-note">正在确认制作引擎状态…</p>
+        </div>
+      </div>
+
+      <div class="library">
+        <span class="library-label mono">片库</span>
+        <select id="library-select" aria-label="已保存项目"></select>
+        <button class="ghost" id="btn-load" type="button">恢复项目</button>
+        <button class="ghost" id="btn-refresh" type="button">刷新</button>
+      </div>
+    </section>
+
+    <!-- 第二幕 · 剧组集结 -->
+    <section class="act crew hidden" id="act-crew" aria-live="polite">
+      <div class="act-head">
+        <h2>剧组集结</h2>
+        <p class="act-meta mono" id="crew-meta">CREW ASSEMBLY</p>
+      </div>
+      <div class="crew-row" id="crew-primary"></div>
+      <div class="crew-row crew-row--secondary" id="crew-secondary"></div>
+    </section>
+
+    <!-- 第三幕 · 制片工作区 -->
+    <section class="act workspace hidden" id="act-workspace">
+
+      <div class="panel filmstrip-panel">
+        <div class="panel-head">
+          <h2>分镜墙</h2>
+          <span class="panel-meta mono" id="filmstrip-meta">—</span>
+        </div>
+        <div class="filmstrip-viewport">
+          <div class="filmstrip" id="filmstrip"></div>
+        </div>
+        <p class="panel-note">点击镜头卡片查看完整画面、动作、声音与最终提示词；对不满意的镜头可单独重新规划。</p>
+      </div>
+
+      <div class="panel monitor-panel">
+        <div class="panel-head">
+          <h2>片场监视器</h2>
+          <span class="panel-meta mono" id="project-id-label">—</span>
+        </div>
+        <div class="monitor-screen">
+          <div class="monitor-topline mono">
+            <span class="rec-inline" id="render-rec"><span class="rec-dot" aria-hidden="true"></span>REC</span>
+            <span id="monitor-shot">STANDBY</span>
+            <span id="monitor-pct"></span>
+          </div>
+          <div class="shot-map" id="shot-map" aria-label="镜头状态"></div>
+          <div class="monitor-progress"><div class="bar"><i id="monitor-bar"></i></div></div>
+          <p class="monitor-desc" id="monitor-desc">尚未开机。</p>
+        </div>
+        <div class="monitor-actions">
+          <button class="cta cta--render" id="btn-render" type="button">提交 Spark 真实生成</button>
+          <p class="render-note" id="render-note"></p>
+        </div>
+        <pre class="log-feed mono" id="log-feed" aria-label="任务日志"></pre>
+      </div>
+
+      <div class="panel manual-panel">
+        <div class="panel-head">
+          <h2>制作手册</h2>
+          <span class="panel-meta mono">PRODUCTION BIBLE</span>
+        </div>
+        <div class="tabs" id="manual-tabs" role="tablist">
+          <button class="tab active" data-tab="brief" type="button" role="tab">项目设定</button>
+          <button class="tab" data-tab="script" type="button" role="tab">剧本与旁白</button>
+          <button class="tab" data-tab="visual" type="button" role="tab">视觉规范</button>
+          <button class="tab" data-tab="quality" type="button" role="tab">场记单</button>
+        </div>
+        <div class="tab-body" id="manual-body" role="tabpanel"></div>
+      </div>
+
+      <div class="panel screening-panel">
+        <div class="panel-head">
+          <h2>放映室</h2>
+          <span class="panel-meta mono">SCREENING ROOM</span>
+        </div>
+        <div class="screen" id="screen">
+          <div class="screen-poster" id="screen-poster">
+            <p class="poster-title" id="poster-title">成片尚未生成</p>
+            <p class="poster-meta mono" id="poster-meta"></p>
+          </div>
+          <video id="final-video" controls playsinline preload="metadata"></video>
+        </div>
+        <div class="delivery">
+          <div class="delivery-info mono" id="delivery-info">—</div>
+          <div class="delivery-actions">
+            <a class="ghost" id="export-json" download>导出 JSON</a>
+            <a class="ghost" id="export-md" download>导出 Markdown</a>
+          </div>
+        </div>
+      </div>
+
+    </section>
+  </div>
 </main>
 
 <footer class="credits mono">▮▮ MOVIE·AGENT — 为 ModelScope「AI+∞ 影视流」而作 · 每一次创作决策都被存档</footer>

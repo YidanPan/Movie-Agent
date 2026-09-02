@@ -93,7 +93,16 @@ body {
   border-bottom: 1px solid var(--line-soft);
 }
 
-.brand { display: flex; align-items: center; gap: 12px; }
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  font: inherit;
+}
 
 .brand-mark { color: var(--amber); font-size: 0.88rem; letter-spacing: -0.12em; }
 
@@ -1126,12 +1135,271 @@ main {
   color: var(--faint);
 }
 
+/* ── 首页 · 片场大门（Linear 级动效） ──────────────────────── */
+
+.view { display: block; }
+
+body[data-view="landing"] .pipeline { display: none; }
+
+.landing-hero {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: calc(100vh - 70px);
+  padding: 40px 20px 30px;
+  text-align: center;
+}
+
+/* 流光 aurora：暗色底 + 大模糊径向渐变缓慢漂移 */
+
+.aurora {
+  position: absolute;
+  inset: -25%;
+  filter: blur(90px);
+  pointer-events: none;
+}
+
+.aurora i { position: absolute; border-radius: 50%; will-change: transform; }
+
+.aurora i:nth-child(1) {
+  width: 58vw;
+  height: 42vw;
+  left: -14%;
+  top: -16%;
+  background: radial-gradient(circle, rgba(232, 163, 76, 0.16), transparent 65%);
+  animation: aurora-a 26s ease-in-out infinite alternate;
+}
+
+.aurora i:nth-child(2) {
+  width: 44vw;
+  height: 34vw;
+  right: -10%;
+  top: -6%;
+  background: radial-gradient(circle, rgba(192, 127, 47, 0.13), transparent 65%);
+  animation: aurora-b 32s ease-in-out infinite alternate;
+}
+
+.aurora i:nth-child(3) {
+  width: 50vw;
+  height: 38vw;
+  left: 22%;
+  bottom: -18%;
+  background: radial-gradient(circle, rgba(122, 74, 55, 0.13), transparent 65%);
+  animation: aurora-c 38s ease-in-out infinite alternate;
+}
+
+@keyframes aurora-a { to { transform: translate(9%, 7%) scale(1.12); } }
+@keyframes aurora-b { to { transform: translate(-8%, 10%) scale(1.18); } }
+@keyframes aurora-c { to { transform: translate(-10%, -8%) scale(1.08); } }
+
+/* 入场：逐行遮罩升起 + 依次淡入 */
+
+.landing-eyebrow, .landing-sub, .landing-actions, .landing-marquee {
+  opacity: 0;
+  animation: fade-rise 0.85s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.landing-eyebrow { animation-delay: 0.1s; }
+.landing-sub { animation-delay: 0.45s; }
+.landing-actions { animation-delay: 0.6s; }
+.landing-marquee { animation-delay: 0.8s; }
+
+@keyframes fade-rise {
+  from { opacity: 0; transform: translateY(18px); }
+  to { opacity: 1; transform: none; }
+}
+
+.landing-eyebrow {
+  font-size: 0.7rem;
+  letter-spacing: 0.34em;
+  color: var(--amber);
+}
+
+.landing-title {
+  margin-top: 26px;
+  font-family: var(--serif);
+  font-size: clamp(3.1rem, 7.6vw, 6.2rem);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.14;
+}
+
+.landing-title em {
+  font-style: italic;
+  color: var(--amber);
+  text-shadow: 0 0 44px rgba(232, 163, 76, 0.45);
+}
+
+.landing-line { display: block; overflow: hidden; padding-block: 0.05em; }
+
+.landing-line > span {
+  display: inline-block;
+  transform: translateY(115%);
+  animation: line-rise 1s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.landing-line:nth-child(2) > span { animation-delay: 0.14s; }
+
+@keyframes line-rise { to { transform: translateY(0); } }
+
+.landing-sub {
+  max-width: 560px;
+  margin-top: 24px;
+  color: var(--dim);
+  font-size: 0.95rem;
+  line-height: 2;
+}
+
+.landing-actions { margin-top: 46px; display: flex; flex-direction: column; align-items: center; gap: 16px; }
+
+/* 磁性 CTA：JS 追随鼠标做小位移，CSS 负责弹簧回位与扫光 */
+
+.cta-landing {
+  padding: 17px 58px;
+  font-size: 1.04rem;
+  letter-spacing: 0.3em;
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.3s ease, filter 0.3s ease;
+}
+
+.cta-landing::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -60%;
+  width: 45%;
+  background: linear-gradient(105deg, transparent, rgba(255, 248, 236, 0.35), transparent);
+  transform: skewX(-18deg);
+  transition: left 0.6s ease;
+}
+
+.cta-landing:hover::after { left: 115%; }
+
+.landing-hint { font-size: 0.66rem; letter-spacing: 0.22em; color: var(--faint); }
+
+/* 剧组跑马灯：无限横向滚动，两侧羽化 */
+
+.landing-marquee {
+  width: min(100%, 880px);
+  margin-top: 66px;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
+}
+
+.marquee-track {
+  display: flex;
+  width: max-content;
+  animation: marquee 30s linear infinite;
+}
+
+.landing-marquee:hover .marquee-track { animation-play-state: paused; }
+
+.marquee-group { display: flex; align-items: center; gap: 26px; padding-right: 26px; }
+
+.marquee-group span {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.18em;
+  color: var(--faint);
+  white-space: nowrap;
+}
+
+.marquee-group i { color: rgba(232, 163, 76, 0.42); font-style: normal; }
+
+@keyframes marquee { to { transform: translateX(-50%); } }
+
+/* 三幕特性卡：聚光灯跟随 + 滚动渐显 */
+
+.landing-features {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  padding: 26px 0 90px;
+}
+
+.feature-card {
+  position: relative;
+  overflow: hidden;
+  padding: 26px 24px 24px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  transition: border-color 0.3s ease, transform 0.3s ease;
+}
+
+.feature-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+  background: radial-gradient(420px circle at var(--mx, 50%) var(--my, 50%), rgba(232, 163, 76, 0.09), transparent 45%);
+}
+
+.feature-card:hover { border-color: rgba(232, 163, 76, 0.38); transform: translateY(-3px); }
+.feature-card:hover::before { opacity: 1; }
+
+.feature-no { font-size: 0.66rem; letter-spacing: 0.24em; color: var(--amber); }
+
+.feature-card h3 {
+  margin-top: 14px;
+  font-family: var(--serif);
+  font-size: 1.5rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+}
+
+.feature-en { margin-top: 5px; font-size: 0.58rem; letter-spacing: 0.24em; color: var(--faint); }
+
+.feature-desc { margin-top: 14px; font-size: 0.85rem; color: var(--dim); line-height: 1.9; }
+
+/* 滚动渐显：模糊 → 清晰上浮 */
+
+.reveal {
+  opacity: 0;
+  transform: translateY(26px);
+  filter: blur(7px);
+  transition: opacity 0.8s ease, transform 0.8s cubic-bezier(0.16, 1, 0.3, 1), filter 0.8s ease;
+}
+
+.reveal.is-revealed { opacity: 1; transform: none; filter: none; }
+
+.landing-features .feature-card:nth-child(2) { transition-delay: 0.1s; }
+.landing-features .feature-card:nth-child(3) { transition-delay: 0.2s; }
+
+/* 电影遮幅转场：上下黑条合拢再打开 */
+
+.shutter { position: fixed; inset: 0; z-index: 95; pointer-events: none; }
+
+.shutter::before, .shutter::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 51%;
+  background: #050403;
+  transform: scaleY(0);
+  transition: transform 0.42s cubic-bezier(0.76, 0, 0.24, 1);
+}
+
+.shutter::before { top: 0; transform-origin: top; }
+.shutter::after { bottom: 0; transform-origin: bottom; }
+
+.shutter.is-closed::before, .shutter.is-closed::after { transform: scaleY(1); }
+
 /* ── 响应式 ────────────────────────────────────────────────── */
 
 @media (max-width: 960px) {
   .pipeline { display: none; }
   .crew-arrow { display: none; }
   .crew-row--secondary .crew-card { flex: 1 1 170px; }
+  .landing-features { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 700px) {
@@ -1144,11 +1412,19 @@ main {
   .tab-body dt { margin-top: 6px; }
   .drawer dl { grid-template-columns: 1fr; }
   .monitor-actions { flex-direction: column; align-items: stretch; }
+  .landing-hero { min-height: calc(100vh - 58px); }
+  .landing-title { font-size: 2.9rem; }
+  .cta-landing { padding: 15px 42px; }
+  .landing-marquee { margin-top: 48px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .grain { animation: none; }
   .rec-dot, .rec-inline.live, .shot-map i, .crew-card.working { animation: none; }
   .crew-card.working .crew-state-icon { animation: none; }
+  .aurora i, .marquee-track { animation: none; }
+  .landing-line > span { animation: none; transform: none; }
+  .landing-eyebrow, .landing-sub, .landing-actions, .landing-marquee { animation: none; opacity: 1; }
+  .reveal { opacity: 1; transform: none; filter: none; }
   * { transition-duration: 0.01ms !important; }
 }
