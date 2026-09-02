@@ -214,6 +214,8 @@ main {
   border: 1px solid var(--line);
   border-radius: 5px;
   padding: clamp(20px, 2.6vw, 30px);
+  translate: 0 var(--depth-shift, 0px);
+  transition: translate 0.45s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.25s ease, box-shadow 0.25s ease;
 }
 
 .panel + .panel, .act + .act { margin-top: 26px; }
@@ -464,6 +466,14 @@ main {
 
 .crew-row + .crew-row { margin-top: 12px; }
 
+.crew .act-head {
+  position: sticky;
+  top: 70px;
+  z-index: 8;
+  padding-top: 12px;
+  background: linear-gradient(var(--bg) 72%, transparent);
+}
+
 .crew-arrow {
   align-self: center;
   color: var(--faint);
@@ -480,6 +490,7 @@ main {
   opacity: 0.42;
   transition: opacity 0.4s ease, border-color 0.3s ease, box-shadow 0.3s ease;
   cursor: pointer;
+  translate: 0 var(--depth-shift, 0px);
 }
 
 .crew-card:hover,
@@ -491,6 +502,10 @@ main {
   box-shadow: 0 0 0 2px rgba(232, 163, 76, 0.12), 0 10px 28px rgba(0, 0, 0, 0.2);
   transform: translateY(-2px);
 }
+
+.crew-card:active,
+.shot-card:active,
+.feature-card:active { transform: scale(0.985); }
 
 .crew-card.working {
   opacity: 1;
@@ -1317,7 +1332,7 @@ body[data-view="landing"] .pipeline { display: none; }
   inset: -25%;
   filter: blur(90px);
   pointer-events: none;
-  transform: translate(var(--aurora-x, 0), var(--aurora-y, 0));
+  transform: translate(var(--aurora-x, 0px), calc(var(--aurora-y, 0px) + var(--aurora-scroll, 0px)));
   transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
@@ -1502,6 +1517,7 @@ body[data-view="landing"] .pipeline { display: none; }
 }
 
 .feature-card:hover { border-color: rgba(232, 163, 76, 0.38); transform: translateY(-3px); }
+.feature-card { translate: 0 var(--depth-shift, 0px); }
 .feature-card:hover::before { opacity: 1; }
 
 .feature-no { font-size: 0.66rem; letter-spacing: 0.24em; color: var(--amber); }
@@ -1528,6 +1544,22 @@ body[data-view="landing"] .pipeline { display: none; }
 }
 
 .reveal.is-revealed { opacity: 1; transform: none; filter: none; }
+
+/* 支持 scroll-timeline 的浏览器会让元素随滚动连续揭示；其他浏览器使用上面的 IntersectionObserver。 */
+@keyframes scroll-unveil {
+  from { opacity: 0.18; transform: translateY(28px) scale(0.985); filter: blur(8px); }
+  to { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+}
+
+@supports (animation-timeline: view()) {
+  .landing-features .reveal,
+  .workspace .panel,
+  .crew-radio-wrap {
+    animation: scroll-unveil linear both;
+    animation-timeline: view();
+    animation-range: entry 0% cover 36%;
+  }
+}
 
 .landing-features .feature-card:nth-child(2) { transition-delay: 0.1s; }
 .landing-features .feature-card:nth-child(3) { transition-delay: 0.2s; }

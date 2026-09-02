@@ -1365,6 +1365,32 @@ function initLandingInteractions() {
   });
 }
 
+/* 滚动摄影机：把页面滚动位置转成景深偏移与全局进度，低成本且可自然降级。 */
+function initScrollMotion() {
+  let frame = null;
+  const update = () => {
+    const viewport = window.innerHeight || 1;
+    const pageLength = Math.max(1, document.documentElement.scrollHeight - viewport);
+    const progress = Math.min(1, Math.max(0, window.scrollY / pageLength));
+    document.documentElement.style.setProperty("--page-progress", progress.toFixed(3));
+    const aurora = document.querySelector(".aurora");
+    if (aurora) aurora.style.setProperty("--aurora-scroll", `${Math.min(110, window.scrollY * 0.08).toFixed(1)}px`);
+    document.querySelectorAll(".panel, .feature-card, .crew-radio-wrap").forEach((element, index) => {
+      const rect = element.getBoundingClientRect();
+      const distance = (viewport * 0.5 - (rect.top + rect.height * 0.5)) / viewport;
+      const shift = Math.max(-1, Math.min(1, distance)) * (index % 2 ? 4 : -4);
+      element.style.setProperty("--depth-shift", `${shift.toFixed(1)}px`);
+    });
+    frame = null;
+  };
+  const requestUpdate = () => {
+    if (frame === null) frame = requestAnimationFrame(update);
+  };
+  window.addEventListener("scroll", requestUpdate, { passive: true });
+  window.addEventListener("resize", requestUpdate, { passive: true });
+  requestUpdate();
+}
+
 function updateSoundToggle() {
   els.btnSound.classList.toggle("is-on", state.soundEnabled);
   els.btnSound.textContent = state.soundEnabled ? "♪ ON" : "♪ OFF";
@@ -1408,6 +1434,7 @@ function init() {
   els.btnPremierePlay.addEventListener("click", () => closePremiere(true));
   els.btnPremiereSkip.addEventListener("click", () => closePremiere(false));
   initLandingInteractions();
+  initScrollMotion();
   buildStyleCards();
   startTypewriter();
   startClock();
