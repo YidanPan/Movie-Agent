@@ -1,4 +1,6 @@
-"""Storyboard agent: creates renderable, independently generated shots."""
+"""Storyboard agent: creates renderable, continuity-aware shots."""
+
+from typing import Any
 
 from movie_agent.models import Shot
 from movie_agent.services.mock_creator import build_storyboard
@@ -12,7 +14,7 @@ def _parse_duration(raw: object) -> int:
     try:
         return int(round(float(raw)))  # type: ignore[arg-type]
     except (TypeError, ValueError) as error:
-        raise ValueError("分镜 Agent 返回了无法解析的镜头时长。") from error
+        raise ValueError("Storyboard agent returned an unparseable shot duration.") from error
 
 
 def _fit_durations(durations: list[int], target_seconds: int) -> list[int] | None:
@@ -38,6 +40,28 @@ def _fit_durations(durations: list[int], target_seconds: int) -> list[int] | Non
     return fitted
 
 
+def _beat_for_shot(story_beats: list[dict[str, Any]], shot_index: int, total_shots: int) -> dict[str, str]:
+    """Map a shot index to the closest story beat for narrative continuity."""
+
+    if not story_beats:
+        return {}
+    beat_index = min(shot_index, len(story_beats) - 1)
+    if len(story_beats) >= total_shots:
+        beat_index = min(shot_index, len(story_beats) - 1)
+    else:
+        ratio = shot_index / max(1, total_shots - 1)
+        beat_index = min(int(ratio * (len(story_beats) - 1)), len(story_beats) - 1)
+    return story_beats[beat_index]
+
+
+def _previous_ending(shots: list[Shot], current_index: int) -> str:
+    """Return the ending state of the previous shot for delta-prompt continuity."""
+
+    if current_index <= 0 or not shots:
+        return ""
+    return shots[current_index - 1].ending_state or shots[current_index - 1].action
+
+
 class StoryboardAgent:
     def __init__(
         self,
@@ -56,42 +80,62 @@ class StoryboardAgent:
         brief: dict[str, str],
         script: dict[str, str],
         visual_bible: dict[str, str],
+        story_beats: list[dict[str, Any]] | None = None,
     ) -> list[Shot]:
+        beats = story_beats or []
         if self.llm:
+            beats_context = ""
+            if beats:
+                beats_lines = [
+                    f"  Beat {b.get('beat_number', i+1)}: purpose={b.get('narrative_purpose','')}, "
+                    f"arc={b.get('emotional_arc','')}, start={b.get('starting_state','')}, "
+                    f"end={b.get('ending_state','')}, hook={b.get('transition_hook','')}"
+                    for i, b in enumerate(beats)
+                ]
+                beats_context = "\nStory beats (maintain continuity across shots):\n" + "\n".join(beats_lines)
             result = self.llm.complete_json(
-                "你是电影分镜师。将故事拆成独立、可生成的原创科幻镜头。"
-                "每镜 4–8 秒，镜头数 6–10，避免复杂多人互动与现有影视 IP。"
-                f"当前可用生成方式仅为：{'、'.join(sorted(self.allowed_generation_modes))}。"
-                "所有镜头的 duration_seconds 之和必须恰好等于总时长。",
+                "You are a film storyboard artist. Break the story into a continuous sequence of "
+                "original sci-fi shots that form a coherent film, not independent clips. "
+                "Each shot 4-8 seconds, 6-10 shots total, avoid complex multi-person interactions and existing film/TV IP. "
+                f"Available generation modes: {', '.join(sorted(self.allowed_generation_modes))}. "
+                "The sum of all shot duration_seconds must equal the total duration exactly. "
+                "IMPORTANT: Each shot prompt must describe only the DELTA from the previous shot — "
+                "what changes, not a full scene reset. Include narrative continuity fields.",
                 (
-                    f"创意：{idea}\n总时长：{duration_seconds} 秒\n风格：{visual_style}\n"
-                    f"导演设定：{brief}\n剧本：{script}\n视觉设定：{visual_bible}\n"
-                    "文字要精炼以控制生成时间：image_description 与 action 各不超过 40 个字，"
-                    "sound_design 不超过 20 个字，prompt 用不超过 60 词的英文视频提示词。"
-                    "返回 JSON：{\"shots\":[{\"duration_seconds\":6,\"framing\":\"中近景\","
+                    f"Idea: {idea}\nTotal duration: {duration_seconds} seconds\nStyle: {visual_style}\n"
+                    f"Director brief: {brief}\nScript: {script}\nVisual bible: {visual_bible}"
+                    f"{beats_context}\n"
+                    "Keep text concise to control generation time: image_description and action each no more than 40 words, "
+                    "sound_design no more than 15 words, prompt is a video generation prompt describing only the DELTA "
+                    "from the previous shot in no more than 60 words. "
+                    "Use English framing terms (wide shot, medium close-up, close-up, over-the-shoulder, low-angle medium, insert shot). "
+                    "Return JSON: {\"shots\":[{\"duration_seconds\":6,\"framing\":\"medium close-up\","
                     "\"image_description\":\"...\",\"action\":\"...\",\"sound_design\":\"...\","
-                    "\"generation_mode\":\"T2V\",\"prompt\":\"...\"}]}。"
+                    "\"generation_mode\":\"T2V\",\"prompt\":\"...\","
+                    "\"narrative_purpose\":\"...\",\"starting_state\":\"...\",\"main_action\":\"...\","
+                    "\"character_reaction\":\"...\",\"ending_state\":\"...\",\"transition_hook\":\"...\"}]}."
                 ),
             )
             raw_shots = result.get("shots")
             if not isinstance(raw_shots, list) or not 6 <= len(raw_shots) <= 10:
-                raise ValueError("分镜 Agent 未返回 6–10 个镜头。")
+                raise ValueError("Storyboard agent did not return 6-10 shots.")
             for raw_shot in raw_shots:
                 if not isinstance(raw_shot, dict):
-                    raise ValueError("分镜 Agent 返回了无效镜头。")
+                    raise ValueError("Storyboard agent returned an invalid shot.")
             raw_durations = [_parse_duration(raw_shot.get("duration_seconds")) for raw_shot in raw_shots]
             fitted_durations = _fit_durations(raw_durations, duration_seconds)
             if fitted_durations is None:
                 raise ValueError(
-                    f"分镜 Agent 返回的镜头数无法在 4–8 秒区间内凑满 {duration_seconds} 秒，请重新开机。"
+                    f"Storyboard agent's shots cannot fit within 4-8 second range to total {duration_seconds} seconds; please restart."
                 )
             shots: list[Shot] = []
             for number, raw_shot in enumerate(raw_shots, start=1):
                 shot_duration = fitted_durations[number - 1]
                 mode = str(raw_shot["generation_mode"]).upper()
                 if mode not in self.allowed_generation_modes:
-                    allowed = "、".join(sorted(self.allowed_generation_modes))
-                    raise ValueError(f"分镜 Agent 使用了当前工作流不支持的生成方式：{mode}（仅支持 {allowed}）。")
+                    allowed = ", ".join(sorted(self.allowed_generation_modes))
+                    raise ValueError(f"Storyboard agent used unsupported generation mode: {mode} (only {allowed} supported).")
+                beat = _beat_for_shot(beats, number - 1, len(raw_shots))
                 shots.append(
                     Shot(
                         number=number,
@@ -103,21 +147,33 @@ class StoryboardAgent:
                         generation_mode=mode,
                         prompt=str(raw_shot["prompt"]),
                         output_placeholder=f"outputs/{project_id}/shot-{number:02d}.mp4",
+                        narrative_purpose=str(raw_shot.get("narrative_purpose") or beat.get("narrative_purpose", "")),
+                        starting_state=str(raw_shot.get("starting_state") or beat.get("starting_state", "")),
+                        main_action=str(raw_shot.get("main_action") or raw_shot["action"]),
+                        character_reaction=str(raw_shot.get("character_reaction", "")),
+                        ending_state=str(raw_shot.get("ending_state") or beat.get("ending_state", "")),
+                        transition_hook=str(raw_shot.get("transition_hook") or beat.get("transition_hook", "")),
                     )
                 )
             return shots
-        shots = build_storyboard(idea, duration_seconds, visual_style, project_id)
+        shots = build_storyboard(idea, duration_seconds, visual_style, project_id, story_beats=beats)
         if self.allowed_generation_modes == {"T2V"}:
             for shot in shots:
                 shot.generation_mode = "T2V"
         return shots
 
-    def revise(self, shot: Shot, visual_bible: dict[str, str]) -> Shot:
-        """Refresh one render prompt while retaining its assigned story beat and duration."""
-        consistency = "；".join(
-            value for key, value in visual_bible.items() if key in {"角色卡", "场景卡", "风格卡"}
+    def revise(self, shot: Shot, visual_bible: dict[str, str], previous_shot: Shot | None = None) -> Shot:
+        """Refresh one render prompt while retaining narrative beat and duration."""
+
+        consistency = "; ".join(
+            value for key, value in visual_bible.items()
+            if key in {"character_card", "scene_card", "style_card", "character_lock", "scene_lock", "cinematography_lock"}
         )
-        revised_prompt = f"{shot.prompt}。一致性约束：{consistency}"
+        continuity_prefix = ""
+        if previous_shot:
+            prev_ending = previous_shot.ending_state or previous_shot.action
+            continuity_prefix = f"Continuing from previous shot: {prev_ending}. "
+        revised_prompt = f"{continuity_prefix}{shot.prompt}. Consistency constraints: {consistency}"
         return Shot(
             number=shot.number,
             duration_seconds=shot.duration_seconds,
@@ -130,4 +186,11 @@ class StoryboardAgent:
             output_placeholder=shot.output_placeholder,
             status="replanned",
             attempts=shot.attempts + 1,
+            narrative_purpose=shot.narrative_purpose,
+            starting_state=shot.starting_state,
+            main_action=shot.main_action,
+            character_reaction=shot.character_reaction,
+            ending_state=shot.ending_state,
+            transition_hook=shot.transition_hook,
+            desired_duration=shot.desired_duration,
         )

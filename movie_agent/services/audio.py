@@ -113,7 +113,7 @@ def build_music_brief(
     )
     shots = list(getattr(project, "storyboard", []) or [])
     runtime = max(1, int(getattr(project, "duration_seconds", 48) or 48))
-    theme = _compact((getattr(project, "brief", {}) or {}).get("主题"), "a quiet human choice")
+    theme = _compact((getattr(project, "brief", {}) or {}).get("theme") or (getattr(project, "brief", {}) or {}).get("主题"), "a quiet human choice")
     story = _compact((getattr(project, "script", {}) or {}).get("story"), "")
     visual_style = _compact(getattr(project, "visual_style", ""), "cinematic")
     arc = []
@@ -145,15 +145,15 @@ def build_music_brief(
         "style": f"{visual_style} · cinematic score",
         "bpm": bpm,
         "key": "D minor → F major",
-        "instruments": ["低音合成器", "颗粒钢琴", "弓弦纹理", "低频打击"],
+        "instruments": ["bass synthesiser", "granular piano", "bowed strings", "low-frequency percussion"],
         "entry_seconds": 0,
         "peak_seconds": peak,
         "fade_out_seconds": max(0, runtime - 4),
         "runtime_seconds": runtime,
         "emotional_arc": arc,
         "intensity_curve": [item["intensity"] for item in arc],
-        "direction": f"围绕“{theme}”建立由克制到释放的声音弧线；{story[:80]}",
-        "rhythm_sync": "按 Shot duration 对齐重拍与转场，避免连续铺满。",
+        "direction": f"Build a restrained-to-released sonic arc around \"{theme}\"; {story[:80]}",
+        "rhythm_sync": "Align downbeats and transitions to shot durations; avoid continuous wall-to-wall coverage.",
         "version": 1,
     }
 
@@ -178,7 +178,7 @@ def build_audio_tracks(
         "voice": {
             "key": "voice",
             "label": "VOICE",
-            "name": "旁白 / Dialogue",
+            "name": "Narration / Dialogue",
             "status": "READY" if locked else "LOCK REQUIRED",
             "source": f"LOCKED DIALOGUE BOOK · {cue_count} CUES" if locked else "DIALOGUE BOOK / REVIEW",
             "enabled": True,
@@ -191,7 +191,7 @@ def build_audio_tracks(
         "music": {
             "key": "music",
             "label": "MUSIC",
-            "name": "AI 配乐 / Score",
+            "name": "AI Score / Music",
             "status": music_status,
             "source": music_source,
             "enabled": True,
@@ -204,7 +204,7 @@ def build_audio_tracks(
         "sfx": {
             "key": "sfx",
             "label": "SFX",
-            "name": "动作音效 / Effects",
+            "name": "Sound Effects / SFX",
             "status": "CUE MAP READY" if sfx_count else "CUE MAP EMPTY",
             "source": f"SHOT SOUND DESIGN · {sfx_count} CUES",
             "enabled": True,
@@ -217,7 +217,7 @@ def build_audio_tracks(
         "ambience": {
             "key": "ambience",
             "label": "AMBIENCE",
-            "name": "环境声 / Atmos",
+            "name": "Ambience / Atmos",
             "status": "ROOM TONE READY" if shots else "WAITING FOR SHOTS",
             "source": "VISUAL BIBLE · CONTINUOUS BED",
             "enabled": True,
@@ -237,7 +237,7 @@ def build_smart_ducking(project: Any, *, enabled: bool = True) -> dict[str, Any]
         if not isinstance(entry, dict):
             continue
         text = _compact(entry.get("text"), "")
-        if text and text != "（留白）":
+        if text and text != "(silence)":
             cues.append(
                 {
                     "shot": int(entry.get("shot", 0) or 0),
@@ -253,7 +253,7 @@ def build_smart_ducking(project: Any, *, enabled: bool = True) -> dict[str, Any]
         "attack_ms": 120,
         "release_ms": 420,
         "voice_cues": cues,
-        "description": "对白 / 旁白出现时，Music 自动降低并在语音结束后平滑恢复。",
+        "description": "Music automatically ducks when dialogue or narration is present and smoothly recovers after speech ends.",
     }
 
 
@@ -353,7 +353,7 @@ def mark_audio_stage(project: Any, stage: str, status: str) -> Any:
     """Persist a small stage state map for UI recovery and API consumers."""
 
     if stage not in EDIT_AUDIO_STAGES:
-        raise ValueError(f"未知的声音制作阶段：{stage}")
+        raise ValueError(f"Unknown audio production stage: {stage}")
     statuses = dict((project.mix_state or {}).get("stage_status") or {})
     statuses.setdefault(stage, "queued")
     statuses[stage] = status
@@ -367,7 +367,7 @@ def regenerate_track(project: Any, track_key: str) -> Any:
 
     key = str(track_key or "").strip().lower()
     if key not in TRACK_ORDER:
-        raise ValueError("音轨仅支持 Voice、Music、SFX 或 Ambience。")
+        raise ValueError("Track must be one of Voice, Music, SFX, or Ambience.")
     ensure_audio_design(project)
     track = project.audio_tracks[key]
     track["revision"] = int(track.get("revision", 1) or 1) + 1

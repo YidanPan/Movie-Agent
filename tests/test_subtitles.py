@@ -81,14 +81,14 @@ class SubtitleAssetTests(unittest.TestCase):
                 shots,
             )
             editor = EditorAgent(settings)
-            with self.assertRaisesRegex(RuntimeError, "锁定台词本"):
+            with self.assertRaisesRegex(RuntimeError, "lock the dialogue book"):
                 editor.create_rough_cut(project)
             project.script["dialogue_locked"] = True
             editor.create_rough_cut(project)
             self.assertEqual(project.edit_plan["status"], "rough_cut")
             self.assertTrue((root / "outputs" / project.project_id / "subtitles.srt").is_file())
             project.status = "completed_mock"
-            with self.assertRaisesRegex(ValueError, "文件格式"):
+            with self.assertRaisesRegex(ValueError, "Container format"):
                 editor.export_variant(project, container="avi")
 
 

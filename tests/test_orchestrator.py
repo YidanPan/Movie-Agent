@@ -28,7 +28,7 @@ class MovieOrchestratorTests(unittest.TestCase):
             self.assertIsNone(project.rough_cut_placeholder)
             self.assertTrue(all(shot.status == "approved_mock" for shot in project.storyboard))
             self.assertGreaterEqual(len(project.quality_report), 4)
-            self.assertTrue(any("版权审核" in note for note in project.quality_report))
+            self.assertTrue(any("Copyright review" in note for note in project.quality_report))
             self.assertEqual(len(project.script["dialogue_book"]), len(project.storyboard))
             self.assertEqual(len(project.script["subtitle_track"]), len(project.storyboard))
             self.assertFalse(project.script["dialogue_locked"])
@@ -40,7 +40,7 @@ class MovieOrchestratorTests(unittest.TestCase):
             self.assertEqual(project.mix_state["pipeline"], ["picture_cut", "voice", "music", "sfx", "subtitles", "mix", "final_encode"])
             exported = MovieOrchestrator(settings).store.export(project.project_id)
             self.assertEqual(len(exported), 2)
-            self.assertIn("最终视频提示词", exported[1].read_text(encoding="utf-8"))
+            self.assertIn("Final Video Prompts", exported[1].read_text(encoding="utf-8"))
             self.assertIn("Sound Department", exported[1].read_text(encoding="utf-8"))
 
             locked = MovieOrchestrator(settings).lock_dialogue(project.project_id)
@@ -84,7 +84,7 @@ class MovieOrchestratorTests(unittest.TestCase):
             settings = Settings(
                 "http://127.0.0.1:8188", 900, Path("workflows"), 9071, Path(temporary_directory), True
             )
-            with self.assertRaisesRegex(ValueError, "至少 10"):
+            with self.assertRaisesRegex(ValueError, "at least 10"):
                 MovieOrchestrator(settings).create_project("太短", 48, "写实近未来")
 
     def test_real_render_requires_comfyui_mode(self) -> None:
@@ -95,7 +95,7 @@ class MovieOrchestratorTests(unittest.TestCase):
             project = MovieOrchestrator(settings).create_project(
                 "一名守夜人发现空城每天都在等他下班。", 48, "写实近未来"
             )
-            with self.assertRaisesRegex(ValueError, "mock 模式"):
+            with self.assertRaisesRegex(ValueError, "Current mode is mock"):
                 MovieOrchestrator(settings).render_project(project.project_id)
-            with self.assertRaisesRegex(ValueError, "mock 模式"):
+            with self.assertRaisesRegex(ValueError, "Current mode is mock"):
                 MovieOrchestrator(settings).render_shot(project.project_id, 1)

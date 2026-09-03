@@ -57,7 +57,7 @@ class FinalLookTests(unittest.TestCase):
             saved = root / project.project_id / "project.json"
             self.assertIn('"final_look"', saved.read_text(encoding="utf-8"))
             markdown = MovieOrchestrator(self._settings(root)).store.export(project.project_id)[1]
-            self.assertIn("最终润色 / Final Look", markdown.read_text(encoding="utf-8"))
+            self.assertIn("## Final Look", markdown.read_text(encoding="utf-8"))
 
     def test_apply_final_look_after_final_cut_saves_export_plan(self) -> None:
         with TemporaryDirectory() as temporary_directory:
@@ -84,7 +84,7 @@ class FinalLookTests(unittest.TestCase):
             self.assertTrue(finished.final_look["applied"])
             self.assertIn("EXPORT FILTER READY", finished.final_look["status"])
             self.assertIsNone(finished.final_look["media_path"])
-            self.assertTrue(any("最终润色" in entry for entry in finished.logs))
+            self.assertTrue(any("Final Look" in entry for entry in finished.logs))
 
     def test_final_look_requires_a_completed_cut(self) -> None:
         with TemporaryDirectory() as temporary_directory:
@@ -93,7 +93,7 @@ class FinalLookTests(unittest.TestCase):
             project = orchestrator.create_project(
                 "一名守夜人发现空城每天都在等他下班。", 48, "胶片科幻"
             )
-            with self.assertRaisesRegex(ValueError, "最终成片"):
+            with self.assertRaisesRegex(ValueError, "complete the final cut"):
                 orchestrator.set_final_look(project.project_id, preset="cyber_night")
 
 

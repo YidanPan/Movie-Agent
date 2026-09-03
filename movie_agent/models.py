@@ -23,6 +23,13 @@ class Shot:
     output_placeholder: str
     status: str = "planned"
     attempts: int = 0
+    narrative_purpose: str = ""
+    starting_state: str = ""
+    main_action: str = ""
+    character_reaction: str = ""
+    ending_state: str = ""
+    transition_hook: str = ""
+    desired_duration: float = 0
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -55,6 +62,7 @@ class MovieProject:
     smart_ducking: dict[str, Any] = field(default_factory=dict)
     mix_state: dict[str, Any] = field(default_factory=dict)
     final_look: dict[str, Any] = field(default_factory=dict)
+    story_beats: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -93,6 +101,7 @@ class MovieProject:
             smart_ducking=data.get("smart_ducking") or {},
             mix_state=data.get("mix_state") or {},
             final_look=data.get("final_look") or {},
+            story_beats=data.get("story_beats") or [],
         )
         # Older project JSON files predate the sound department. Migrate them
         # in memory so the next save exposes the same audio contract.
@@ -100,99 +109,108 @@ class MovieProject:
             from movie_agent.services.audio import ensure_audio_design
 
             ensure_audio_design(project)
+        # Migrate Chinese visual bible keys to English equivalents.
+        _vb_aliases = {"角色卡": "character_card", "场景卡": "scene_card", "风格卡": "style_card", "声音卡": "sound_card"}
+        migrated_vb = {}
+        for key, value in project.visual_bible.items():
+            english_key = _vb_aliases.get(key, key)
+            migrated_vb[english_key] = value
+        project.visual_bible = migrated_vb
         ensure_final_look(project)
         return project
 
     def brief_as_markdown(self) -> str:
-        return "\n".join(["## 项目设定"] + [f"- **{key}**：{value}" for key, value in self.brief.items()])
+        return "\n".join(["## Project Brief"] + [f"- **{key}**: {value}" for key, value in self.brief.items()])
 
     def script_as_markdown(self) -> str:
         dialogue = self.script.get("dialogue_book") or []
         subtitles = self.script.get("subtitle_track") or []
         dialogue_lines = [
-            f"- 镜头 {item.get('shot', index + 1)} · {item.get('speaker', '旁白')}：{item.get('text', '')}"
+            f"- Shot {item.get('shot', index + 1)} · {item.get('speaker', 'NARRATOR')}: {item.get('text', '')}"
             for index, item in enumerate(dialogue)
             if isinstance(item, dict)
         ]
         subtitle_lines = [
-            f"- {item.get('start_seconds', 0):.2f}s–{item.get('end_seconds', 0):.2f}s · 镜头 {item.get('shot', index + 1)}：{item.get('text', '')}"
+            f"- {item.get('start_seconds', 0):.2f}s–{item.get('end_seconds', 0):.2f}s · Shot {item.get('shot', index + 1)}: {item.get('text', '')}"
             for index, item in enumerate(subtitles)
             if isinstance(item, dict)
         ]
+        locked = "Locked" if self.script.get("dialogue_locked") else "Pending"
         parts = [
-            "## 短剧本\n" + str(self.script.get("story", "")),
-            "## 旁白\n> " + str(self.script.get("narration", "")),
-            "## 台词本 / Dialogue Book\n" + ("\n".join(dialogue_lines) or "暂无台词。"),
-            "## 字幕轨 / Subtitle Track\n" + ("\n".join(subtitle_lines) or "暂无字幕。"),
-            f"字幕状态：{'已锁定' if self.script.get('dialogue_locked') else '待锁定'} · 输出模式：{self.subtitle_mode}",
+            "## Screenplay\n" + str(self.script.get("story", "")),
+            "## Narration\n> " + str(self.script.get("narration", "")),
+            "## Dialogue Book\n" + ("\n".join(dialogue_lines) or "No dialogue."),
+            "## Subtitle Track\n" + ("\n".join(subtitle_lines) or "No subtitles."),
+            f"Dialogue status: {locked} · Output mode: {self.subtitle_mode}",
         ]
         return "\n\n".join(parts)
 
     def visual_bible_as_markdown(self) -> str:
-        return "## 视觉设定\n" + "\n".join(
-            f"- **{key}**：{value}" for key, value in self.visual_bible.items()
+        return "## Visual Bible\n" + "\n".join(
+            f"- **{key}**: {value}" for key, value in self.visual_bible.items()
         )
 
     def audio_as_markdown(self) -> str:
         """Export the sound department plan alongside the movie plan."""
 
         brief = self.music_brief or {}
+        ducking_on = "ON" if self.smart_ducking.get("enabled") else "OFF"
         rows = [
-            "## 声音设计 / Sound Department",
-            f"- **配乐模式**：{self.music_mode}",
-            f"- **音乐强度**：{int(round(self.music_intensity * 100))}% · {brief.get('volume_db', (self.audio_tracks or {}).get('music', {}).get('volume_db', '·'))} dB",
-            f"- **Music Brief**：{brief.get('style', '待生成')} · {brief.get('bpm', '·')} BPM",
-            f"- **乐器**：{' · '.join(str(item) for item in (brief.get('instruments') or [])) or '待规划'}",
-            f"- **进入 / 高潮 / 淡出**：{brief.get('entry_seconds', 0)}s / {brief.get('peak_seconds', '·')}s / {brief.get('fade_out_seconds', '·')}s",
-            f"- **Smart Ducking**：{'开启' if self.smart_ducking.get('enabled') else '关闭'} · {self.smart_ducking.get('amount_db', -8)} dB",
+            "## Sound Department",
+            f"- **Music Mode**: {self.music_mode}",
+            f"- **Music Intensity**: {int(round(self.music_intensity * 100))}% · {brief.get('volume_db', (self.audio_tracks or {}).get('music', {}).get('volume_db', '·'))} dB",
+            f"- **Music Brief**: {brief.get('style', 'pending')} · {brief.get('bpm', '·')} BPM",
+            f"- **Instruments**: {' · '.join(str(item) for item in (brief.get('instruments') or [])) or 'pending'}",
+            f"- **Entry / Peak / Fade Out**: {brief.get('entry_seconds', 0)}s / {brief.get('peak_seconds', '·')}s / {brief.get('fade_out_seconds', '·')}s",
+            f"- **Smart Ducking**: {ducking_on} · {self.smart_ducking.get('amount_db', -8)} dB",
             "",
-            "| 音轨 | 状态 | 来源 | 音量 |",
+            "| Track | Status | Source | Volume |",
             "| --- | --- | --- | --- |",
         ]
         for key in ("voice", "music", "sfx", "ambience"):
             track = (self.audio_tracks or {}).get(key, {})
             rows.append(
-                f"| {track.get('label', key.upper())} | {track.get('status', '待规划')} | {track.get('source', '·')} | {track.get('volume_db', '·')} dB |"
+                f"| {track.get('label', key.upper())} | {track.get('status', 'pending')} | {track.get('source', '·')} | {track.get('volume_db', '·')} dB |"
             )
         arc = brief.get("emotional_arc") or []
         if arc:
-            rows.extend(["", "**Emotional Arc**：" + " → ".join(str(item.get("emotion", "arc")) for item in arc)])
+            rows.extend(["", "**Emotional Arc**: " + " → ".join(str(item.get("emotion", "arc")) for item in arc)])
         return "\n".join(rows)
 
     def final_look_as_markdown(self) -> str:
         look = self.final_look or {}
         return "\n".join(
             [
-                "## 最终润色 / Final Look",
-                f"- **Look**：{look.get('label', '原片')} · {look.get('english', 'ORIGINAL')}",
-                f"- **Intensity**：{look.get('intensity', 0.72)} · Grain {look.get('grain', 0)} · Vignette {look.get('vignette', 0)} · Highlight Softening {look.get('highlight_soften', 0)}",
-                f"- **Scope**：{look.get('scope', 'whole_film')} · **Status**：{look.get('status', 'READY TO FINISH')}",
+                "## Final Look",
+                f"- **Look**: {look.get('label', 'Original')} · {look.get('english', 'ORIGINAL')}",
+                f"- **Intensity**: {look.get('intensity', 0.72)} · Grain {look.get('grain', 0)} · Vignette {look.get('vignette', 0)} · Highlight Softening {look.get('highlight_soften', 0)}",
+                f"- **Scope**: {look.get('scope', 'whole_film')} · **Status**: {look.get('status', 'READY TO FINISH')}",
             ]
         )
 
     def storyboard_as_markdown(self) -> str:
         rows = [
-            "## 分镜表",
-            "| 镜头 | 时长 | 景别 | 生成方式 | 状态 | 画面与动作 | 声音 |",
-            "| --- | --- | --- | --- | --- | --- | --- |",
+            "## Storyboard",
+            "| Shot | Duration | Framing | Narrative Purpose | Mode | Status | Visuals & Action | Sound |",
+            "| --- | --- | --- | --- | --- | --- | --- | --- |",
         ]
         for shot in self.storyboard:
             rows.append(
-                f"| {shot.number} | {shot.duration_seconds}s | {shot.framing} | {shot.generation_mode} | {shot.status} | "
-                f"{shot.image_description}；{shot.action} | {shot.sound_design} |"
+                f"| {shot.number} | {shot.duration_seconds}s | {shot.framing} | {shot.narrative_purpose or '—'} | {shot.generation_mode} | {shot.status} | "
+                f"{shot.image_description}; {shot.action} | {shot.sound_design} |"
             )
         return "\n".join(rows)
 
     def project_as_markdown(self) -> str:
         """Portable production brief for judges, collaborators, or later rendering."""
         prompts = [
-            "## 最终视频提示词",
-            *[f"### 镜头 {shot.number}\n{shot.prompt}" for shot in self.storyboard],
+            "## Final Video Prompts",
+            *[f"### Shot {shot.number}\n{shot.prompt}" for shot in self.storyboard],
         ]
         return "\n\n".join(
             [
-                f"# Movie-Agent 项目：{self.project_id}",
-                f"**创意**：{self.idea}\n\n**目标时长**：{self.duration_seconds} 秒\n\n**视觉风格**：{self.visual_style}",
+                f"# Movie-Agent Project: {self.project_id}",
+                f"**Idea**: {self.idea}\n\n**Target Duration**: {self.duration_seconds} seconds\n\n**Visual Style**: {self.visual_style}",
                 self.brief_as_markdown(),
                 self.script_as_markdown(),
                 self.visual_bible_as_markdown(),
@@ -205,4 +223,4 @@ class MovieProject:
         )
 
     def log_as_markdown(self) -> str:
-        return "## 任务日志\n" + "\n".join(f"- {entry}" for entry in self.logs)
+        return "## Task Log\n" + "\n".join(f"- {entry}" for entry in self.logs)
