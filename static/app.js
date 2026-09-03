@@ -655,13 +655,13 @@ function buildCrewBoard() {
     card.setAttribute("aria-expanded", "false");
     card.setAttribute("aria-label", `${def.name} Agent 详情`);
     card.innerHTML = `
-      <div class="crew-indexline mono"><span class="crew-node-id">${esc(def.index)} / NODE</span><span class="crew-en mono">${esc(def.en)}</span><span class="crew-node-status mono" data-node-status="idle">QUEUED</span></div>
+      <div class="crew-indexline type-system-meta"><span class="crew-node-id">${esc(def.index)} / NODE</span><span class="crew-en type-system-meta">${esc(def.en)}</span><span class="crew-node-status type-system-meta" data-node-status="idle">QUEUED</span></div>
       <div class="crew-head"><span class="crew-name">${esc(def.name)}</span></div>
       <p class="crew-role">${esc(def.role)}</p>
-      <div class="crew-state mono"><span class="crew-state-icon" aria-hidden="true"></span><span class="crew-state-text">${AGENT_STATUS_COPY[def.id]?.idle || "WAITING"}</span></div>
-      <div class="crew-node-route mono" aria-label="节点输入与输出"><span class="crew-route-input">IN · ${esc(def.input)}</span><span class="crew-route-arrow" aria-hidden="true">→</span><span class="crew-route-output">OUT · ${esc(def.output)}</span></div>
+      <div class="crew-state type-status"><span class="crew-state-icon" aria-hidden="true"></span><span class="crew-state-text">${AGENT_STATUS_COPY[def.id]?.idle || "WAITING"}</span></div>
+      <div class="crew-node-route type-system-meta" aria-label="节点输入与输出"><span class="crew-route-input">IN · ${esc(def.input)}</span><span class="crew-route-arrow" aria-hidden="true">→</span><span class="crew-route-output">OUT · ${esc(def.output)}</span></div>
       <div class="crew-node-progress" aria-hidden="true"><i></i></div>
-      <p class="crew-summary">${esc(def.summarize({}))}</p>`;
+      <p class="crew-summary type-helper">${esc(def.summarize({}))}</p>`;
     card.addEventListener("click", () => openCrewDrawer(def.id));
     card.addEventListener("keydown", (event) => {
       if (event.key === "Enter" || event.key === " ") {
@@ -866,14 +866,14 @@ function renderCrewRadio() {
   ]).slice(-12);
   if (!entries.length) {
     const emptyCopy = state.project ? "PROJECT SNAPSHOT / NO RADIO TRAFFIC" : "SYSTEM / WAITING FOR PROJECT START";
-    els.crewRadio.innerHTML = `<div class="radio-msg radio-system"><span class="radio-time">--:--:--</span><span class="radio-from">SYSTEM</span><span class="radio-status">${esc(emptyCopy)}</span><p>${state.project ? "已载入项目状态；新的 Agent 信号会在这里出现。" : "启动项目后，Agent 状态和中间产出会实时归档。"}</p></div>`;
+    els.crewRadio.innerHTML = `<div class="radio-msg radio-system"><span class="radio-time type-system-meta">--:--:--</span><span class="radio-from type-system-meta">SYSTEM</span><span class="radio-status type-status">${esc(emptyCopy)}</span><p class="type-helper">${state.project ? "已载入项目状态；新的 Agent 信号会在这里出现。" : "启动项目后，Agent 状态和中间产出会实时归档。"}</p></div>`;
   } else {
     for (const item of entries) {
       const row = document.createElement("div");
       row.className = `radio-msg ${item.type === "artifact" ? "radio-artifact" : item.type === "status" ? "radio-status-msg" : ""}`;
       const route = item.type === "chat" ? ` → ${crewAgentLabel(item.to || "all")}` : "";
       const title = item.type === "artifact" ? ` · ${item.title || "ARTIFACT"}` : "";
-      row.innerHTML = `<div class="radio-line"><span class="radio-time">${esc(item.time || "--:--:--")}</span><span class="radio-from">${esc(crewAgentLabel(item.agent || item.from))}</span><span class="radio-status">${esc(item.status || "SIGNAL")}</span><span class="radio-to">${esc(route || title)}</span></div><p>${esc(truncate(item.message || item.content || "", 180))}</p>`;
+      row.innerHTML = `<div class="radio-line"><span class="radio-time type-system-meta">${esc(item.time || "--:--:--")}</span><span class="radio-from type-system-meta">${esc(crewAgentLabel(item.agent || item.from))}</span><span class="radio-status type-status">${esc(item.status || "SIGNAL")}</span><span class="radio-to type-system-meta">${esc(route || title)}</span></div><p class="type-helper">${esc(truncate(item.message || item.content || "", 180))}</p>`;
       els.crewRadio.appendChild(row);
     }
   }
@@ -1037,9 +1037,9 @@ function renderFilmstrip(project, entranceFrom = Number.POSITIVE_INFINITY) {
     card.setAttribute("role", "button");
     card.setAttribute("aria-label", `镜头 ${shot.number} 详情`);
     card.innerHTML = `
-      <header class="shot-head mono"><span>SHOT ${String(shot.number).padStart(2, "0")}</span><span>${shot.duration_seconds}s</span></header>
-      <div class="shot-frame"><span class="shot-frame-lens" aria-hidden="true"><i class="shot-frame-sketch"></i><i class="shot-frame-color"></i></span><span class="film-stamp mono">${String(shot.number).padStart(2, "0")} · 24 FPS</span><span class="shot-framing">${esc(shot.framing)}</span><span class="shot-mode mono">${esc(shot.generation_mode)}</span></div>
-      <footer class="shot-foot mono">
+      <header class="shot-head type-system-meta"><span>SHOT ${String(shot.number).padStart(2, "0")}</span><span>${shot.duration_seconds}s</span></header>
+      <div class="shot-frame"><span class="shot-frame-lens" aria-hidden="true"><i class="shot-frame-sketch"></i><i class="shot-frame-color"></i></span><span class="film-stamp type-system-meta">${String(shot.number).padStart(2, "0")} · 24 FPS</span><span class="shot-framing type-control">${esc(shot.framing)}</span><span class="shot-mode type-system-meta">${esc(shot.generation_mode)}</span></div>
+      <footer class="shot-foot type-system-meta">
         <span class="shot-status"><i class="dot" aria-hidden="true"></i>${shotStatusInfo(shot.status)}</span>
         <span class="shot-attempts">${shot.attempts > 0 ? `↻${shot.attempts}` : ""}</span>
       </footer>`;
@@ -1241,16 +1241,16 @@ function renderManualSummary(project) {
   els.manualSummary.innerHTML = `
     <div class="manual-project-line">
       <div>
-        <span class="manual-project-id mono">FILM ${esc(filmId)} / ${shots.length ? "CUT 01" : "PREP"}</span>
+        <span class="manual-project-id type-system-meta">FILM ${esc(filmId)} / ${shots.length ? "CUT 01" : "PREP"}</span>
         <h3>${esc(projectTitle(project))}</h3>
       </div>
-      <span class="manual-project-status ${status.key} mono"><i>${status.symbol}</i>${status.label}</span>
+      <span class="manual-project-status ${status.key} type-status"><i>${status.symbol}</i>${status.label}</span>
     </div>
     <div class="manual-stats" role="list" aria-label="项目摘要">
-      <div role="listitem"><span class="mono">SHOTS</span><strong>${shots.length || "·"}</strong></div>
-      <div role="listitem"><span class="mono">DURATION</span><strong>${shots.length ? compactDuration(total) : "·"}</strong></div>
-      <div role="listitem"><span class="mono">FRAME</span><strong>16:9</strong></div>
-      <div role="listitem"><span class="mono">STATUS</span><strong>${esc(status.copy)}</strong></div>
+      <div role="listitem"><span class="type-system-meta">SHOTS</span><strong>${shots.length || "·"}</strong></div>
+      <div role="listitem"><span class="type-system-meta">DURATION</span><strong>${shots.length ? compactDuration(total) : "·"}</strong></div>
+      <div role="listitem"><span class="type-system-meta">FRAME</span><strong>16:9</strong></div>
+      <div role="listitem"><span class="type-system-meta">STATUS</span><strong>${esc(status.copy)}</strong></div>
     </div>`;
 }
 
@@ -1340,12 +1340,37 @@ function renderBriefTab(project) {
   const unique = rows.filter((row, index, list) => row[2] && list.findIndex((item) => item[1] === row[1]) === index);
   return `
     <section class="manual-intro">
-      <span class="manual-section-kicker mono">DIRECTOR'S NOTE / 导演定调</span>
+      <span class="manual-section-kicker type-system-meta">DIRECTOR'S NOTE / 导演定调</span>
       <h3>先确定这部电影为何存在。</h3>
-      <p class="manual-type">从创意、主题到叙事边界，导演 Agent 将每一个上游决定交给后续剧组。</p>
+      <p class="manual-type type-helper">从创意、主题到叙事边界，导演 Agent 将每一个上游决定交给后续剧组。</p>
     </section>
     <div class="brief-sheet">${unique.map(([en, key, value]) => `
-      <div class="brief-row"><span class="manual-label mono">${esc(en)}</span><span class="brief-key">${esc(key)}</span><p class="manual-type">${esc(value)}</p></div>`).join("") || '<p class="empty-note">暂无项目设定。</p>'}</div>`;
+      <div class="brief-row"><span class="manual-label type-ui-label">${esc(en)}</span><span class="brief-key">${esc(key)}</span><p class="manual-type type-helper">${esc(value)}</p></div>`).join("") || '<p class="empty-note type-helper">暂无项目设定。</p>'}</div>`;
+}
+
+function productionValueMarkup(value, depth = 0) {
+  if (depth > 3) return `<p class="visual-spec-copy-line">${esc(String(value ?? ""))}</p>`;
+  let normalized = value;
+  if (typeof normalized === "string") {
+    const candidate = normalized.trim();
+    if ((candidate.startsWith("{") && candidate.endsWith("}")) || (candidate.startsWith("[") && candidate.endsWith("]"))) {
+      try {
+        const parsed = JSON.parse(candidate);
+        if (parsed && typeof parsed === "object") normalized = parsed;
+      } catch {
+        // Natural-language production notes are intentionally left as copy.
+      }
+    }
+  }
+  if (Array.isArray(normalized)) {
+    return `<ul class="production-readable-list">${normalized.map((item, index) => `<li><span class="production-list-index mono">${String(index + 1).padStart(2, "0")}</span><div>${productionValueMarkup(item, depth + 1)}</div></li>`).join("")}</ul>`;
+  }
+  if (normalized && typeof normalized === "object") {
+    return `<dl class="production-readable-dl">${Object.entries(normalized).map(([key, item]) => `<div><dt>${esc(String(key).replace(/[_-]+/g, " ").toUpperCase())}</dt><dd>${productionValueMarkup(item, depth + 1)}</dd></div>`).join("")}</dl>`;
+  }
+  const copy = String(normalized ?? "").trim();
+  if (!copy) return '<p class="visual-spec-copy-line is-empty">暂无已锁定内容。</p>';
+  return copy.split(/\n+/).filter(Boolean).map((line) => `<p class="visual-spec-copy-line">${esc(line.trim())}</p>`).join("");
 }
 
 function renderScriptTab(project) {
@@ -1361,23 +1386,23 @@ function renderScriptTab(project) {
     const end = Number(entry?.end_seconds ?? cue?.end_seconds ?? 0).toFixed(2);
     return `
       <article class="dialogue-row" data-dialogue-row="${index}">
-        <header class="dialogue-row-head"><span class="dialogue-shot mono">SHOT ${String(entry?.shot || index + 1).padStart(2, "0")}</span><span class="dialogue-time mono">${start}s · ${end}s</span><span class="dialogue-kind mono">${esc(entry?.kind || "narration")}</span></header>
+        <header class="dialogue-row-head"><span class="dialogue-shot type-system-meta">SHOT ${String(entry?.shot || index + 1).padStart(2, "0")}</span><span class="dialogue-time type-system-meta">${start}s · ${end}s</span><span class="dialogue-kind type-system-meta">${esc(entry?.kind || "narration")}</span></header>
         <div class="dialogue-row-fields">
-          <label><span class="manual-label mono">DIALOGUE / 台词本</span><textarea data-dialogue-field="text" rows="2" ${locked ? "disabled" : ""}>${esc(entry?.text || "")}</textarea></label>
-          <label><span class="manual-label mono">SUBTITLE / 字幕轨</span><textarea data-dialogue-field="subtitle" rows="2" ${locked ? "disabled" : ""}>${esc(cue?.text || entry?.text || "")}</textarea></label>
+          <label><span class="manual-label type-ui-label">DIALOGUE / 台词本</span><textarea data-dialogue-field="text" rows="2" ${locked ? "disabled" : ""}>${esc(entry?.text || "")}</textarea></label>
+          <label><span class="manual-label type-ui-label">SUBTITLE / 字幕轨</span><textarea data-dialogue-field="subtitle" rows="2" ${locked ? "disabled" : ""}>${esc(cue?.text || entry?.text || "")}</textarea></label>
         </div>
-        <label class="dialogue-speaker"><span class="manual-label mono">SPEAKER / 说话人</span><input data-dialogue-field="speaker" value="${esc(entry?.speaker || "旁白")}" ${locked ? "disabled" : ""}></label>
+        <label class="dialogue-speaker"><span class="manual-label type-ui-label">SPEAKER / 说话人</span><input data-dialogue-field="speaker" value="${esc(entry?.speaker || "旁白")}" ${locked ? "disabled" : ""}></label>
       </article>`;
   }).join("");
   return `
     <section class="screenplay-reader">
-      <header class="screenplay-head mono"><span>SCREENPLAY / DIALOGUE BOOK</span><span>${story.length ? `${story.length} SCENES` : "AWAITING DRAFT"}</span></header>
-      <div class="screenplay-body">${story.map((para, index) => `<p><span class="screenplay-line-no mono">${String(index + 1).padStart(2, "0")}</span><span class="manual-type">${esc(para)}</span></p>`).join("") || '<p class="empty-note">暂无剧本。</p>'}</div>
-      ${narration ? `<aside class="screenplay-narration"><span class="manual-label mono">NARRATION / 旁白</span><p class="manual-type">${esc(narration)}</p></aside>` : ""}
+      <header class="screenplay-head type-system-meta"><span>SCREENPLAY / DIALOGUE BOOK</span><span>${story.length ? `${story.length} SCENES` : "AWAITING DRAFT"}</span></header>
+      <div class="screenplay-body">${story.map((para, index) => `<p><span class="screenplay-line-no type-system-meta">${String(index + 1).padStart(2, "0")}</span><span class="manual-type type-helper">${esc(para)}</span></p>`).join("") || '<p class="empty-note type-helper">暂无剧本。</p>'}</div>
+      ${narration ? `<aside class="screenplay-narration"><span class="manual-label type-ui-label">NARRATION / 旁白</span><p class="manual-type type-helper">${esc(narration)}</p></aside>` : ""}
       <section class="dialogue-book" aria-label="台词本与字幕轨">
-        <header class="dialogue-book-head"><div><span class="manual-section-kicker mono">WRITER DELIVERABLE / 编剧正式产物</span><h3>台词本 / 字幕稿</h3><p class="manual-type">先审阅每一镜的对白与旁白，锁定后才会进入配音、字幕和 AI Edit。</p></div><span class="dialogue-lock-badge ${locked ? "is-locked" : "is-draft"} mono">${locked ? "LOCKED ✓" : "DRAFT · 待锁定"}</span></header>
+        <header class="dialogue-book-head"><div><span class="manual-section-kicker type-system-meta">WRITER DELIVERABLE / 编剧正式产物</span><h3>台词本 / 字幕稿</h3><p class="manual-type type-helper">先审阅每一镜的对白与旁白，锁定后才会进入配音、字幕和 AI Edit。</p></div><span class="dialogue-lock-badge ${locked ? "is-locked" : "is-draft"} type-status">${locked ? "LOCKED ✓" : "DRAFT · 待锁定"}</span></header>
         <div class="dialogue-rows">${rows || '<p class="empty-note">编剧完成后，这里会按镜头生成可编辑台词与字幕。</p>'}</div>
-        <footer class="dialogue-book-actions"><span class="dialogue-revision mono">VERSION ${esc(script.dialogue_revision || 1)} · ${dialogue.length} CUES · ${locked ? "DOWNSTREAM LOCKED" : "EDITABLE BEFORE RENDER"}</span><div>${locked ? '<button class="ghost" data-script-unlock type="button">解锁并修改</button>' : `<button class="ghost" data-script-save type="button" ${!dialogue.length ? "disabled" : ""}>保存台词修改</button><button class="cta" data-script-lock type="button" ${!dialogue.length ? "disabled" : ""}>锁定台词本 →</button>`}</div></footer>
+        <footer class="dialogue-book-actions"><span class="dialogue-revision type-system-meta">VERSION ${esc(script.dialogue_revision || 1)} · ${dialogue.length} CUES · ${locked ? "DOWNSTREAM LOCKED" : "EDITABLE BEFORE RENDER"}</span><div>${locked ? '<button class="ghost type-control" data-script-unlock type="button">解锁并修改</button>' : `<button class="ghost type-control" data-script-save type="button" ${!dialogue.length ? "disabled" : ""}>保存台词修改</button><button class="cta type-control" data-script-lock type="button" ${!dialogue.length ? "disabled" : ""}>锁定台词本 →</button>`}</div></footer>
       </section>
     </section>`;
 }
@@ -1392,13 +1417,13 @@ function renderVisualTab(project) {
   ];
   return `
     <section class="manual-intro visual-intro">
-      <span class="manual-section-kicker mono">ART DEPARTMENT / 美术部门</span>
+      <span class="manual-section-kicker type-system-meta">ART DEPARTMENT / 美术部门</span>
       <h3>所有镜头共享同一套世界规则。</h3>
-      <p class="manual-type">角色、场景、风格与声音被锁定为可复用的视觉连续性约束。</p>
+      <p class="manual-type type-helper">角色、场景、风格与声音被锁定为可复用的视觉连续性约束。</p>
     </section>
     <div class="visual-board">${entries.map(([key, value]) => `
-      <section class="visual-spec"><header><span class="manual-label mono">${esc(manualFieldLabel(key))}</span><span class="visual-lock mono">LOCKED ✓</span></header><h4>${esc(key)}</h4><p class="manual-type">${esc(value)}</p></section>`).join("") || '<p class="empty-note">暂无视觉规范。</p>'}</div>
-    <div class="visual-palette"><span class="manual-label mono">STUDIO PALETTE / 片场参考色</span><div>${palette.map(([label, color]) => `<span class="palette-chip"><i style="--chip:${color}"></i><b class="mono">${label}</b></span>`).join("")}</div></div>`;
+      <section class="visual-spec"><header><span class="manual-label type-ui-label">${esc(manualFieldLabel(key))}</span><span class="visual-lock type-status">LOCKED ✓</span></header><h4>${esc(String(key).replace(/[_-]+/g, " "))}</h4><div class="visual-spec-copy">${productionValueMarkup(value)}</div></section>`).join("") || '<p class="empty-note type-helper">暂无视觉规范。</p>'}</div>
+    <div class="visual-palette"><span class="manual-label type-ui-label">STUDIO PALETTE / 片场参考色</span><div>${palette.map(([label, color]) => `<span class="palette-chip"><i style="--chip:${color}"></i><b class="type-system-meta">${label}</b></span>`).join("")}</div></div>`;
 }
 
 function renderShotSheet(project) {
@@ -1413,21 +1438,21 @@ function renderShotSheet(project) {
     const scene = shotSceneNumber(shot.number, shots.length);
     if (scene !== lastScene) {
       lastScene = scene;
-      nav.push(`<div class="shot-scene-label mono">SCENE ${String(scene).padStart(2, "0")}</div>`);
+      nav.push(`<div class="shot-scene-label type-system-meta">SCENE ${String(scene).padStart(2, "0")}</div>`);
     }
     const status = shotWorkflowState(shot.status);
-    nav.push(`<button class="shot-nav-item${shot.number === active.number ? " is-active" : ""}" type="button" data-manual-shot="${shot.number}" aria-label="打开镜头 ${shot.number}"><span class="shot-nav-no mono">${String(shot.number).padStart(2, "0")}</span><span class="shot-nav-copy"><b>${esc(truncate(shot.image_description, 30))}</b><small class="mono">${esc(status.label)}</small></span><span class="shot-nav-duration mono">${shot.duration_seconds}s</span><span class="shot-nav-state ${status.key}" aria-label="${status.label}">${status.symbol}</span></button>`);
+      nav.push(`<button class="shot-nav-item type-control${shot.number === active.number ? " is-active" : ""}" type="button" data-manual-shot="${shot.number}" aria-label="打开镜头 ${shot.number}"><span class="shot-nav-no type-system-meta">${String(shot.number).padStart(2, "0")}</span><span class="shot-nav-copy"><b>${esc(truncate(shot.image_description, 30))}</b><small class="type-status">${esc(status.label)}</small></span><span class="shot-nav-duration type-system-meta">${shot.duration_seconds}s</span><span class="shot-nav-state ${status.key}" aria-label="${status.label}">${status.symbol}</span></button>`);
   }
   const qc = shotChecks(active);
   return `
     <div class="shot-sheet">
-      <aside class="shot-nav"><header class="shot-nav-head"><span class="manual-label mono">SHOT LIST</span><span class="mono">${shots.length} SHOTS</span></header><div class="shot-nav-list">${nav.join("")}</div></aside>
+      <aside class="shot-nav"><header class="shot-nav-head"><span class="manual-label type-ui-label">SHOT LIST</span><span class="type-system-meta">${shots.length} SHOTS</span></header><div class="shot-nav-list">${nav.join("")}</div></aside>
       <article class="shot-detail">
-        <header class="shot-detail-head"><div><span class="manual-section-kicker mono">SCENE ${String(shotSceneNumber(active.number, shots.length)).padStart(2, "0")} / SHOT ${String(active.number).padStart(2, "0")}</span><h3>镜头 ${String(active.number).padStart(2, "0")}</h3><p class="manual-type">${esc(active.image_description)}</p></div><span class="shot-detail-status ${activeState.key} mono"><i>${activeState.symbol}</i>${activeState.label}</span></header>
-        <div class="shot-facts"><div><span class="manual-label mono">DURATION</span><strong>${active.duration_seconds}s</strong></div><div><span class="manual-label mono">FRAMING</span><strong>${esc(active.framing)}</strong></div><div><span class="manual-label mono">CAMERA</span><strong>${esc(shotCameraAngle(active))}</strong></div><div><span class="manual-label mono">MOVEMENT</span><strong>${esc(shotMovement(active))}</strong></div></div>
-        <div class="shot-detail-grid"><section><span class="manual-label mono">ACTION / 动作</span><p class="manual-type">${esc(active.action)}</p></section><section><span class="manual-label mono">SOUND / 声音</span><p class="manual-type">${esc(active.sound_design)}</p></section></div>
-        <section class="shot-prompt"><header><span class="manual-label mono">VISUAL PROMPT / 最终提示词</span><span class="mono">${esc(active.generation_mode)}</span></header><p class="manual-type">${esc(active.prompt)}</p></section>
-        <section class="shot-qc"><header><span class="manual-label mono">QC GATE / 质检门</span><span class="mono">${active.attempts ? `TAKE ${active.attempts}` : "TAKE 01"}</span></header><div class="shot-qc-grid">${qc.map((item) => `<div class="shot-qc-item ${item.status === "COMPLETE" ? "complete" : item.status === "FAILED" ? "failed" : "queued"}"><i>${item.symbol}</i><span>${item.label}</span><b class="mono">${item.status}</b></div>`).join("")}</div></section>
+        <header class="shot-detail-head"><div><span class="manual-section-kicker type-system-meta">SCENE ${String(shotSceneNumber(active.number, shots.length)).padStart(2, "0")} / SHOT ${String(active.number).padStart(2, "0")}</span><h3>镜头 ${String(active.number).padStart(2, "0")}</h3><p class="manual-type type-helper">${esc(active.image_description)}</p></div><span class="shot-detail-status ${activeState.key} type-status"><i>${activeState.symbol}</i>${activeState.label}</span></header>
+        <div class="shot-facts"><div><span class="manual-label type-ui-label">DURATION</span><strong>${active.duration_seconds}s</strong></div><div><span class="manual-label type-ui-label">FRAMING</span><strong>${esc(active.framing)}</strong></div><div><span class="manual-label type-ui-label">CAMERA</span><strong>${esc(shotCameraAngle(active))}</strong></div><div><span class="manual-label type-ui-label">MOVEMENT</span><strong>${esc(shotMovement(active))}</strong></div></div>
+        <div class="shot-detail-grid"><section><span class="manual-label type-ui-label">ACTION / 动作</span><p class="manual-type type-helper">${esc(active.action)}</p></section><section><span class="manual-label type-ui-label">SOUND / 声音</span><p class="manual-type type-helper">${esc(active.sound_design)}</p></section></div>
+        <section class="shot-prompt"><header><span class="manual-label type-ui-label">VISUAL PROMPT / 最终提示词</span><span class="type-system-meta">${esc(active.generation_mode)}</span></header><p class="manual-type type-helper">${esc(active.prompt)}</p></section>
+        <section class="shot-qc"><header><span class="manual-label type-ui-label">QC GATE / 质检门</span><span class="type-system-meta">${active.attempts ? `TAKE ${active.attempts}` : "TAKE 01"}</span></header><div class="shot-qc-grid">${qc.map((item) => `<div class="shot-qc-item ${item.status === "COMPLETE" ? "complete" : item.status === "FAILED" ? "failed" : "queued"}"><i>${item.symbol}</i><span>${item.label}</span><b class="type-status">${item.status}</b></div>`).join("")}</div></section>
       </article>
     </div>`;
 }
@@ -1586,9 +1611,9 @@ function renderMusicBriefMarkup(project, compact = false) {
     ["PEAK", brief.peak_seconds != null ? `${brief.peak_seconds}s` : "·"],
     ["FADE", brief.fade_out_seconds != null ? `${brief.fade_out_seconds}s` : "·"],
   ];
-  const fieldsMarkup = fields.map(([label, value]) => `<div class="music-brief-stat"><span class="mono">${esc(label)}</span><strong>${esc(value)}</strong></div>`).join("");
+  const fieldsMarkup = fields.map(([label, value]) => `<div class="music-brief-stat"><span class="type-system-meta">${esc(label)}</span><strong class="type-control">${esc(value)}</strong></div>`).join("");
   if (compact) {
-    return `<div class="deliver-music-brief-head"><span class="deliver-label mono">MUSIC BRIEF</span><strong>${esc(brief.source || AUDIO_MODE_LABELS[audioModeFor(project)])}</strong><span class="mono">${brief.bpm ? `${brief.bpm} BPM` : "BRIEF READY"}</span></div><div class="deliver-music-brief-stats">${fieldsMarkup}</div>`;
+    return `<div class="deliver-music-brief-head"><span class="deliver-label type-system-meta">MUSIC BRIEF</span><strong class="type-control">${esc(brief.source || AUDIO_MODE_LABELS[audioModeFor(project)])}</strong><span class="type-system-meta">${brief.bpm ? `${brief.bpm} BPM` : "BRIEF READY"}</span></div><div class="deliver-music-brief-stats">${fieldsMarkup}</div>`;
   }
   return `<div class="music-brief-inline-stats">${fieldsMarkup}</div>`;
 }
@@ -1599,7 +1624,7 @@ function renderEmotionalArc(project) {
   els.emotionalArc.innerHTML = arc.length
     ? arc.map((item) => {
       const intensity = Math.max(0.12, Math.min(1, Number(item.intensity || 0.2)));
-      return `<span class="arc-segment" style="--arc-intensity:${intensity}" title="SHOT ${item.shot} · ${esc(item.emotion || "arc")}"><i></i><b class="mono">${String(item.shot).padStart(2, "0")}</b></span>`;
+      return `<span class="arc-segment" style="--arc-intensity:${intensity}" title="SHOT ${item.shot} · ${esc(item.emotion || "arc")}"><i></i><b class="type-system-meta">${String(item.shot).padStart(2, "0")}</b></span>`;
     }).join("")
     : '<span class="audio-empty mono">情绪曲线将在分镜就绪后生成。</span>';
 }
@@ -1615,10 +1640,10 @@ function renderAudioTrackList(project, target) {
     const previewUrl = track.preview_url || "";
     return `<article class="audio-track ${enabled ? "is-enabled" : "is-muted"}" data-audio-track="${key}">
       <button class="audio-track-toggle" type="button" data-audio-toggle="${key}" aria-pressed="${enabled}" aria-label="${enabled ? "关闭" : "开启"} ${labels.en} 轨道"><span class="audio-track-led"></span></button>
-      <div class="audio-track-main"><div class="audio-track-title"><span class="mono">${labels.en}</span><strong>${esc(track.name || labels.zh)}</strong></div><p>${esc(track.source || "SOUND DESIGN PLAN")}</p></div>
+      <div class="audio-track-main"><div class="audio-track-title"><span class="type-system-meta">${labels.en}</span><strong class="type-control">${esc(track.name || labels.zh)}</strong></div><p class="type-helper">${esc(track.source || "SOUND DESIGN PLAN")}</p></div>
       <div class="audio-track-meter" aria-label="音量 ${esc(track.volume_db ?? 0)} dB"><i style="--meter-level:${Math.max(8, Math.min(100, 68 + Number(track.volume_db || 0) * 2))}%"></i></div>
-      <div class="audio-track-status mono">${esc(track.status || "QUEUED")}<small>${esc(String(track.volume_db ?? 0))} dB</small></div>
-      <div class="audio-track-actions"><button type="button" class="audio-track-action" data-audio-preview="${key}" data-audio-url="${esc(previewUrl)}">试听</button><button type="button" class="audio-track-action" data-audio-regenerate="${key}" ${canRegenerate ? "" : "disabled"}>重新生成</button></div>
+      <div class="audio-track-status type-status">${esc(track.status || "QUEUED")}<small class="type-system-meta">${esc(String(track.volume_db ?? 0))} dB</small></div>
+      <div class="audio-track-actions"><button type="button" class="audio-track-action type-control" data-audio-preview="${key}" data-audio-url="${esc(previewUrl)}">试听</button><button type="button" class="audio-track-action type-control" data-audio-regenerate="${key}" ${canRegenerate ? "" : "disabled"}>重新生成</button></div>
     </article>`;
   }).join("");
 }
@@ -1657,7 +1682,7 @@ function renderAudioTimeline(project) {
     offset += duration;
     return { shot, start, duration };
   });
-  const segmentMarkup = shotSegments.map(({ shot, start, duration }) => `<button type="button" class="audio-shot-segment" data-audio-seek="${start}" style="--clip-size:${(duration / total * 100).toFixed(3)}%" aria-label="跳转到镜头 ${shot.number} ${compactDuration(start)}"><span class="mono">${String(shot.number).padStart(2, "0")}</span></button>`).join("");
+  const segmentMarkup = shotSegments.map(({ shot, start, duration }) => `<button type="button" class="audio-shot-segment type-control" data-audio-seek="${start}" style="--clip-size:${(duration / total * 100).toFixed(3)}%" aria-label="跳转到镜头 ${shot.number} ${compactDuration(start)}"><span class="type-system-meta">${String(shot.number).padStart(2, "0")}</span></button>`).join("");
   const cueMarkup = audioTimelineCues(project).map((cue) => {
     const left = Math.min(100, Math.max(0, cue.start / total * 100));
     const width = Math.max(0.6, Math.min(100 - left, (Math.max(cue.end, cue.start + 0.2) - cue.start) / total * 100));
@@ -1673,15 +1698,15 @@ function renderAudioTimeline(project) {
         const width = Math.max(0.8, Math.min(100 - left, (Math.max(cue.end, cue.start + 0.4) - cue.start) / total * 100));
         return `<i class="audio-ducking-band" style="left:${left.toFixed(3)}%;width:${width.toFixed(3)}%" title="SMART DUCKING · ${esc(cue.text)}"></i>`;
       }).join("") : "";
-    return `<div class="audio-timeline-track" data-audio-track-row="${key}"><span class="audio-track-name mono">${label.en}</span><div class="audio-track-lane ${enabled ? "is-enabled" : "is-muted"}">${key === "music" ? `${audioWaveformMarkup(index + 3)}${duckBands}` : clips}</div></div>`;
+    return `<div class="audio-timeline-track" data-audio-track-row="${key}"><span class="audio-track-name type-system-meta">${label.en}</span><div class="audio-track-lane ${enabled ? "is-enabled" : "is-muted"}">${key === "music" ? `${audioWaveformMarkup(index + 3)}${duckBands}` : clips}</div></div>`;
   }).join("");
   const markup = `
-    <header class="audio-timeline-head"><span><span class="deliver-label mono">SOUND TIMELINE / 声音时间线</span><strong>VOICE · MUSIC · SFX · AMBIENCE</strong></span><span class="audio-timeline-time mono" data-audio-timeline-label>00:00 / ${compactDuration(total)}</span></header>
-    <div class="audio-timeline-ruler mono"><span>00:00</span><span>00:15</span><span>00:30</span><span>${compactDuration(total)}</span></div>
+    <header class="audio-timeline-head"><span><span class="deliver-label type-system-meta">SOUND TIMELINE / 声音时间线</span><strong class="type-control">VOICE · MUSIC · SFX · AMBIENCE</strong></span><span class="audio-timeline-time type-system-meta" data-audio-timeline-label>00:00 / ${compactDuration(total)}</span></header>
+    <div class="audio-timeline-ruler type-system-meta"><span>00:00</span><span>00:15</span><span>00:30</span><span>${compactDuration(total)}</span></div>
     <div class="audio-timeline-stage" data-audio-seek-track>
-      <div class="audio-shot-row"><span class="audio-track-name mono">SHOTS</span><div class="audio-shot-lane">${segmentMarkup || '<span class="audio-empty mono">镜头时间线将在分镜就绪后出现。</span>'}</div></div>
+      <div class="audio-shot-row"><span class="audio-track-name type-system-meta">SHOTS</span><div class="audio-shot-lane">${segmentMarkup || '<span class="audio-empty type-helper">镜头时间线将在分镜就绪后出现。</span>'}</div></div>
       ${trackMarkup}
-      <div class="audio-subtitle-row"><span class="audio-track-name mono">SUB</span><div class="audio-subtitle-lane">${cueMarkup || '<span class="audio-empty mono">锁定台词本后显示字幕 cue。</span>'}</div></div>
+      <div class="audio-subtitle-row"><span class="audio-track-name type-system-meta">SUB</span><div class="audio-subtitle-lane">${cueMarkup || '<span class="audio-empty type-helper">锁定台词本后显示字幕 cue。</span>'}</div></div>
       <i class="audio-playhead" data-audio-playhead aria-hidden="true"><b></b></i>
     </div>`;
   targets.forEach((target) => {
@@ -2191,7 +2216,7 @@ function renderDeliverTimeline(project) {
       const start = offset;
       offset += duration;
       const stateInfo = shotWorkflowState(shot.status);
-      return `<button class="deliver-timeline-shot ${stateInfo.key}" type="button" role="listitem" data-deliver-start="${start}" style="--shot-duration:${duration};" aria-label="跳转到镜头 ${shot.number}"><span class="mono">SHOT ${String(shot.number).padStart(2, "0")}</span><small>${compactDuration(start)} · ${compactDuration(start + duration)}</small><i>${duration}s</i></button>`;
+      return `<button class="deliver-timeline-shot type-control ${stateInfo.key}" type="button" role="listitem" data-deliver-start="${start}" style="--shot-duration:${duration};" aria-label="跳转到镜头 ${shot.number}"><span class="type-system-meta">SHOT ${String(shot.number).padStart(2, "0")}</span><small class="type-system-meta">${compactDuration(start)} · ${compactDuration(start + duration)}</small><i class="type-status">${duration}s</i></button>`;
     }).join("")
     : '<p class="empty-note">镜头生成后，这里会出现可跳转的时间线。</p>';
   els.deliverShotTimeline.querySelectorAll("[data-deliver-start]").forEach((button) => {
@@ -2515,13 +2540,13 @@ function inspectorShotPreviewMarkup(shot) {
   const previewReady = ["approved_comfyui", "generated_comfyui"].includes(shot.status);
   return `
     <section class="inspector-preview-section">
-      <header class="inspector-section-head mono"><span>SHOT PREVIEW / 16:9</span><span class="inspector-preview-state ${previewReady ? "is-ready" : ""}">${previewReady ? "MEDIA READY" : "UNEXPOSED FRAME"}</span></header>
+      <header class="inspector-section-head type-system-meta"><span>SHOT PREVIEW / 16:9</span><span class="inspector-preview-state type-system-meta ${previewReady ? "is-ready" : ""}">${previewReady ? "MEDIA READY" : "UNEXPOSED FRAME"}</span></header>
       <div class="inspector-preview" data-inspector-preview="${esc(shot.number)}">
-        <div class="inspector-preview-empty"><span class="preview-code mono">${previewReady ? "LOADING MEDIA" : "UNEXPOSED FRAME"}</span><strong>${esc(shot.framing || "待定景别")}</strong><span>${previewReady ? "正在读取镜头媒体…" : "生成后首帧将在这里显影"}</span></div>
+        <div class="inspector-preview-empty"><span class="preview-code type-system-meta">${previewReady ? "LOADING MEDIA" : "UNEXPOSED FRAME"}</span><strong class="type-control">${esc(shot.framing || "待定景别")}</strong><span class="type-helper">${previewReady ? "正在读取镜头媒体…" : "生成后首帧将在这里显影"}</span></div>
         <div class="inspector-viewfinder" aria-hidden="true"><i class="vf tl"></i><i class="vf tr"></i><i class="vf bl"></i><i class="vf br"></i><i class="vf-safe"></i><i class="vf-cross"></i></div>
-        <span class="inspector-preview-stamp mono">${String(shot.number).padStart(2, "0")} · 24 FPS · ${esc(shot.generation_mode || "T2V")}</span>
+        <span class="inspector-preview-stamp type-system-meta">${String(shot.number).padStart(2, "0")} · 24 FPS · ${esc(shot.generation_mode || "T2V")}</span>
       </div>
-      <p class="inspector-preview-note mono">${previewReady ? "视频预览可播放 · 关键帧质检已归档" : "当前显示未冲洗胶片帧 · 完成真实生成后自动替换"}</p>
+      <p class="inspector-preview-note type-helper">${previewReady ? "视频预览可播放 · 关键帧质检已归档" : "当前显示未冲洗胶片帧 · 完成真实生成后自动替换"}</p>
     </section>`;
 }
 
@@ -2535,7 +2560,7 @@ const PROMPT_SEMANTICS = [
 
 function structuredPromptMarkup(prompt) {
   const text = String(prompt || "").trim();
-  if (!text) return '<p class="prompt-empty mono">FINAL PROMPT / 等待提示词生成。</p>';
+  if (!text) return '<p class="prompt-empty type-helper">FINAL PROMPT / 等待提示词生成。</p>';
   const chunks = text.split(/(?<=[。！？.!?；;])\s*|\n+/).map((item) => item.trim()).filter(Boolean);
   const parts = chunks.length ? chunks : [text];
   const assigned = parts.map((part, index) => {
@@ -2559,58 +2584,58 @@ function buildShotInspectorMarkup(project, shot) {
     <div class="inspector-content inspector-content--shot" data-inspector-type="shot" data-shot-number="${esc(shot.number)}">
       <header class="inspector-head">
         <div class="inspector-head-main">
-          <p class="inspector-kicker mono">SHOT INSPECTOR / SCENE ${scene}</p>
-          <div class="inspector-title-row"><h2>镜头 ${String(shot.number).padStart(2, "0")}</h2><span class="inspector-status ${status.key} mono"><i>${status.symbol}</i>${status.label}</span></div>
-          <p class="inspector-subtitle">${esc(truncate(shot.image_description || "镜头尚未补充画面描述。", 180))}</p>
+          <p class="inspector-kicker type-system-meta">SHOT INSPECTOR / SCENE ${scene}</p>
+          <div class="inspector-title-row"><h2>镜头 ${String(shot.number).padStart(2, "0")}</h2><span class="inspector-status ${status.key} type-status"><i>${status.symbol}</i>${status.label}</span></div>
+          <p class="inspector-subtitle type-helper">${esc(truncate(shot.image_description || "镜头尚未补充画面描述。", 180))}</p>
         </div>
         <div class="inspector-head-actions">
-          <button class="inspector-expand mono" data-inspector-expand type="button" aria-expanded="${String(state.inspectorExpanded)}" aria-label="${state.inspectorExpanded ? "收起 Shot Workspace" : "展开 Shot Workspace"}"><span aria-hidden="true">⤢</span><span class="inspector-expand-label">${state.inspectorExpanded ? "COLLAPSE" : "EXPAND"}</span></button>
+          <button class="inspector-expand type-control" data-inspector-expand type="button" aria-expanded="${String(state.inspectorExpanded)}" aria-label="${state.inspectorExpanded ? "收起 Shot Workspace" : "展开 Shot Workspace"}"><span aria-hidden="true">⤢</span><span class="inspector-expand-label">${state.inspectorExpanded ? "COLLAPSE" : "EXPAND"}</span></button>
           <button class="drawer-close" type="button" aria-label="关闭 Inspector">×</button>
         </div>
       </header>
 
       <nav class="inspector-shot-nav" aria-label="镜头导航">
-        <button class="inspector-nav-btn" type="button" data-shot-nav="-1" aria-label="上一镜头"><span aria-hidden="true">←</span><span>上一镜头</span><b class="mono">SHOT ${String(previous?.number || shot.number).padStart(2, "0")}</b></button>
-        <span class="inspector-nav-count mono">${String(index + 1).padStart(2, "0")} / ${String(shots.length).padStart(2, "0")}</span>
-        <button class="inspector-nav-btn inspector-nav-btn--next" type="button" data-shot-nav="1" aria-label="下一镜头"><b class="mono">SHOT ${String(next?.number || shot.number).padStart(2, "0")}</b><span>下一镜头</span><span aria-hidden="true">→</span></button>
+        <button class="inspector-nav-btn type-control" type="button" data-shot-nav="-1" aria-label="上一镜头"><span aria-hidden="true">←</span><span>上一镜头</span><b class="type-system-meta">SHOT ${String(previous?.number || shot.number).padStart(2, "0")}</b></button>
+        <span class="inspector-nav-count type-system-meta">${String(index + 1).padStart(2, "0")} / ${String(shots.length).padStart(2, "0")}</span>
+        <button class="inspector-nav-btn inspector-nav-btn--next type-control" type="button" data-shot-nav="1" aria-label="下一镜头"><b class="type-system-meta">SHOT ${String(next?.number || shot.number).padStart(2, "0")}</b><span>下一镜头</span><span aria-hidden="true">→</span></button>
       </nav>
 
       ${inspectorShotPreviewMarkup(shot)}
 
       <dl class="inspector-facts">
-        <div><dt class="mono">DURATION</dt><dd>${esc(shot.duration_seconds)}<small>s</small></dd></div>
-        <div><dt class="mono">FRAMING</dt><dd>${esc(shot.framing || "·")}</dd></div>
-        <div><dt class="mono">GENERATION</dt><dd class="mono">${esc(shot.generation_mode || "T2V")}</dd></div>
-        <div><dt class="mono">TAKES</dt><dd class="mono">${esc(shot.attempts || 0)}<small>×</small></dd></div>
+        <div><dt class="type-system-meta">DURATION</dt><dd class="type-control">${esc(shot.duration_seconds)}<small class="type-system-meta">s</small></dd></div>
+        <div><dt class="type-system-meta">FRAMING</dt><dd class="type-control">${esc(shot.framing || "·")}</dd></div>
+        <div><dt class="type-system-meta">GENERATION</dt><dd class="type-system-meta">${esc(shot.generation_mode || "T2V")}</dd></div>
+        <div><dt class="type-system-meta">TAKES</dt><dd class="type-system-meta">${esc(shot.attempts || 0)}<small class="type-system-meta">×</small></dd></div>
       </dl>
 
       <section class="inspector-copy-section">
-        <div class="inspector-copy-block inspector-copy-block--wide"><span class="inspector-label mono">IMAGE / 画面</span><p>${esc(shot.image_description || "·")}</p></div>
-        <div class="inspector-copy-block"><span class="inspector-label mono">ACTION / 动作</span><p>${esc(shot.action || "·")}</p></div>
-        <div class="inspector-copy-block"><span class="inspector-label mono">SOUND / 声音</span><p>${esc(shot.sound_design || "·")}</p></div>
+        <div class="inspector-copy-block inspector-copy-block--wide"><span class="inspector-label type-ui-label">IMAGE / 画面</span><p class="type-helper">${esc(shot.image_description || "·")}</p></div>
+        <div class="inspector-copy-block"><span class="inspector-label type-ui-label">ACTION / 动作</span><p class="type-helper">${esc(shot.action || "·")}</p></div>
+        <div class="inspector-copy-block"><span class="inspector-label type-ui-label">SOUND / 声音</span><p class="type-helper">${esc(shot.sound_design || "·")}</p></div>
       </section>
 
       <section class="inspector-prompt-block">
-        <header class="inspector-section-head mono"><span>FINAL PROMPT / 最终提示词</span><button class="inspector-copy-btn mono" data-copy-prompt type="button">复制</button></header>
+        <header class="inspector-section-head type-system-meta"><span>FINAL PROMPT / 最终提示词</span><button class="inspector-copy-btn type-control" data-copy-prompt type="button">复制</button></header>
         ${structuredPromptMarkup(shot.prompt)}
-        <p class="inspector-prompt-note mono">展开 Shot Workspace 后可编辑提示词与镜头字段。</p>
+        <p class="inspector-prompt-note type-helper">展开 Shot Workspace 后可编辑提示词与镜头字段。</p>
       </section>
 
       <section class="inspector-workspace-tools" aria-label="Shot Workspace 编辑区">
-        <header class="inspector-workspace-head"><div><span class="inspector-label mono">SHOT WORKSPACE / FULL REVIEW</span><h3>镜头编辑与生成控制</h3></div><span class="mono">DRAFT MODE</span></header>
+        <header class="inspector-workspace-head"><div><span class="inspector-label type-ui-label">SHOT WORKSPACE / FULL REVIEW</span><h3>镜头编辑与生成控制</h3></div><span class="type-system-meta">DRAFT MODE</span></header>
         <div class="inspector-editor-grid">
-          <label><span class="inspector-label mono">IMAGE / 画面</span><textarea data-shot-field="image_description" rows="4">${esc(shot.image_description || "")}</textarea></label>
-          <label><span class="inspector-label mono">ACTION / 动作</span><textarea data-shot-field="action" rows="4">${esc(shot.action || "")}</textarea></label>
-          <label><span class="inspector-label mono">SOUND / 声音</span><textarea data-shot-field="sound_design" rows="4">${esc(shot.sound_design || "")}</textarea></label>
-          <label class="inspector-editor-prompt"><span class="inspector-label mono">FINAL PROMPT / 最终提示词</span><textarea data-shot-field="prompt" rows="7">${esc(shot.prompt || "")}</textarea></label>
+          <label><span class="inspector-label type-ui-label">IMAGE / 画面</span><textarea data-shot-field="image_description" rows="4">${esc(shot.image_description || "")}</textarea></label>
+          <label><span class="inspector-label type-ui-label">ACTION / 动作</span><textarea data-shot-field="action" rows="4">${esc(shot.action || "")}</textarea></label>
+          <label><span class="inspector-label type-ui-label">SOUND / 声音</span><textarea data-shot-field="sound_design" rows="4">${esc(shot.sound_design || "")}</textarea></label>
+          <label class="inspector-editor-prompt"><span class="inspector-label type-ui-label">FINAL PROMPT / 最终提示词</span><textarea data-shot-field="prompt" rows="7">${esc(shot.prompt || "")}</textarea></label>
         </div>
-        <div class="inspector-editor-actions"><button class="ghost" data-save-shot type="button">保存镜头编辑</button><span class="mono">保存后写入项目档案，可继续质检或生成。</span></div>
+        <div class="inspector-editor-actions"><button class="ghost type-control" data-save-shot type="button">保存镜头编辑</button><span class="type-helper">保存后写入项目档案，可继续质检或生成。</span></div>
       </section>
 
-      <div class="inspector-output"><span class="inspector-label mono">OUTPUT PATH</span><span class="mono">${esc(output)}</span></div>
+      <div class="inspector-output"><span class="inspector-label type-ui-label">OUTPUT PATH</span><span class="type-system-meta">${esc(output)}</span></div>
 
       <footer class="inspector-actions">
-        <button class="ghost" data-inspector-action="replan" type="button">↻ 重新规划</button>
+        <button class="ghost type-control" data-inspector-action="replan" type="button">↻ 重新规划</button>
         <button class="cta inspector-action-primary" data-inspector-action="regenerate" type="button">重新生成素材 <span aria-hidden="true">→</span></button>
       </footer>
     </div>`;
@@ -2708,12 +2733,25 @@ function closeDrawer() {
 }
 
 function crewValueMarkup(value, depth = 0) {
-  if (depth > 3) return `<span>${esc(JSON.stringify(value))}</span>`;
+  if (depth > 3) return `<span>${esc(String(value ?? ""))}</span>`;
+  if (typeof value === "string") {
+    const candidate = value.trim();
+    if ((candidate.startsWith("{") && candidate.endsWith("}")) || (candidate.startsWith("[") && candidate.endsWith("]"))) {
+      try {
+        const parsed = JSON.parse(candidate);
+        if (parsed && typeof parsed === "object") return crewValueMarkup(parsed, depth + 1);
+      } catch {
+        // Keep ordinary Agent prose as readable copy instead of forcing JSON.
+      }
+    }
+    const lines = candidate.split(/\n+/).filter(Boolean);
+    if (lines.length > 1) return `<div class="crew-readable-copy">${lines.map((line) => `<p>${esc(line.trim())}</p>`).join("")}</div>`;
+  }
   if (Array.isArray(value)) {
     return `<ol class="crew-drawer-list">${value.map((item) => `<li>${crewValueMarkup(item, depth + 1)}</li>`).join("")}</ol>`;
   }
   if (value && typeof value === "object") {
-    return `<dl>${Object.entries(value).map(([key, item]) => `<dt>${esc(key)}</dt><dd>${crewValueMarkup(item, depth + 1)}</dd>`).join("")}</dl>`;
+    return `<dl class="crew-readable-dl">${Object.entries(value).map(([key, item]) => `<div><dt>${esc(String(key).replace(/[_-]+/g, " ").toUpperCase())}</dt><dd>${crewValueMarkup(item, depth + 1)}</dd></div>`).join("")}</dl>`;
   }
   return `<span>${esc(value)}</span>`;
 }
@@ -2743,7 +2781,7 @@ function buildCrewInspectorMarkup(agentId) {
     .join("");
   const messages = state.crewMessages
     .filter((item) => item.from === agentId || item.to === agentId || item.to === "all")
-    .map((item) => `<p class="crew-drawer-message"><span class="radio-time">${esc(item.time || "--:--:--")}</span><span class="radio-from">${esc(item.from)}</span><span class="radio-to"> → ${esc(item.to)}</span><br>${esc(item.message)}</p>`)
+    .map((item) => `<p class="crew-drawer-message"><span class="radio-time type-system-meta">${esc(item.time || "--:--:--")}</span><span class="radio-from type-system-meta">${esc(item.from)}</span><span class="radio-to type-system-meta"> → ${esc(item.to)}</span><br><span class="type-helper">${esc(item.message)}</span></p>`)
     .join("");
   const assetMarkup = agentId === "director" ? crewAssetMarkup("项目设定", asset.brief)
     : agentId === "writer" ? crewAssetMarkup("剧本与旁白", asset.script)
@@ -2752,23 +2790,23 @@ function buildCrewInspectorMarkup(agentId) {
       : agentId === "quality" ? crewAssetMarkup("质检报告", asset.quality_report)
       : agentId === "generation" ? crewAssetMarkup("逐镜任务", project.storyboard)
       : agentId === "editor" ? crewAssetMarkup("剪辑结果", project.final_output_placeholder || project.rough_cut_placeholder || (String(project.status || "") === "ready_for_ai_edit" ? "AI EDIT READY / 等待启动粗剪" : String(project.status || "").startsWith("completed") ? "DELIVERY RECORDED / MEDIA CHECK" : "EDIT QUEUED / 等待镜头通过质检"))
-            : `<section class="crew-drawer-section"><h3>任务说明</h3><p>${esc(def.role)}。${esc(card?.querySelector(".crew-summary")?.textContent || "等待上游素材。")}</p></section>`;
+            : `<section class="crew-drawer-section"><h3>任务说明</h3><p class="type-helper">${esc(def.role)}。${esc(card?.querySelector(".crew-summary")?.textContent || "等待上游素材。")}</p></section>`;
   return `
     <div class="inspector-content inspector-content--agent" data-inspector-type="agent" data-agent-id="${esc(agentId)}">
       <header class="inspector-head">
         <div class="inspector-head-main">
-          <p class="inspector-kicker mono">AGENT INSPECTOR / ${esc(def.en)}</p>
-          <div class="inspector-title-row"><h2>${esc(def.name)} Agent</h2><span class="inspector-status ${card?.classList.contains("working") || card?.classList.contains("ready") || card?.classList.contains("next") ? "active" : card?.classList.contains("failed") ? "failed" : "complete"} mono"><i>●</i>${esc(card?.querySelector(".crew-state-text")?.textContent || "候场")}</span></div>
-          <p class="inspector-subtitle">${esc(def.role)} · 点击卡片即可查看实时产出、沟通和决策记录。</p>
+          <p class="inspector-kicker type-system-meta">AGENT INSPECTOR / ${esc(def.en)}</p>
+          <div class="inspector-title-row"><h2>${esc(def.name)} Agent</h2><span class="inspector-status ${card?.classList.contains("working") || card?.classList.contains("ready") || card?.classList.contains("next") ? "active" : card?.classList.contains("failed") ? "failed" : "complete"} type-status"><i>●</i>${esc(card?.querySelector(".crew-state-text")?.textContent || "候场")}</span></div>
+          <p class="inspector-subtitle type-helper">${esc(def.role)} · 点击卡片即可查看实时产出、沟通和决策记录。</p>
         </div>
         <div class="inspector-head-actions">
-          <button class="inspector-expand mono" data-inspector-expand type="button" aria-expanded="${String(state.inspectorExpanded)}" aria-label="${state.inspectorExpanded ? "收起 Agent Inspector" : "展开 Agent Inspector"}"><span aria-hidden="true">⤢</span><span class="inspector-expand-label">${state.inspectorExpanded ? "COLLAPSE" : "EXPAND"}</span></button>
+          <button class="inspector-expand type-control" data-inspector-expand type="button" aria-expanded="${String(state.inspectorExpanded)}" aria-label="${state.inspectorExpanded ? "收起 Agent Inspector" : "展开 Agent Inspector"}"><span aria-hidden="true">⤢</span><span class="inspector-expand-label">${state.inspectorExpanded ? "COLLAPSE" : "EXPAND"}</span></button>
           <button class="drawer-close" type="button" aria-label="关闭 Inspector">×</button>
         </div>
       </header>
-      <div class="inspector-agent-meta"><div><span class="inspector-label mono">ROLE</span><strong>${esc(def.en)}</strong></div><div><span class="inspector-label mono">CHANNEL</span><strong class="mono">${esc(agentId.toUpperCase())}</strong></div><div><span class="inspector-label mono">ARTIFACTS</span><strong class="mono">${state.crewArtifacts.filter((item) => item.agent === agentId).length}</strong></div><div><span class="inspector-label mono">SIGNALS</span><strong class="mono">${state.crewMessages.filter((item) => item.from === agentId || item.to === agentId || item.to === "all").length}</strong></div></div>
+      <div class="inspector-agent-meta"><div><span class="inspector-label type-ui-label">ROLE</span><strong class="type-control">${esc(def.en)}</strong></div><div><span class="inspector-label type-ui-label">CHANNEL</span><strong class="type-system-meta">${esc(agentId.toUpperCase())}</strong></div><div><span class="inspector-label type-ui-label">ARTIFACTS</span><strong class="type-system-meta">${state.crewArtifacts.filter((item) => item.agent === agentId).length}</strong></div><div><span class="inspector-label type-ui-label">SIGNALS</span><strong class="type-system-meta">${state.crewMessages.filter((item) => item.from === agentId || item.to === agentId || item.to === "all").length}</strong></div></div>
       <div class="inspector-agent-content">
-        ${assetMarkup || '<p class="empty-note">该成员还没有交付内容，正在等待上游信号。</p>'}
+        ${assetMarkup || '<p class="empty-note type-helper">该成员还没有交付内容，正在等待上游信号。</p>'}
         ${artifactMarkup}
         ${messages ? `<section class="crew-drawer-section"><h3>现场沟通</h3>${messages}</section>` : ""}
       </div>
@@ -3458,7 +3496,7 @@ function buildStyleCards() {
   for (const style of STYLE_OPTIONS) {
     const button = document.createElement("button");
     button.type = "button";
-    button.className = "style-card";
+    button.className = "style-card type-control";
     button.textContent = style;
     button.setAttribute("role", "radio");
     button.setAttribute("aria-checked", String(style === state.selectedStyle));
@@ -3676,20 +3714,39 @@ function initLandingProximity() {
   const reveal = $("#landing-reveal");
   if (!hero || !reveal || REDUCED_MOTION) {
     reveal?.style.setProperty("--reveal-script", "0.2");
-    reveal?.style.setProperty("--reveal-sketch", "0.24");
-    reveal?.style.setProperty("--reveal-light", "0.12");
+    reveal?.style.setProperty("--reveal-standby", "0.42");
+    reveal?.style.setProperty("--reveal-sketch", "0.15");
+    reveal?.style.setProperty("--reveal-light", "0.08");
+    reveal?.style.setProperty("--reveal-color", "0.04");
+    reveal?.style.setProperty("--reveal-final", "0.02");
     return;
   }
 
   const motion = {
     targetProgress: 0,
     progress: 0,
+    targetHeroX: 50,
+    targetHeroY: 46,
+    heroX: 50,
+    heroY: 46,
+    targetHeroPresence: 0,
+    heroPresence: 0,
     targetLightX: 54,
     targetLightY: 44,
     lightX: 54,
     lightY: 44,
     targetLightAlpha: 0,
     lightAlpha: 0,
+    targetTitleFocus: 0,
+    titleFocus: 0,
+    targetCtaFocus: 0,
+    ctaFocus: 0,
+    targetCtaX: 50,
+    targetCtaY: 50,
+    ctaX: 50,
+    ctaY: 50,
+    targetRevealFocus: 0,
+    revealFocus: 0,
     targetDepthX: 0,
     targetDepthY: 0,
     depthX: 0,
@@ -3702,28 +3759,39 @@ function initLandingProximity() {
   const setLightVar = (name, value) => hero.style.setProperty(name, String(value));
 
   const render = () => {
-    motion.progress = lerpValue(motion.progress, motion.targetProgress, LOW_PERFORMANCE ? 0.14 : 0.095);
-    motion.lightX = lerpValue(motion.lightX, motion.targetLightX, 0.12);
-    motion.lightY = lerpValue(motion.lightY, motion.targetLightY, 0.12);
-    motion.lightAlpha = lerpValue(motion.lightAlpha, motion.targetLightAlpha, 0.11);
-    motion.depthX = lerpValue(motion.depthX, motion.targetDepthX, 0.11);
-    motion.depthY = lerpValue(motion.depthY, motion.targetDepthY, 0.11);
+    const response = LOW_PERFORMANCE ? 0.18 : 0.2;
+    motion.progress = lerpValue(motion.progress, motion.targetProgress, response);
+    motion.heroX = lerpValue(motion.heroX, motion.targetHeroX, response);
+    motion.heroY = lerpValue(motion.heroY, motion.targetHeroY, response);
+    motion.heroPresence = lerpValue(motion.heroPresence, motion.targetHeroPresence, response);
+    motion.lightX = lerpValue(motion.lightX, motion.targetLightX, response);
+    motion.lightY = lerpValue(motion.lightY, motion.targetLightY, response);
+    motion.lightAlpha = lerpValue(motion.lightAlpha, motion.targetLightAlpha, response);
+    motion.titleFocus = lerpValue(motion.titleFocus, motion.targetTitleFocus, response);
+    motion.ctaFocus = lerpValue(motion.ctaFocus, motion.targetCtaFocus, response);
+    motion.ctaX = lerpValue(motion.ctaX, motion.targetCtaX, response);
+    motion.ctaY = lerpValue(motion.ctaY, motion.targetCtaY, response);
+    motion.revealFocus = lerpValue(motion.revealFocus, motion.targetRevealFocus, response);
+    motion.depthX = lerpValue(motion.depthX, motion.targetDepthX, response);
+    motion.depthY = lerpValue(motion.depthY, motion.targetDepthY, response);
 
     const progress = motion.progress;
-    const script = 0.08 + progress * 0.2;
-    const sketch = smoothUnit((progress - 0.02) / 0.3);
-    const light = smoothUnit((progress - 0.18) / 0.32);
-    const color = smoothUnit((progress - 0.46) / 0.34);
-    const finalFrame = smoothUnit((progress - 0.7) / 0.3);
+    const script = 0.2 + progress * 0.28;
+    const standby = 0.34 + progress * 0.58;
+    const sketch = 0.15 + smoothUnit((progress - 0.02) / 0.3) * 0.72;
+    const light = 0.08 + smoothUnit((progress - 0.16) / 0.3) * 0.86;
+    const color = 0.04 + smoothUnit((progress - 0.42) / 0.34) * 0.96;
+    const finalFrame = 0.02 + smoothUnit((progress - 0.68) / 0.32) * 0.98;
     setVar("--reveal-progress", progress.toFixed(3));
+    setVar("--reveal-standby", standby.toFixed(3));
     setVar("--reveal-script", script.toFixed(3));
-    setVar("--reveal-sketch", (sketch * 0.86).toFixed(3));
-    setVar("--reveal-light", (light * 0.95).toFixed(3));
+    setVar("--reveal-sketch", sketch.toFixed(3));
+    setVar("--reveal-light", light.toFixed(3));
     setVar("--reveal-color", color.toFixed(3));
     setVar("--reveal-final", finalFrame.toFixed(3));
-    setVar("--reveal-vignette", (0.22 + finalFrame * 0.2).toFixed(3));
-    setVar("--reveal-grain", (finalFrame * 0.12).toFixed(3));
-    setVar("--reveal-caption", (0.2 + progress * 0.55).toFixed(3));
+    setVar("--reveal-vignette", (0.14 + finalFrame * 0.18).toFixed(3));
+    setVar("--reveal-grain", (0.02 + finalFrame * 0.1).toFixed(3));
+    setVar("--reveal-caption", (0.34 + progress * 0.48).toFixed(3));
     setVar("--reveal-final-radius", `${(8 + finalFrame * 92).toFixed(2)}%`);
     setVar("--reveal-light-x", `${motion.lightX.toFixed(2)}%`);
     setVar("--reveal-light-y", `${motion.lightY.toFixed(2)}%`);
@@ -3737,12 +3805,26 @@ function initLandingProximity() {
     setVar("--color-shift-y", `${(motion.depthY * 0.58).toFixed(2)}px`);
     setVar("--final-shift-x", `${(motion.depthX * 0.82).toFixed(2)}px`);
     setVar("--final-shift-y", `${(motion.depthY * 0.82).toFixed(2)}px`);
-    setLightVar("--shared-light-x", `${(motion.targetLightX * 0.86 + 7).toFixed(2)}%`);
-    setLightVar("--shared-light-y", `${(motion.targetLightY * 0.78 + 5).toFixed(2)}%`);
+    setLightVar("--hero-pointer-x", `${motion.heroX.toFixed(2)}%`);
+    setLightVar("--hero-pointer-y", `${motion.heroY.toFixed(2)}%`);
+    setLightVar("--hero-pointer-presence", motion.heroPresence.toFixed(3));
+    setLightVar("--hero-title-focus", motion.titleFocus.toFixed(3));
+    setLightVar("--hero-cta-focus", motion.ctaFocus.toFixed(3));
+    setLightVar("--cta-light-x", `${motion.ctaX.toFixed(2)}%`);
+    setLightVar("--cta-light-y", `${motion.ctaY.toFixed(2)}%`);
+    setLightVar("--hero-reveal-focus", motion.revealFocus.toFixed(3));
+    setLightVar("--shared-light-x", `${motion.heroX.toFixed(2)}%`);
+    setLightVar("--shared-light-y", `${motion.heroY.toFixed(2)}%`);
     setLightVar("--shared-light-alpha", motion.lightAlpha.toFixed(3));
 
     const settling = Math.abs(motion.targetProgress - motion.progress) < 0.002
+      && Math.abs(motion.targetHeroPresence - motion.heroPresence) < 0.002
       && Math.abs(motion.targetLightAlpha - motion.lightAlpha) < 0.002
+      && Math.abs(motion.targetTitleFocus - motion.titleFocus) < 0.002
+      && Math.abs(motion.targetCtaFocus - motion.ctaFocus) < 0.002
+      && Math.abs(motion.targetCtaX - motion.ctaX) < 0.12
+      && Math.abs(motion.targetCtaY - motion.ctaY) < 0.12
+      && Math.abs(motion.targetRevealFocus - motion.revealFocus) < 0.002
       && Math.abs(motion.targetDepthX - motion.depthX) < 0.12
       && Math.abs(motion.targetDepthY - motion.depthY) < 0.12;
     if (motion.pointerInside || !settling) motion.frame = requestAnimationFrame(render);
@@ -3757,15 +3839,28 @@ function initLandingProximity() {
     if (event.pointerType === "touch") return;
     const revealRect = reveal.getBoundingClientRect();
     const heroRect = hero.getBoundingClientRect();
-    const closestX = Math.max(revealRect.left, Math.min(event.clientX, revealRect.right));
-    const closestY = Math.max(revealRect.top, Math.min(event.clientY, revealRect.bottom));
-    const distance = Math.hypot(event.clientX - closestX, event.clientY - closestY);
-    const radius = Math.max(220, Math.min(620, Math.max(revealRect.width * 0.66, revealRect.height * 1.06)));
-    const raw = clampUnit(1 - distance / radius);
-    motion.targetProgress = smoothUnit(raw);
+    const proximityTo = (rect, radius) => {
+      const closestX = Math.max(rect.left, Math.min(event.clientX, rect.right));
+      const closestY = Math.max(rect.top, Math.min(event.clientY, rect.bottom));
+      return smoothUnit(clampUnit(1 - Math.hypot(event.clientX - closestX, event.clientY - closestY) / radius));
+    };
+    const revealRadius = Math.max(260, Math.min(720, Math.max(revealRect.width * 0.82, revealRect.height * 1.22)));
+    const revealFocus = proximityTo(revealRect, revealRadius);
+    const titleFocus = proximityTo(hero.querySelector(".landing-title")?.getBoundingClientRect() || heroRect, 290);
+    const ctaRect = els.btnEnter?.getBoundingClientRect() || heroRect;
+    const ctaFocus = proximityTo(ctaRect, 190);
+    motion.targetProgress = Math.max(0.16, clampUnit(revealFocus * 1.08));
+    motion.targetHeroX = clampUnit((event.clientX - heroRect.left) / Math.max(1, heroRect.width)) * 100;
+    motion.targetHeroY = clampUnit((event.clientY - heroRect.top) / Math.max(1, heroRect.height)) * 100;
+    motion.targetHeroPresence = 1;
     motion.targetLightX = clampUnit((event.clientX - revealRect.left) / Math.max(1, revealRect.width)) * 100;
     motion.targetLightY = clampUnit((event.clientY - revealRect.top) / Math.max(1, revealRect.height)) * 100;
-    motion.targetLightAlpha = motion.targetProgress * (LOW_PERFORMANCE ? 0.42 : 0.62);
+    motion.targetTitleFocus = titleFocus;
+    motion.targetCtaFocus = ctaFocus;
+    motion.targetCtaX = clampUnit((event.clientX - ctaRect.left) / Math.max(1, ctaRect.width)) * 100;
+    motion.targetCtaY = clampUnit((event.clientY - ctaRect.top) / Math.max(1, ctaRect.height)) * 100;
+    motion.targetRevealFocus = revealFocus;
+    motion.targetLightAlpha = Math.min(0.86, 0.2 + motion.targetProgress * 0.52 + titleFocus * 0.08 + ctaFocus * 0.1 + revealFocus * 0.12) * (LOW_PERFORMANCE ? 0.84 : 1);
     motion.targetDepthX = Math.max(-12, Math.min(12, (event.clientX - (heroRect.left + heroRect.width * 0.5)) / Math.max(1, heroRect.width) * 18));
     motion.targetDepthY = Math.max(-9, Math.min(9, (event.clientY - (heroRect.top + heroRect.height * 0.46)) / Math.max(1, heroRect.height) * 14));
     motion.pointerInside = true;
@@ -3777,7 +3872,15 @@ function initLandingProximity() {
   hero.addEventListener("pointerleave", () => {
     motion.pointerInside = false;
     motion.targetProgress = 0;
+    motion.targetHeroPresence = 0;
     motion.targetLightAlpha = 0;
+    motion.targetTitleFocus = 0;
+    motion.targetCtaFocus = 0;
+    motion.targetCtaX = 50;
+    motion.targetCtaY = 50;
+    motion.targetRevealFocus = 0;
+    motion.targetHeroX = 50;
+    motion.targetHeroY = 46;
     motion.targetLightX = 54;
     motion.targetLightY = 44;
     motion.targetDepthX = 0;

@@ -68,3 +68,35 @@
 - [x] Dark / Light 两套主题共享语义 token，手动选择持久化并支持系统偏好。
 - [x] 页面没有自定义光标或大范围背景 blur；媒体区仍保留影院黑作为内容表面。
 - [x] `node --check static/app.js`、Python 编译检查和测试套件通过。
+
+## Typography / alignment polish
+
+本轮精修继续沿用 audit-first 原则，只处理三类高频阅读与决策界面：Crew Assembly、Production Bible 和 Deliver。
+
+- 文字角色固定为 Serif（片名与章节）/ Premium Sans（产品界面、剧本、Agent 产出与按钮）/ Mono（镜头号、状态、时间码和技术规格）。有用信息不再依赖低于 0.75 的 opacity，正文默认 15px、行高 1.65–1.8。
+- `Screening Room` 使用高亮暖白 `#F0EBE2`、正文 `#C9C1B5`、辅助 `#A49A8D`、metadata `#81776B`；`Production Desk` 使用暖黑 `#352E27`、正文 `#51483E`、辅助 `#71675C`、metadata `#908577`，并以 `#D8D0C3` 作为纸张细边框。
+- Crew 节点按 NODE / AGENT / TITLE / STATUS / BODY / IN→OUT 分层，当前状态才获得琥珀高光；已完成状态使用低饱和绿色，等待节点保持清晰灰阶。Crew Radio 改为真实可读的时间、Agent、状态和消息行，移除模糊与文字阴影。
+- Production Bible 使用居中的 `min(1180px, calc(100vw - 64px))` 页面壳。Art Department 的视觉卡在内部做受控右移，采用双列 52px 间距；角色、场景、风格和声音对象统一转换为可读键值块，不再直接显示 JSON。
+- Shot Detail 的标题、描述、事实字段和 Prompt 重新建立尺寸层级，Prompt 使用稳定的深色技术面 `#26211B` / `#5D4930`，不通过 blur、scale、父级 opacity 制造氛围。
+- Deliver 遵循“label 弱、value 强”：技术信息、声音设计、Final Look 和导出状态都提高正文对比度，但保持电影工业风的克制边界。
+
+## Homepage Hero polish
+
+首页 Hero 本轮采用定向演进，不改变全站信息架构：左侧是三拍式创意宣言，右侧是已经通电的电影监视器待机画面。
+
+- 标题节奏改为“把一句话， / 拍成一部 / 电影。”，只让“电影”承担暖金色的落点，减少单纯放大换行造成的生硬感。
+- proximity 光源统一由 Hero 的 pointer 坐标驱动，标题、CTA、监视器和背景竖向光纹共享同一组 focus 值。`requestAnimationFrame` 中使用更轻阻尼的 lerp，响应更快但保留回弹重量。
+- 监视器新增 `MONITOR STANDBY`、场景、帧号、镜头和 `HOLD FOR SIGNAL` 待机层。即使没有移动鼠标，也保持 15%–25% 的可见信息和轻微场记脉冲；靠近后再逐层显影。
+- 桌面 Hero 使用约 52 / 48 的非对称双栏，右侧预览略微上移并扩大，HUD 仍保持底部细线层，不覆盖标题。
+
+## Semantic micro-type system
+
+小字号不再由一套全局 `Mono + 暗灰 + 宽字距` 规则统一处理。页面现在按语义拆成五类：
+
+- `System Metadata`：12px Mono / 600 / 0.055em，用于镜头号、时间、ID、计数和生产路线。
+- `UI Label`：14px Sans / 500 / 正常字距，用于字段标题和分组名称。
+- `Helper Text`：14px Sans / 400 / 1.62 行高，用于解释、空状态和操作提示。
+- `Control Text`：14px Sans / 500 / 正常字距，用于风格预设、导航、按钮和可操作项。
+- `Status Text`：14px Sans / 400 / 正常字距，用于引擎、Agent、渲染和交付状态值。
+
+Dark `Screening Room` 与 Light `Production Desk` 共用这套角色，但颜色由主题 token 提供。`text-muted` 仅保留给非必要 metadata，用户需要阅读的正文、字段、控制和状态都提升到 `text-body` 或更高层级。中文界面不再额外拉大字距，英文工业 metadata 才保留适度 Mono tracking。

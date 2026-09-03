@@ -17,7 +17,7 @@
   })();
 </script>
 <link id="favicon" rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%2315110b'/%3E%3Crect x='6' y='12' width='5' height='8' fill='%23c28a3e'/%3E%3Crect x='14' y='12' width='5' height='8' fill='%23c28a3e' opacity='.55'/%3E%3Crect x='22' y='12' width='5' height='8' fill='%23c28a3e' opacity='.3'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="/static/style.css?v=0b8eddd">
+<link rel="stylesheet" href="/static/style.css?v=type-system-20260903">
 </head>
 <body data-view="landing" data-design="archive-console">
 <div class="theme-transition-wash" id="theme-transition-wash" aria-hidden="true"></div>
@@ -28,13 +28,13 @@
 <header class="topbar">
   <button class="brand" id="brand-home" type="button" title="返回首页"><span class="brand-mark" aria-hidden="true">▮▮</span><span class="brand-name">MOVIE·AGENT</span></button>
   <nav class="pipeline" id="pipeline" aria-label="制作阶段">
-    <span class="step" data-step="plan"><b>01</b><span>PLAN</span><small class="step-state mono">当前</small></span><i class="sep" aria-hidden="true"></i>
-    <span class="step" data-step="previs"><b>02</b><span>PREVIS</span><small class="step-state mono">未开始</small></span><i class="sep" aria-hidden="true"></i>
-    <span class="step" data-step="render"><b>03</b><span>RENDER</span><small class="step-state mono">未开始</small></span><i class="sep" aria-hidden="true"></i>
-    <span class="step" data-step="deliver"><b>04</b><span>DELIVER</span><small class="step-state mono">未开始</small></span>
+    <span class="step" data-step="plan"><b>01</b><span>PLAN</span><small class="step-state mono type-status">当前</small></span><i class="sep" aria-hidden="true"></i>
+    <span class="step" data-step="previs"><b>02</b><span>PREVIS</span><small class="step-state mono type-status">未开始</small></span><i class="sep" aria-hidden="true"></i>
+    <span class="step" data-step="render"><b>03</b><span>RENDER</span><small class="step-state mono type-status">未开始</small></span><i class="sep" aria-hidden="true"></i>
+    <span class="step" data-step="deliver"><b>04</b><span>DELIVER</span><small class="step-state mono type-status">未开始</small></span>
   </nav>
-  <button class="sound-toggle mono" id="btn-sound" type="button" aria-label="切换界面音效" title="界面音效">♪ OFF</button>
-  <button class="theme-toggle mono" id="theme-toggle" type="button" aria-label="切换到 Production Desk" aria-pressed="false" title="切换到 Production Desk">
+  <button class="sound-toggle mono type-control" id="btn-sound" type="button" aria-label="切换界面音效" title="界面音效">♪ OFF</button>
+  <button class="theme-toggle mono type-control" id="theme-toggle" type="button" aria-label="切换到 Production Desk" aria-pressed="false" title="切换到 Production Desk">
     <span class="theme-toggle-icon" aria-hidden="true"></span><span class="theme-toggle-label">SCREENING</span>
   </button>
   <div class="rec-clock mono"><span class="rec-dot" aria-hidden="true"></span>REC <span id="clock">00:00:00</span></div>
@@ -50,6 +50,12 @@
       <div class="landing-proximity-light" aria-hidden="true"></div>
       <div class="landing-reveal" id="landing-reveal" aria-hidden="true">
         <div class="landing-reveal-frame">
+          <div class="landing-reveal-standby mono" aria-hidden="true">
+            <span class="standby-scene">INT. OBSERVATORY / NIGHT</span>
+            <span class="standby-frame">FRAME 0001 · TAKE 01</span>
+            <div class="standby-center"><i></i><b>MONITOR STANDBY</b><small>HOLD FOR SIGNAL</small></div>
+            <span class="standby-footer">24 FPS / ISO 800 / LENS 35MM</span>
+          </div>
           <div class="landing-reveal-layer landing-reveal-script mono">
             <span style="--script-x: 8%; --script-y: 17%;">INT. OBSERVATORY / NIGHT</span>
             <span style="--script-x: 63%; --script-y: 14%;">24 FPS / TAKE 01</span>
@@ -79,25 +85,26 @@
         </div>
       </div>
       <div class="landing-copy">
-        <p class="landing-eyebrow mono">AI FILM STUDIO · MOVIE AGENT</p>
+        <p class="landing-eyebrow mono type-system-meta">AI FILM STUDIO · MOVIE AGENT</p>
         <h1 class="landing-title">
           <span class="landing-line"><span>把一句话，</span></span>
-          <span class="landing-line"><span>拍成一部<em>电影</em>。</span></span>
+          <span class="landing-line"><span>拍成一部</span></span>
+          <span class="landing-line landing-line--focus"><span><em>电影</em>。</span></span>
         </h1>
-        <p class="landing-sub">导演、编剧、美术、分镜、质检、生成、剪辑 · 七位 AI 剧组成员已就位，等你开机。</p>
+        <p class="landing-sub type-helper">导演、编剧、美术、分镜、质检、生成、剪辑 · 七位 AI 剧组成员已就位，等你开机。</p>
         <div class="landing-actions">
           <button class="cta cta-landing" id="btn-enter" type="button">进入片场 <span class="cta-arrow" aria-hidden="true">→</span></button>
-          <p class="landing-hint mono">原创科幻 · 全程可审阅 · 项目随时导出</p>
+          <p class="landing-hint mono type-helper">原创科幻 · 全程可审阅 · 项目随时导出</p>
         </div>
       </div>
-      <div class="landing-hud mono" aria-hidden="true">
+      <div class="landing-hud mono type-system-meta" aria-hidden="true">
         <span class="landing-hud-rec"><i></i>REC</span>
         <span>24 FPS</span>
         <span class="landing-hud-rule"></span>
         <span>AI FILM STUDIO</span>
         <span class="landing-hud-time">00:00:00:00</span>
       </div>
-      <div class="landing-marquee" aria-label="Agent production route">
+      <div class="landing-marquee type-system-meta" aria-label="Agent production route">
         <div class="marquee-track">
           <span class="marquee-group">
             <span>导演 DIRECTOR</span><i>→</i><span>编剧 WRITER</span><i>→</i><span>美术指导 ART DIRECTOR</span><i>→</i><span>分镜师 STORYBOARD</span><i>→</i><span>质检 QC GATE</span><i>→</i><span>生成调度 GENERATION</span><i>→</i><span>剪辑 EDITOR</span><i>→</i>
@@ -138,25 +145,25 @@
 
       <div class="slate" id="slate">
         <div class="slate-header">
-          <div class="slugline mono" id="slugline"><span class="slate-rec" aria-hidden="true"></span>INT. 未命名的科幻短片 · 夜</div>
-          <span class="slate-index mono">CREATIVE INPUT / 01</span>
+          <div class="slugline mono type-system-meta" id="slugline"><span class="slate-rec" aria-hidden="true"></span>INT. 未命名的科幻短片 · 夜</div>
+          <span class="slate-index mono type-system-meta">CREATIVE INPUT / 01</span>
         </div>
         <div class="idea-console">
           <div class="idea-console-head">
-            <span class="idea-console-label mono">ORIGINAL PREMISE / 原创科幻创意</span>
-            <span class="idea-counter mono" id="idea-counter">0 / 2000</span>
+            <span class="idea-console-label type-ui-label">ORIGINAL PREMISE / 原创科幻创意</span>
+            <span class="idea-counter mono type-system-meta" id="idea-counter">0 / 2000</span>
           </div>
           <textarea id="idea" rows="8" maxlength="2000" placeholder="" aria-label="原创科幻创意" aria-describedby="idea-error" aria-required="true" aria-invalid="false"></textarea>
-          <p class="idea-helper mono">一句话即可。剧组会把它扩写成可拍摄的电影方案。</p>
+          <p class="idea-helper type-helper">一句话即可。剧组会把它扩写成可拍摄的电影方案。</p>
         </div>
-        <p class="form-error mono" id="idea-error" role="alert" aria-live="polite"></p>
+        <p class="form-error type-status" id="idea-error" role="alert" aria-live="polite"></p>
         <div class="slate-controlbar slate-parameters" aria-label="制作参数">
           <label class="timecode-control">
-            <span class="control-heading"><span class="tc-caption mono">目标时长</span><span class="tc-value mono" id="tc-value">00:00:48</span></span>
+            <span class="control-heading"><span class="tc-caption type-ui-label">目标时长</span><span class="tc-value type-control" id="tc-value">00:00:48</span></span>
             <input type="range" id="duration" min="30" max="80" value="48" aria-label="目标时长（秒）">
           </label>
           <div class="style-control">
-            <div class="control-heading"><span class="tc-caption mono">视觉预设</span><span class="style-current mono" id="style-current">写实近未来</span></div>
+            <div class="control-heading"><span class="tc-caption type-ui-label">视觉预设</span><span class="style-current type-control" id="style-current">写实近未来</span></div>
             <div class="style-cards" id="style-cards" role="radiogroup" aria-label="视觉风格"></div>
           </div>
         </div>
@@ -164,17 +171,17 @@
           <button class="cta" id="btn-start" type="button">开机制作 <span class="cta-arrow" aria-hidden="true">→</span></button>
           <div class="engine-state">
             <span class="engine-lamp is-pending" aria-hidden="true"></span>
-            <span class="engine-copy"><span class="engine-label mono">PRODUCTION ENGINE</span><p class="mode-note mono" id="mode-note">正在确认制作引擎状态…</p></span>
+            <span class="engine-copy"><span class="engine-label mono type-system-meta">PRODUCTION ENGINE</span><p class="mode-note type-status" id="mode-note">正在确认制作引擎状态…</p></span>
           </div>
-          <p class="form-error form-error--action mono" id="creation-error" role="alert" aria-live="polite"></p>
+          <p class="form-error form-error--action type-status" id="creation-error" role="alert" aria-live="polite"></p>
         </div>
       </div>
 
       <div class="library">
-        <span class="library-label mono">片库</span>
+        <span class="library-label type-ui-label">片库</span>
         <select id="library-select" aria-label="已保存项目"></select>
-        <button class="ghost" id="btn-load" type="button">恢复项目</button>
-        <button class="ghost" id="btn-refresh" type="button">刷新</button>
+        <button class="ghost type-control" id="btn-load" type="button">恢复项目</button>
+        <button class="ghost type-control" id="btn-refresh" type="button">刷新</button>
       </div>
     </section>
 
@@ -182,21 +189,21 @@
     <section class="act crew hidden" id="act-crew" aria-live="polite">
       <div class="act-head">
         <div class="act-title-block">
-          <p class="act-kicker mono">AI FILM PRODUCTION SYSTEM</p>
-          <p class="act-phase mono">CREW ASSEMBLY / PHASE 02</p>
+          <p class="act-kicker mono type-system-meta">AI FILM PRODUCTION SYSTEM</p>
+          <p class="act-phase mono type-system-meta">CREW ASSEMBLY / PHASE 02</p>
           <h2>剧组集结</h2>
         </div>
-        <p class="act-meta mono"><span class="act-meta-label">STATUS</span><span id="crew-meta">READY / STANDBY</span></p>
+        <p class="act-meta type-status"><span class="act-meta-label mono type-system-meta">STATUS</span><span id="crew-meta">READY / STANDBY</span></p>
       </div>
       <div class="crew-flow-head">
-        <span class="mono">PRODUCTION ROUTE / INPUT → HANDOFF → OUTPUT</span>
-        <span class="crew-flow-progress mono" id="crew-flow-progress">0/7 COMPLETE · STANDBY</span>
-        <span class="crew-flow-legend mono" aria-label="节点状态图例"><i data-state="active"></i>ACTIVE <i data-state="done"></i>COMPLETED <i data-state="waiting"></i>QUEUED</span>
+        <span class="type-system-meta">PRODUCTION ROUTE / INPUT → HANDOFF → OUTPUT</span>
+        <span class="crew-flow-progress type-system-meta" id="crew-flow-progress">0/7 COMPLETE · STANDBY</span>
+        <span class="crew-flow-legend type-system-meta" aria-label="节点状态图例"><i data-state="active"></i>ACTIVE <i data-state="done"></i>COMPLETED <i data-state="waiting"></i>QUEUED</span>
       </div>
       <div class="crew-flow" id="crew-flow" aria-label="Director 到 Editor 的 Agent 生产流水线"></div>
       <div class="crew-radio-wrap">
-        <button class="crew-radio-head mono" id="crew-radio-toggle" type="button" aria-expanded="false" aria-controls="crew-radio"><span><i class="radio-signal" aria-hidden="true"></i>CREW RADIO</span><span class="radio-summary" id="crew-radio-summary">0 MESSAGES · STANDBY</span><span class="radio-chevron" aria-hidden="true">⌄</span></button>
-        <div class="crew-radio mono" id="crew-radio" aria-live="polite"></div>
+        <button class="crew-radio-head type-control" id="crew-radio-toggle" type="button" aria-expanded="false" aria-controls="crew-radio"><span><i class="radio-signal" aria-hidden="true"></i>CREW RADIO</span><span class="radio-summary type-system-meta" id="crew-radio-summary">0 MESSAGES · STANDBY</span><span class="radio-chevron" aria-hidden="true">⌄</span></button>
+        <div class="crew-radio" id="crew-radio" aria-live="polite"></div>
       </div>
     </section>
 
@@ -206,26 +213,26 @@
       <div class="panel filmstrip-panel">
         <div class="panel-head">
           <h2>分镜墙</h2>
-          <span class="panel-meta mono" id="filmstrip-meta">·</span>
+          <span class="panel-meta mono type-system-meta" id="filmstrip-meta">·</span>
         </div>
         <div class="filmstrip-viewport" id="filmstrip-viewport" aria-label="横向分镜胶片带">
           <div class="filmstrip" id="filmstrip"></div>
         </div>
         <div class="edit-timeline-wrap">
-          <div class="timeline-head mono"><span>EDIT TIMELINE</span><span id="timeline-total">·</span></div>
+          <div class="timeline-head mono type-system-meta"><span>EDIT TIMELINE</span><span id="timeline-total">·</span></div>
           <div class="edit-timeline" id="edit-timeline" role="list" aria-label="剪辑时间线"></div>
         </div>
-        <p class="panel-note">点击镜头卡片查看完整画面、动作、声音与最终提示词；对不满意的镜头可单独重新规划。</p>
+        <p class="panel-note type-helper">点击镜头卡片查看完整画面、动作、声音与最终提示词；对不满意的镜头可单独重新规划。</p>
       </div>
 
       <div class="panel monitor-panel">
         <div class="panel-head">
           <h2>片场监视器</h2>
-          <span class="panel-meta mono" id="project-id-label">·</span>
+          <span class="panel-meta mono type-system-meta" id="project-id-label">·</span>
         </div>
         <div class="monitor-screen">
           <div class="viewfinder" aria-hidden="true"><i class="vf tl"></i><i class="vf tr"></i><i class="vf bl"></i><i class="vf br"></i><i class="vf-safe"></i><i class="vf-cross"></i></div>
-          <div class="monitor-topline mono">
+          <div class="monitor-topline mono type-system-meta">
             <span class="rec-inline" id="render-rec"><span class="rec-dot" aria-hidden="true"></span>REC</span>
             <span id="monitor-shot">STANDBY</span>
             <span id="monitor-tc" class="hidden">TC 00:00:00:00</span>
@@ -233,22 +240,22 @@
           </div>
           <div class="shot-map" id="shot-map" aria-label="镜头状态"></div>
           <div class="monitor-progress"><div class="bar"><i id="monitor-bar"></i></div></div>
-          <p class="monitor-desc" id="monitor-desc">尚未开机。</p>
+          <p class="monitor-desc type-helper" id="monitor-desc">尚未开机。</p>
         </div>
         <div class="monitor-actions">
           <button class="cta cta--render" id="btn-render" type="button">提交 Spark 真实生成</button>
-          <p class="render-note" id="render-note"></p>
+          <p class="render-note type-helper" id="render-note"></p>
         </div>
-        <pre class="log-feed mono" id="log-feed" aria-label="任务日志"></pre>
+        <pre class="log-feed type-system-meta" id="log-feed" aria-label="任务日志"></pre>
       </div>
 
       <div class="panel manual-panel">
         <div class="panel-head manual-panel-head">
           <div>
-            <p class="manual-kicker mono">PRODUCTION BIBLE / 01</p>
+            <p class="manual-kicker mono type-system-meta">PRODUCTION BIBLE / 01</p>
             <h2>制作手册</h2>
           </div>
-          <span class="panel-meta mono">PRODUCTION BIBLE</span>
+          <span class="panel-meta mono type-system-meta">PRODUCTION BIBLE</span>
         </div>
         <div class="manual-summary" id="manual-summary" aria-label="项目摘要"></div>
         <div class="tabs" id="manual-tabs" role="tablist">
@@ -271,39 +278,39 @@
       <div class="panel screening-panel">
         <div class="panel-head screening-panel-head">
           <div><p class="manual-kicker mono">04 / DELIVER</p><h2>放映室</h2></div>
-          <span class="panel-meta mono">FINAL CUT SCREENING ROOM</span>
+          <span class="panel-meta mono type-system-meta">FINAL CUT SCREENING ROOM</span>
         </div>
         <section class="deliver-room" id="deliver-room" aria-live="polite">
           <header class="deliver-stage-head">
             <div>
-              <span class="deliver-kicker mono">FINAL CUT / SCREENING ROOM</span>
+              <span class="deliver-kicker mono type-system-meta">FINAL CUT / SCREENING ROOM</span>
               <h3 id="deliver-state-title">FINAL CUT NOT GENERATED</h3>
               <p id="deliver-state-copy">镜头和制作手册准备好后，从这里启动 AI 剪辑。</p>
             </div>
-            <span class="deliver-state-badge mono" id="deliver-state-badge">NOT EDITED</span>
+            <span class="deliver-state-badge type-status" id="deliver-state-badge">NOT EDITED</span>
           </header>
 
           <section class="deliver-summary" id="deliver-summary" aria-label="项目摘要">
             <div class="deliver-summary-main">
-              <span class="deliver-label mono">PROJECT SUMMARY / 项目摘要</span>
+              <span class="deliver-label mono type-system-meta">PROJECT SUMMARY / 项目摘要</span>
               <h4 id="deliver-project-title">等待项目进入放映室</h4>
-              <p id="deliver-project-copy">完成分镜生成后，这里会显示成片状态、镜头就绪度和交付控制。</p>
+              <p class="type-helper" id="deliver-project-copy">完成分镜生成后，这里会显示成片状态、镜头就绪度和交付控制。</p>
               <div class="deliver-ready-line"><strong class="mono" id="deliver-shots-ready">0/0 SHOTS READY</strong><span id="deliver-ready-note">尚未收到镜头素材。</span></div>
             </div>
             <div class="deliver-summary-specs" id="deliver-summary-specs" aria-label="项目摘要数据"></div>
           </section>
 
           <section class="deliver-work-progress hidden" id="deliver-work-progress" aria-label="AI 剪辑进度">
-            <header class="deliver-progress-head"><div><span class="deliver-label mono">AI EDIT / ASSEMBLY PIPELINE</span><h4 id="deliver-progress-title">粗剪正在组装</h4></div><strong class="mono" id="deliver-progress-percent">0%</strong></header>
+            <header class="deliver-progress-head"><div><span class="deliver-label mono type-system-meta">AI EDIT / ASSEMBLY PIPELINE</span><h4 id="deliver-progress-title">粗剪正在组装</h4></div><strong class="type-status" id="deliver-progress-percent">0%</strong></header>
             <div class="deliver-progress-track" aria-hidden="true"><i id="deliver-progress-bar"></i></div>
             <div class="deliver-progress-grid" id="deliver-progress-grid">
-              <div class="deliver-progress-step" data-deliver-progress="picture_cut"><span class="deliver-progress-icon">01</span><div><b>镜头合成</b><small class="mono">PICTURE CUT</small></div><i class="deliver-progress-state mono">QUEUED</i></div>
-              <div class="deliver-progress-step" data-deliver-progress="voice"><span class="deliver-progress-icon">02</span><div><b>旁白</b><small class="mono">VOICE</small></div><i class="deliver-progress-state mono">QUEUED</i></div>
-              <div class="deliver-progress-step" data-deliver-progress="music"><span class="deliver-progress-icon">03</span><div><b>配乐</b><small class="mono">MUSIC</small></div><i class="deliver-progress-state mono">QUEUED</i></div>
-              <div class="deliver-progress-step" data-deliver-progress="sfx"><span class="deliver-progress-icon">04</span><div><b>音效</b><small class="mono">SFX</small></div><i class="deliver-progress-state mono">QUEUED</i></div>
-              <div class="deliver-progress-step" data-deliver-progress="subtitles"><span class="deliver-progress-icon">05</span><div><b>字幕</b><small class="mono">SUBTITLES</small></div><i class="deliver-progress-state mono">QUEUED</i></div>
-              <div class="deliver-progress-step" data-deliver-progress="mix"><span class="deliver-progress-icon">06</span><div><b>最终混音</b><small class="mono">MIX / DUCKING</small></div><i class="deliver-progress-state mono">QUEUED</i></div>
-              <div class="deliver-progress-step" data-deliver-progress="final_encode"><span class="deliver-progress-icon">07</span><div><b>编码交付</b><small class="mono">FINAL ENCODE</small></div><i class="deliver-progress-state mono">QUEUED</i></div>
+              <div class="deliver-progress-step" data-deliver-progress="picture_cut"><span class="deliver-progress-icon type-system-meta">01</span><div><b>镜头合成</b><small class="type-system-meta">PICTURE CUT</small></div><i class="deliver-progress-state type-status">QUEUED</i></div>
+              <div class="deliver-progress-step" data-deliver-progress="voice"><span class="deliver-progress-icon type-system-meta">02</span><div><b>旁白</b><small class="type-system-meta">VOICE</small></div><i class="deliver-progress-state type-status">QUEUED</i></div>
+              <div class="deliver-progress-step" data-deliver-progress="music"><span class="deliver-progress-icon type-system-meta">03</span><div><b>配乐</b><small class="type-system-meta">MUSIC</small></div><i class="deliver-progress-state type-status">QUEUED</i></div>
+              <div class="deliver-progress-step" data-deliver-progress="sfx"><span class="deliver-progress-icon type-system-meta">04</span><div><b>音效</b><small class="type-system-meta">SFX</small></div><i class="deliver-progress-state type-status">QUEUED</i></div>
+              <div class="deliver-progress-step" data-deliver-progress="subtitles"><span class="deliver-progress-icon type-system-meta">05</span><div><b>字幕</b><small class="type-system-meta">SUBTITLES</small></div><i class="deliver-progress-state type-status">QUEUED</i></div>
+              <div class="deliver-progress-step" data-deliver-progress="mix"><span class="deliver-progress-icon type-system-meta">06</span><div><b>最终混音</b><small class="type-system-meta">MIX / DUCKING</small></div><i class="deliver-progress-state type-status">QUEUED</i></div>
+              <div class="deliver-progress-step" data-deliver-progress="final_encode"><span class="deliver-progress-icon type-system-meta">07</span><div><b>编码交付</b><small class="type-system-meta">FINAL ENCODE</small></div><i class="deliver-progress-state type-status">QUEUED</i></div>
             </div>
             <div class="deliver-rough-console" id="edit-console">
               <div class="rough-cut-stage" id="rough-cut-stage">
@@ -457,6 +464,6 @@
 
 <div class="toast mono" id="toast" role="status"></div>
 
-<script src="/static/app.js?v=0b8eddd"></script>
+<script src="/static/app.js?v=type-system-20260903"></script>
 </body>
 </html>
