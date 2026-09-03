@@ -36,6 +36,16 @@ render_lock = threading.Lock()
 app = FastAPI(title="Movie-Agent · AI 片场")
 
 
+@app.middleware("http")
+async def prevent_stale_frontend_cache(request: Request, call_next):
+    """Keep the single-page console and its assets in sync after deployments."""
+    response = await call_next(request)
+    if request.url.path == "/" or request.url.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "no-store, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+    return response
+
+
 class CreateProjectPayload(BaseModel):
     idea: str = Field(min_length=10, max_length=2_000)
     duration: int = Field(ge=30, le=80)

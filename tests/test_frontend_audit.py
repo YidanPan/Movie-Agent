@@ -42,3 +42,11 @@ def test_audit_record_documents_preserved_and_retired_patterns():
     assert "Baseline audit" in text
     assert "Motion rules" in text
     assert "Production Desk" in text
+
+
+def test_frontend_assets_are_versioned_and_not_cached():
+    server = (ROOT / "server.py").read_text(encoding="utf-8")
+    assert "/static/style.css?v=" in INDEX
+    assert "/static/app.js?v=" in INDEX
+    assert "prevent_stale_frontend_cache" in server
+    assert 'response.headers["Cache-Control"] = "no-store, max-age=0"' in server
