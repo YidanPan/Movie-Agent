@@ -33,7 +33,7 @@ PORT=7860
 - `导出成片` 提供 MP4/MOV/WebM、720P/1080P、16:9/9:16/1:1 与烧录/软字幕/无字幕选项，默认 MP4 + H.264 + 1080P；JSON、制作手册 Markdown、SRT/VTT 位于 `更多导出`。
 - 默认启用字幕，并可在交付时选择烧录、软字幕或无字幕；SRT/VTT 可单独导出。
 - AI Edit 必须按 `Picture Cut → Voice → Music → SFX → Subtitles → Mix → Final Encode` 展示进度；声音设计区应显示 Music Brief、Emotional Arc、四轨状态和 Smart Ducking。
-- 配乐支持 AI 自动配乐、素材库音乐和用户上传音乐三种模式；没有真实音频生成器时也要保留可审阅的声音设计计划，不能伪称已有音频媒体。
+- 配乐支持 AI 自动配乐、素材库音乐和用户上传音乐三种模式；Deliver 放映室提供音乐强度、四轨开关、试听、重规划和 Smart Ducking 控制。没有真实音频生成器时也要保留可审阅的声音设计计划，不能伪称已有音频媒体。
 - 能打开已保存项目，且可导出 JSON 与 Markdown。
 - 无 API Key 时仍可切换为 mock 模式演示。
 - 视频能力未就绪时，页面明确标注为 mock 视频流程，不能将占位路径宣传为真实成片。

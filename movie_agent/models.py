@@ -6,7 +6,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from movie_agent.services.subtitles import ensure_dialogue_assets, normalise_subtitle_mode
-from movie_agent.services.audio import normalise_music_mode
+from movie_agent.services.audio import DEFAULT_MUSIC_INTENSITY, normalise_music_intensity, normalise_music_mode
 from movie_agent.services.final_look import ensure_final_look
 
 
@@ -48,6 +48,7 @@ class MovieProject:
     # Sound department outputs are kept as JSON metadata so mock projects and
     # Spark projects share the same review/edit contract.
     music_mode: str = "ai"
+    music_intensity: float = DEFAULT_MUSIC_INTENSITY
     music_asset_name: str = ""
     music_brief: dict[str, Any] = field(default_factory=dict)
     audio_tracks: dict[str, dict[str, Any]] = field(default_factory=dict)
@@ -83,6 +84,9 @@ class MovieProject:
             ),
             edit_plan=data.get("edit_plan") or {},
             music_mode=normalise_music_mode(data.get("music_mode") or "ai"),
+            music_intensity=normalise_music_intensity(
+                data.get("music_intensity", (data.get("music_brief") or {}).get("intensity", DEFAULT_MUSIC_INTENSITY))
+            ),
             music_asset_name=str(data.get("music_asset_name") or ""),
             music_brief=data.get("music_brief") or {},
             audio_tracks=data.get("audio_tracks") or {},
@@ -136,9 +140,10 @@ class MovieProject:
         rows = [
             "## 声音设计 / Sound Department",
             f"- **配乐模式**：{self.music_mode}",
-            f"- **Music Brief**：{brief.get('style', '待生成')} · {brief.get('bpm', '—')} BPM",
+            f"- **音乐强度**：{int(round(self.music_intensity * 100))}% · {brief.get('volume_db', (self.audio_tracks or {}).get('music', {}).get('volume_db', '·'))} dB",
+            f"- **Music Brief**：{brief.get('style', '待生成')} · {brief.get('bpm', '·')} BPM",
             f"- **乐器**：{' · '.join(str(item) for item in (brief.get('instruments') or [])) or '待规划'}",
-            f"- **进入 / 高潮 / 淡出**：{brief.get('entry_seconds', 0)}s / {brief.get('peak_seconds', '—')}s / {brief.get('fade_out_seconds', '—')}s",
+            f"- **进入 / 高潮 / 淡出**：{brief.get('entry_seconds', 0)}s / {brief.get('peak_seconds', '·')}s / {brief.get('fade_out_seconds', '·')}s",
             f"- **Smart Ducking**：{'开启' if self.smart_ducking.get('enabled') else '关闭'} · {self.smart_ducking.get('amount_db', -8)} dB",
             "",
             "| 音轨 | 状态 | 来源 | 音量 |",
@@ -147,7 +152,7 @@ class MovieProject:
         for key in ("voice", "music", "sfx", "ambience"):
             track = (self.audio_tracks or {}).get(key, {})
             rows.append(
-                f"| {track.get('label', key.upper())} | {track.get('status', '待规划')} | {track.get('source', '—')} | {track.get('volume_db', '—')} dB |"
+                f"| {track.get('label', key.upper())} | {track.get('status', '待规划')} | {track.get('source', '·')} | {track.get('volume_db', '·')} dB |"
             )
         arc = brief.get("emotional_arc") or []
         if arc:

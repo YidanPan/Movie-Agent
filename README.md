@@ -16,7 +16,20 @@
 
 Deliver 页是 Final Cut Screening Room：项目未剪辑时显示项目摘要与 `N/N SHOTS READY`，AI Edit 进行时展示镜头合成、旁白、字幕、BGM、SFX 和 FFmpeg 编码进度；批准真实成片后才显示播放器、时长/分辨率/画幅/编码/音频元数据与可跳转 Shot Timeline。播放器右侧的 `FINAL LOOK / COLOR FINISH` 是导出前的全片最终润色台：提供原片、胶片叙事、冷灰未来、梦境超现实、纪实去饱和、赛博夜色六种预设，支持强度、颗粒、暗角和高光柔化，点击预设即可在播放器中即时试听；默认锁定 `WHOLE FILM`，点击应用后才写入交付配置。`导出成片` 支持 MP4/MOV/WebM、720P/1080P、16:9/9:16/1:1 和三种字幕模式，默认 MP4 + H.264 + 1080P + 16:9；JSON、制作手册 Markdown 和 SRT/VTT 收纳在 `更多导出`。
 
-AI Edit 的声音部门是正式的后期模块：导演设定、剧本情绪、视觉风格、镜头节奏和总时长会生成可审阅的 `Music Brief` 与 `Emotional Arc`。配乐支持 `AI 自动配乐`、`素材库音乐`、`用户上传音乐` 三种来源；后两者可在页面切换，用户上传文件会保存到项目输出目录。混音明确拆分为 `Voice / Music / SFX / Ambience` 四轨，Smart Ducking 会在 Dialogue Book 的语音区间自动降低 Music 并平滑恢复。没有真实音频文件时，项目仍会保存完整的声音设计计划，方便未来替换为 Spark 音频生成器。
+### 双主题工作状态
+
+顶栏的 `SCREENING / DESK` 切换对应两种制作状态，并不是简单的黑白反转：
+
+- `Screening Room`：暖黑、琥珀金、局部聚光与监视器材质，用于沉浸式制作和审片。
+- `Production Desk`：暖白、羊皮纸、深棕黑正文与细线分隔，用于清晰阅读剧本、制作手册和项目档案。
+
+主题由 CSS design tokens 统一管理，切换使用约 520ms 的灯光过渡。首次访问跟随浏览器 `prefers-color-scheme`；用户手动选择后写入 `localStorage` 的 `movie-agent-theme`，刷新或重新打开页面仍会保持选择。
+
+本轮 audit-first 视觉审计、字体角色、材质收敛、动效拨杆和回归清单记录在 [docs/DESIGN_AUDIT.md](docs/DESIGN_AUDIT.md)。
+
+前端动效按生产阶段各自承担一个清晰的电影语义：首页使用 Fresnel 聚光灯开场，并以鼠标距离驱动“剧本文字 → 线稿 → 光影 → 色彩 → 电影帧”的暗房显影；Crew Assembly 用相邻节点的 proximity 受光和交接光点表达 Agent 数据流，分镜墙使用可拖拽、带轻惯性与 scroll-snap 的 Film Strip，并让镜头卡从未曝光线稿逐步显影为 keyframe，镜头媒体以冲印/曝光过渡显影，制作手册使用 editorial reveal，Deliver 使用 Final Look 前后分割与声音时间线。动效默认尊重 `prefers-reduced-motion`，低性能设备会关闭环境光、颗粒和持续动画；交互保留浏览器原生光标，通过卡片、节点和时间线本身提供上下文反馈，避免自定义光标遮挡内容。首页显影底片使用 `static/assets/cinematic-darkroom-frame.webp`，可替换为团队自有的授权视觉素材。
+
+AI Edit 的声音部门是正式的后期模块：导演设定、剧本情绪、视觉风格、镜头节奏和总时长会生成可审阅的 `Music Brief` 与 `Emotional Arc`。配乐支持 `AI 自动配乐`、`素材库音乐`、`用户上传音乐` 三种来源；Deliver 放映室可调整音乐强度并立即保存，用户上传文件会保存到项目输出目录。混音明确拆分为 `Voice / Music / SFX / Ambience` 四轨，每轨均可试听、开关或重新规划；Smart Ducking 会在 Dialogue Book 的语音区间自动降低 Music 并平滑恢复。没有真实音频文件时，项目仍会保存完整的声音设计计划，方便未来替换为 Spark 音频生成器。
 
 ## 启用魔搭文本 API
 
@@ -134,7 +147,20 @@ The writer emits one editable `dialogue_book` and timed `subtitle_track` cue per
 
 Deliver also includes a dedicated `FINAL LOOK / COLOR FINISH` inspector after Final Cut preview and before export. It offers six whole-film presets — Original, Film Narrative, Cool Gray Future, Dream Surreal, Documentary Desat, and Cyber Night — plus intensity, grain, vignette, and highlight-softening controls. Clicking a preset immediately auditions a browser preview; only an explicit Apply action persists the look. Real media is rendered by FFmpeg into a revisioned master, while mock mode stores the reproducible export plan without inventing a video file. Whole-film scope is the default; current-shot/current-scene scope is reserved for a future advanced mode.
 
-AI Edit includes a formal sound department. The director brief, script emotion, visual style, shot rhythm, and runtime produce a reviewable `Music Brief` and per-shot `Emotional Arc` (style, BPM, instruments, entry, peak, fade-out, and intensity). Music can come from `AI automatic score`, `studio library`, or `user upload`. The mix is always represented as four tracks — `Voice`, `Music`, `SFX`, and `Ambience` — with preview, enable/disable, and regenerate controls. Smart Ducking reads locked Dialogue Book timing, lowers Music during speech, and restores it with an attack/release curve. In mock mode these are production-ready metadata plans; a future audio renderer can attach the actual media files without changing the project contract.
+### Theme system
+
+The compact `SCREENING / DESK` control represents two production states rather than a color inversion:
+
+- **Screening Room** keeps the warm-black, amber-lit console for immersive production and review.
+- **Production Desk** uses warm ivory, parchment surfaces, dark brown copy, and precise hairlines for script and archive reading.
+
+Both surfaces consume one CSS design-token vocabulary for backgrounds, text, borders, accents, shadows, and glow. The light cue transitions over about 520ms. Without a manual choice the first visit follows `prefers-color-scheme`; a manual selection is persisted in `localStorage` under `movie-agent-theme`.
+
+The audit-first redesign record, type roles, material rules, motion map, and regression checklist live in [docs/DESIGN_AUDIT.md](docs/DESIGN_AUDIT.md).
+
+The zero-build frontend gives each production stage one signature interaction: the landing page uses a Fresnel opening plus a pointer-proximity darkroom reveal from screenplay glyphs to sketch, light, color, and a cinematic frame; Crew Assembly uses proximity lighting and a handoff signal along the Agent route; Storyboard is a draggable, inertia-assisted Film Strip with scroll snap whose cards develop from linework toward a keyframe; generated media arrives with a film-burn reveal; Production Bible uses an editorial reveal; Deliver uses a Before/After Final Look split with a synced sound timeline. Motion respects `prefers-reduced-motion`; low-performance devices disable ambient light, grain, and continuous animation. The interface keeps the browser-native cursor so contextual lighting never obscures production copy. The landing darkroom frame lives at `static/assets/cinematic-darkroom-frame.webp` and can be replaced with an authorized team asset.
+
+AI Edit includes a formal sound department. The director brief, script emotion, visual style, shot rhythm, and runtime produce a reviewable `Music Brief` and per-shot `Emotional Arc` (style, BPM, instruments, entry, peak, fade-out, and intensity). Music can come from `AI automatic score`, `studio library`, or `user upload`, with a Deliver-side intensity control that persists to the project contract. The mix is always represented as four tracks — `Voice`, `Music`, `SFX`, and `Ambience` — with preview, enable/disable, and regenerate controls. Smart Ducking reads locked Dialogue Book timing, lowers Music during speech, and restores it with an attack/release curve. In mock mode these are production-ready metadata plans; a future audio renderer can attach the actual media files without changing the project contract.
 
 The currently verified Spark workflow is T2V. I2V and R2V remain disabled until their corresponding workflows are verified.
 

@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════════
-   Movie-Agent · AI 片场 — 交互层
+   Movie-Agent · AI 片场 · 交互层
    第一幕 开机 / 第二幕 剧组集结 / 第三幕 制片工作区
    ═══════════════════════════════════════════════════════════════ */
 
@@ -16,6 +16,9 @@ const els = {
   brandHome: $("#brand-home"),
   shutter: $(".shutter"),
   btnSound: $("#btn-sound"),
+  themeToggle: $("#theme-toggle"),
+  themeWash: $("#theme-transition-wash"),
+  themeColor: $("meta[name='theme-color']"),
   monitorTc: $("#monitor-tc"),
   editTimeline: $("#edit-timeline"),
   timelineTotal: $("#timeline-total"),
@@ -44,6 +47,7 @@ const els = {
   actCrew: $("#act-crew"),
   actWorkspace: $("#act-workspace"),
   crewFlow: $("#crew-flow"),
+  crewFlowProgress: $("#crew-flow-progress"),
   crewMeta: $("#crew-meta"),
   crewRadioWrap: $(".crew-radio-wrap"),
   crewRadioToggle: $("#crew-radio-toggle"),
@@ -51,6 +55,7 @@ const els = {
   pipeline: $("#pipeline"),
   crewRadio: $("#crew-radio"),
   filmstrip: $("#filmstrip"),
+  filmstripViewport: $("#filmstrip-viewport"),
   filmstripMeta: $("#filmstrip-meta"),
   projectIdLabel: $("#project-id-label"),
   shotMap: $("#shot-map"),
@@ -72,7 +77,11 @@ const els = {
   activitySummary: $("#activity-summary"),
   activityBody: $("#activity-body"),
   screen: $("#screen"),
+  finalCompare: $("#final-compare"),
   finalVideo: $("#final-video"),
+  finalVideoAfter: $("#final-video-after"),
+  finalCompareAfter: $("#final-compare-after"),
+  finalCompareDivider: $("#final-compare-divider"),
   editConsole: $("#edit-console"),
   editConsoleState: $("#edit-console-state"),
   editConsoleNote: $("#edit-console-note"),
@@ -132,7 +141,18 @@ const els = {
   deliverTimelineTotal: $("#deliver-timeline-total"),
   deliverAudioPanel: $("#deliver-audio-panel"),
   deliverAudioState: $("#deliver-audio-state"),
+  deliverAudioModeSwitch: $("#deliver-audio-mode-switch"),
+  deliverAudioUploadRow: $("#deliver-audio-upload-row"),
+  deliverMusicUpload: $("#deliver-music-upload"),
+  deliverMusicUploadNote: $("#deliver-music-upload-note"),
+  deliverMusicIntensity: $("#deliver-music-intensity"),
+  deliverMusicIntensityValue: $("#deliver-music-intensity-value"),
+  deliverSmartDuckingToggle: $("#deliver-smart-ducking-toggle"),
+  deliverSmartDuckingCopy: $("#deliver-smart-ducking-copy"),
+  deliverSmartDuckingValue: $("#deliver-smart-ducking-value"),
   deliverMusicBrief: $("#deliver-music-brief"),
+  audioTimeline: $("#audio-timeline"),
+  audioTimelineEditor: $("#audio-timeline-editor"),
   deliverAudioTrackList: $("#deliver-audio-track-list"),
   finalLookPanel: $("#final-look-panel"),
   finalLookPresetGrid: $("#final-look-preset-grid"),
@@ -178,34 +198,41 @@ const SAMPLE_IDEAS = [
 
 const AGENT_DEFS = [
   { id: "director", index: "01", name: "导演", en: "DIRECTOR", role: "主题与叙事边界",
+    input: "ORIGINAL IDEA", output: "PROJECT BRIEF",
     summarize: (d) => d.brief && d.brief["主题"] ? `CORE CONCEPT / ${truncate(d.brief["主题"], 32)}` : d.idea ? `BRIEF / ${truncate(d.idea, 32)}` : "BRIEF / AWAITING DIRECTOR PASS" },
   { id: "writer", index: "02", name: "编剧", en: "WRITER", role: "剧本 · 台词本 · 字幕",
+    input: "PROJECT BRIEF", output: "SCRIPT + CUES",
     summarize: (d) => d.script && d.script.story ? `SCRIPT / ${String(d.script.story).split(/\n+/).filter(Boolean).length || 1} SCENES · ${d.script.dialogue_book?.length || 0} CUES · ${d.script.dialogue_locked ? "LOCKED" : "REVIEW"}` : "SCRIPT / AWAITING WRITER PASS" },
   { id: "visual_bible", index: "03", name: "美术指导", en: "ART DIRECTOR", role: "角色 · 场景 · 风格 · 声音",
+    input: "SCRIPT + CUES", output: "VISUAL BIBLE",
     summarize: (d) => {
       const bible = d.visual_bible || {};
       const rules = Object.keys(bible).length;
       return rules ? `STYLE / ${d.visual_style || "CUSTOM"} · ${rules} RULES LOCKED` : "STYLE / AWAITING ART DIRECTION";
     } },
   { id: "storyboard", index: "04", name: "分镜师", en: "STORYBOARD", role: "可渲染镜头拆解",
+    input: "VISUAL BIBLE", output: "SHOT LIST",
     summarize: (d) => {
       const shots = d.storyboard || [];
       const runtime = shots.reduce((sum, shot) => sum + Number(shot.duration_seconds || 0), 0);
       return shots.length ? `STRUCTURE / ${shots.length} SHOTS · ${runtime}s LOCKED` : "STRUCTURE / SHOT LIST QUEUED";
     } },
   { id: "quality", index: "05", name: "质检", en: "QC GATE", role: "结构与版权风险",
+    input: "SHOT LIST", output: "QC PASS",
     summarize: (d) => {
       const checks = d.quality_report || [];
       const hasRisk = checks.some((item) => /失败|风险|建议改写|未通过|error|fail/i.test(String(item)));
       return checks.length ? `QC GATE / ${checks.length} CHECKS · ${hasRisk ? "REVIEW" : "PASS"}` : "QC GATE / CHECKS QUEUED";
     } },
   { id: "generation", index: "06", name: "生成调度", en: "GENERATION", role: "逐镜生成与重试",
+    input: "QC PASS", output: "SHOT MEDIA",
     summarize: (d) => {
       const shots = d.storyboard || [];
       const approved = shots.filter((shot) => String(shot.status || "").startsWith("approved")).length;
       return shots.length ? `SHOTS / ${approved}/${shots.length} READY · ${approved === shots.length ? "QUEUE CLEAR" : "RENDER QUEUE"}` : "SHOTS / QUEUE NOT RELEASED";
     } },
   { id: "editor", index: "07", name: "剪辑", en: "EDITOR", role: "粗剪 · 合片 · 交付",
+    input: "SHOT MEDIA", output: "ROUGH / FINAL CUT",
     summarize: (d) => {
       const status = String(d.status || "");
       if (status === "rough_cut_ready" || d.rough_cut_placeholder) return "ROUGH CUT / 4-TRACK MIX READY";
@@ -224,6 +251,24 @@ const AGENT_STATUS_COPY = {
   quality: { idle: "QUEUED", next: "NEXT · QC GATE", working: "REVIEWING", done: "QC APPROVED" },
   generation: { idle: "QUEUED", next: "NEXT · RENDER QUEUE", working: "RENDERING", done: "SHOTS READY" },
   editor: { idle: "QUEUED", next: "READY · START AI EDIT", working: "EDITING ROUGH CUT", done: "FINAL CUT READY" },
+};
+
+const CREW_NODE_STATE_COPY = {
+  idle: "QUEUED",
+  next: "NEXT IN LINE",
+  ready: "READY TO RUN",
+  working: "ACTIVE",
+  done: "COMPLETED",
+  failed: "BLOCKED",
+};
+
+const CREW_NODE_PROGRESS = {
+  idle: 0,
+  next: 18,
+  ready: 34,
+  working: 68,
+  done: 100,
+  failed: 100,
 };
 
 const SHOT_STATUS = {
@@ -285,11 +330,15 @@ const state = {
   finalVideoProbeRun: 0,
   editProgressStep: 0,
   musicMode: "ai",
+  musicIntensity: 0.6,
   musicAssetName: "",
   smartDucking: true,
   finalLookProjectId: null,
   finalLookDraft: null,
   finalLookDirty: false,
+  finalLookSplit: 50,
+  filmstripDragging: false,
+  audioTimelineDuration: 0,
 };
 
 let manualTypingRun = 0;
@@ -376,17 +425,17 @@ function setBrowserActivity(mode, project = state.project) {
   clearInterval(faviconBlinkTimer);
   const setFavicon = (dot) => {
     if (!els.favicon) return;
-    els.favicon.href = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230d0c0a'/%3E%3Ccircle cx='24' cy='8' r='4' fill='${dot}'/%3E%3Crect x='6' y='12' width='5' height='8' fill='%23e8a34c'/%3E%3Crect x='14' y='12' width='5' height='8' fill='%23e8a34c' opacity='.55'/%3E%3C/svg%3E`;
+    els.favicon.href = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%2315110b'/%3E%3Ccircle cx='24' cy='8' r='4' fill='${dot}'/%3E%3Crect x='6' y='12' width='5' height='8' fill='%23c28a3e'/%3E%3Crect x='14' y='12' width='5' height='8' fill='%23c28a3e' opacity='.55'/%3E%3C/svg%3E`;
   };
   if (!["render", "edit"].includes(mode)) {
-    setFavicon("%23e8a34c");
+    setFavicon("%23c28a3e");
     return;
   }
   let lit = true;
-  setFavicon(mode === "edit" ? "%23e8a34c" : "%23e85a4f");
+  setFavicon(mode === "edit" ? "%23c28a3e" : "%23d98b55");
   faviconBlinkTimer = setInterval(() => {
     lit = !lit;
-    setFavicon(lit ? (mode === "edit" ? "%23e8a34c" : "%23e85a4f") : "%23332a25");
+    setFavicon(lit ? (mode === "edit" ? "%23c28a3e" : "%23d98b55") : "%23352b20");
   }, 700);
 }
 
@@ -569,7 +618,10 @@ function pipelineFromProject(project, hasVideo) {
   const status = project.status || "";
   const shots = project.storyboard || [];
   const allReady = shots.length > 0 && shots.every((shot) => String(shot.status || "").startsWith("approved"));
-  const finalApproved = status.startsWith("completed") && (hasVideo || status !== "completed_comfyui");
+  // A completed status is not enough to call Deliver finished: mock runs may
+  // only contain a placeholder path. The pipeline is complete only after the
+  // browser has verified a playable final media asset.
+  const finalApproved = status.startsWith("completed") && hasVideo;
   if (["rendering_comfyui", "generating_video_mock", "ready_for_comfyui_render", "render_failed"].includes(status)) {
     states.render = status === "render_failed" ? "active" : "active";
   } else if (historical && ["planned_mock", "planned_text_ai"].includes(status)) {
@@ -603,10 +655,12 @@ function buildCrewBoard() {
     card.setAttribute("aria-expanded", "false");
     card.setAttribute("aria-label", `${def.name} Agent 详情`);
     card.innerHTML = `
-      <div class="crew-indexline mono"><span>${esc(def.index)} / NODE</span><span class="crew-en mono">${esc(def.en)}</span></div>
+      <div class="crew-indexline mono"><span class="crew-node-id">${esc(def.index)} / NODE</span><span class="crew-en mono">${esc(def.en)}</span><span class="crew-node-status mono" data-node-status="idle">QUEUED</span></div>
       <div class="crew-head"><span class="crew-name">${esc(def.name)}</span></div>
       <p class="crew-role">${esc(def.role)}</p>
       <div class="crew-state mono"><span class="crew-state-icon" aria-hidden="true"></span><span class="crew-state-text">${AGENT_STATUS_COPY[def.id]?.idle || "WAITING"}</span></div>
+      <div class="crew-node-route mono" aria-label="节点输入与输出"><span class="crew-route-input">IN · ${esc(def.input)}</span><span class="crew-route-arrow" aria-hidden="true">→</span><span class="crew-route-output">OUT · ${esc(def.output)}</span></div>
+      <div class="crew-node-progress" aria-hidden="true"><i></i></div>
       <p class="crew-summary">${esc(def.summarize({}))}</p>`;
     card.addEventListener("click", () => openCrewDrawer(def.id));
     card.addEventListener("keydown", (event) => {
@@ -627,6 +681,7 @@ function buildCrewBoard() {
     container.appendChild(node);
   });
   if (state.project) syncCrewBoard(state.project, { silent: true });
+  else updateCrewFlowProgress(Object.fromEntries(AGENT_DEFS.map((def) => [def.id, "idle"])));
   refreshCrewConnectors();
   renderCrewRadio();
 }
@@ -663,11 +718,17 @@ function setAgentState(agentId, agentState, data = {}, { silent = false } = {}) 
   const resolvedState = ["idle", "next", "ready", "working", "done", "failed"].includes(agentState) ? agentState : "idle";
   card.classList.add(resolvedState);
   card.dataset.state = resolvedState;
+  card.style.setProperty("--node-progress", `${CREW_NODE_PROGRESS[resolvedState] ?? 0}%`);
   if (["working", "ready"].includes(resolvedState)) card.setAttribute("aria-current", "step");
   else card.removeAttribute("aria-current");
   const text = card.querySelector(".crew-state-text");
+  const nodeStatus = card.querySelector("[data-node-status]");
   const summary = card.querySelector(".crew-summary");
   card.setAttribute("aria-expanded", "false");
+  if (nodeStatus) {
+    nodeStatus.textContent = CREW_NODE_STATE_COPY[resolvedState] || "QUEUED";
+    nodeStatus.dataset.state = resolvedState;
+  }
   const merged = crewMergedData(agentId, data);
   const def = AGENT_DEFS.find((item) => item.id === agentId);
   const baseSummary = def ? def.summarize(merged) : "";
@@ -720,6 +781,18 @@ function refreshCrewConnectors() {
     const active = ["working", "ready"].includes(rightState) && ["done", "working", "ready"].includes(leftState);
     link.dataset.state = complete ? "done" : active ? "active" : "waiting";
   });
+}
+
+function updateCrewFlowProgress(states = {}) {
+  if (!els.crewFlowProgress) return;
+  const resolved = AGENT_DEFS.map((def) => states[def.id] || "idle");
+  const completed = resolved.filter((item) => item === "done").length;
+  const currentIndex = resolved.findIndex((item) => ["working", "ready", "next"].includes(item));
+  const current = currentIndex >= 0 ? AGENT_DEFS[currentIndex] : null;
+  const suffix = current
+    ? ` · ${current.en} ${resolved[currentIndex] === "working" ? "ACTIVE" : "NEXT"}`
+    : completed === AGENT_DEFS.length ? " · ROUTE COMPLETE" : " · STANDBY";
+  els.crewFlowProgress.textContent = `${completed}/${AGENT_DEFS.length} COMPLETE${suffix}`;
 }
 
 function rememberCrewEvent(agentId, event) {
@@ -909,6 +982,7 @@ function syncCrewBoard(project = state.project, { silent = true } = {}) {
   if (!project) return;
   const states = deriveCrewStates(project);
   for (const def of AGENT_DEFS) setAgentState(def.id, states[def.id], project, { silent });
+  updateCrewFlowProgress(states);
   state.workingAgent = AGENT_DEFS.find((def) => states[def.id] === "working")?.id || null;
   const focus = AGENT_DEFS.find((def) => ["working", "ready", "next"].includes(states[def.id]));
   if (els.crewMeta) {
@@ -956,7 +1030,7 @@ function renderFilmstrip(project, entranceFrom = Number.POSITIVE_INFINITY) {
   }
   for (const [index, shot] of shots.entries()) {
     const card = document.createElement("article");
-    card.className = `shot-card${index >= entranceFrom ? " card-enter" : ""}`;
+    card.className = `shot-card${index >= entranceFrom ? " card-enter" : ""}${Number(shot.number) === Number(state.activeShotNumber) ? " is-current" : ""}`;
     card.dataset.shot = shot.number;
     card.dataset.status = shot.status || "planned";
     card.tabIndex = 0;
@@ -964,7 +1038,7 @@ function renderFilmstrip(project, entranceFrom = Number.POSITIVE_INFINITY) {
     card.setAttribute("aria-label", `镜头 ${shot.number} 详情`);
     card.innerHTML = `
       <header class="shot-head mono"><span>SHOT ${String(shot.number).padStart(2, "0")}</span><span>${shot.duration_seconds}s</span></header>
-      <div class="shot-frame"><span class="film-stamp mono">${String(shot.number).padStart(2, "0")} · 24 FPS</span><span class="shot-framing">${esc(shot.framing)}</span><span class="shot-mode mono">${esc(shot.generation_mode)}</span></div>
+      <div class="shot-frame"><span class="shot-frame-lens" aria-hidden="true"><i class="shot-frame-sketch"></i><i class="shot-frame-color"></i></span><span class="film-stamp mono">${String(shot.number).padStart(2, "0")} · 24 FPS</span><span class="shot-framing">${esc(shot.framing)}</span><span class="shot-mode mono">${esc(shot.generation_mode)}</span></div>
       <footer class="shot-foot mono">
         <span class="shot-status"><i class="dot" aria-hidden="true"></i>${shotStatusInfo(shot.status)}</span>
         <span class="shot-attempts">${shot.attempts > 0 ? `↻${shot.attempts}` : ""}</span>
@@ -1017,8 +1091,11 @@ function attachShotPreviews(project) {
       video.loop = true;
       video.playsInline = true;
       video.preload = "metadata";
+      card.classList.add("is-developing");
       card.appendChild(video);
       const shotCard = card.closest(".shot-card");
+      shotCard.classList.add("has-media");
+      window.setTimeout(() => shotCard.classList.remove("is-developing"), REDUCED_MOTION ? 0 : 720);
       shotCard.addEventListener("mouseenter", () => video.play().catch(() => {}));
       shotCard.addEventListener("mouseleave", () => {
         video.pause();
@@ -1170,8 +1247,8 @@ function renderManualSummary(project) {
       <span class="manual-project-status ${status.key} mono"><i>${status.symbol}</i>${status.label}</span>
     </div>
     <div class="manual-stats" role="list" aria-label="项目摘要">
-      <div role="listitem"><span class="mono">SHOTS</span><strong>${shots.length || "—"}</strong></div>
-      <div role="listitem"><span class="mono">DURATION</span><strong>${shots.length ? compactDuration(total) : "—"}</strong></div>
+      <div role="listitem"><span class="mono">SHOTS</span><strong>${shots.length || "·"}</strong></div>
+      <div role="listitem"><span class="mono">DURATION</span><strong>${shots.length ? compactDuration(total) : "·"}</strong></div>
       <div role="listitem"><span class="mono">FRAME</span><strong>16:9</strong></div>
       <div role="listitem"><span class="mono">STATUS</span><strong>${esc(status.copy)}</strong></div>
     </div>`;
@@ -1256,7 +1333,7 @@ function renderBriefTab(project) {
   const entries = Object.entries(project.brief || {});
   const rows = [
     ["ORIGINAL IDEA", "原始创意", project.idea],
-    ["TARGET DURATION", "目标时长", `${project.duration_seconds || "—"} 秒`],
+    ["TARGET DURATION", "目标时长", `${project.duration_seconds || "·"} 秒`],
     ["VISUAL STYLE", "视觉风格", project.visual_style],
     ...entries.map(([key, value]) => [manualFieldLabel(key), key, value]),
   ];
@@ -1284,7 +1361,7 @@ function renderScriptTab(project) {
     const end = Number(entry?.end_seconds ?? cue?.end_seconds ?? 0).toFixed(2);
     return `
       <article class="dialogue-row" data-dialogue-row="${index}">
-        <header class="dialogue-row-head"><span class="dialogue-shot mono">SHOT ${String(entry?.shot || index + 1).padStart(2, "0")}</span><span class="dialogue-time mono">${start}s — ${end}s</span><span class="dialogue-kind mono">${esc(entry?.kind || "narration")}</span></header>
+        <header class="dialogue-row-head"><span class="dialogue-shot mono">SHOT ${String(entry?.shot || index + 1).padStart(2, "0")}</span><span class="dialogue-time mono">${start}s · ${end}s</span><span class="dialogue-kind mono">${esc(entry?.kind || "narration")}</span></header>
         <div class="dialogue-row-fields">
           <label><span class="manual-label mono">DIALOGUE / 台词本</span><textarea data-dialogue-field="text" rows="2" ${locked ? "disabled" : ""}>${esc(entry?.text || "")}</textarea></label>
           <label><span class="manual-label mono">SUBTITLE / 字幕轨</span><textarea data-dialogue-field="subtitle" rows="2" ${locked ? "disabled" : ""}>${esc(cue?.text || entry?.text || "")}</textarea></label>
@@ -1387,6 +1464,11 @@ function renderManual(project, tab = state.manualTab, animate = false) {
     body.innerHTML = renderShotSheet(project);
   }
   body.setAttribute("aria-labelledby", `manual-tab-${tab}`);
+  body.classList.remove("is-editorial-reveal");
+  if (!REDUCED_MOTION) {
+    void body.offsetWidth;
+    body.classList.add("is-editorial-reveal");
+  }
   renderManualSummary(project);
   renderAgentActivity(project);
   if (animate) typewriteManualBody();
@@ -1451,10 +1533,10 @@ function renderDeliverSummary(project) {
   }
   if (els.deliverSummarySpecs) {
     const specs = [
-      ["RUNTIME", total ? compactDuration(total) : "—"],
+      ["RUNTIME", total ? compactDuration(total) : "·"],
       ["FRAME", "16:9"],
       ["DIALOGUE", locked ? "LOCKED" : "REVIEW"],
-      ["SOUND", project ? `4 TRACKS · ${project.smart_ducking?.enabled === false ? "DUCKING OFF" : "DUCKING ON"}` : "—"],
+      ["SOUND", project ? `4 TRACKS · ${project.smart_ducking?.enabled === false ? "DUCKING OFF" : "DUCKING ON"}` : "·"],
       ["DELIVERY", project ? (PROJECT_STATUS[project.status] || project.status) : "STANDBY"],
     ];
     els.deliverSummarySpecs.innerHTML = specs.map(([label, value]) => `<div><span class="deliver-label mono">${label}</span><strong>${esc(value)}</strong></div>`).join("");
@@ -1499,10 +1581,10 @@ function renderMusicBriefMarkup(project, compact = false) {
   const arc = Array.isArray(brief.emotional_arc) ? brief.emotional_arc : [];
   const fields = [
     ["STYLE", brief.style || project?.visual_style || "CINEMATIC SCORE"],
-    ["BPM", brief.bpm ? `${brief.bpm} BPM` : "—"],
+    ["BPM", brief.bpm ? `${brief.bpm} BPM` : "·"],
     ["IN", brief.entry_seconds != null ? `${brief.entry_seconds}s` : "0s"],
-    ["PEAK", brief.peak_seconds != null ? `${brief.peak_seconds}s` : "—"],
-    ["FADE", brief.fade_out_seconds != null ? `${brief.fade_out_seconds}s` : "—"],
+    ["PEAK", brief.peak_seconds != null ? `${brief.peak_seconds}s` : "·"],
+    ["FADE", brief.fade_out_seconds != null ? `${brief.fade_out_seconds}s` : "·"],
   ];
   const fieldsMarkup = fields.map(([label, value]) => `<div class="music-brief-stat"><span class="mono">${esc(label)}</span><strong>${esc(value)}</strong></div>`).join("");
   if (compact) {
@@ -1541,20 +1623,120 @@ function renderAudioTrackList(project, target) {
   }).join("");
 }
 
+function audioTimelineCues(project) {
+  const script = project?.script || {};
+  const cues = Array.isArray(script.subtitle_track) && script.subtitle_track.length
+    ? script.subtitle_track
+    : Array.isArray(script.dialogue_book) ? script.dialogue_book : [];
+  return cues.map((cue, index) => ({
+    start: Math.max(0, Number(cue?.start_seconds ?? cue?.start ?? 0)),
+    end: Math.max(0, Number(cue?.end_seconds ?? cue?.end ?? 0)),
+    text: cue?.text || cue?.subtitle || `SHOT ${index + 1}`,
+    shot: Number(cue?.shot || index + 1),
+  })).filter((cue) => cue.end > cue.start || cue.text);
+}
+
+function audioWaveformMarkup(seed = 1) {
+  const bars = Array.from({ length: 18 }, (_, index) => {
+    const value = 24 + ((seed * 17 + index * 29) % 62);
+    return `<i style="--wave-height:${value}%"></i>`;
+  }).join("");
+  return `<span class="audio-waveform" aria-hidden="true">${bars}</span>`;
+}
+
+function renderAudioTimeline(project) {
+  const targets = [els.audioTimeline, els.audioTimelineEditor].filter(Boolean);
+  if (!targets.length) return;
+  const shots = project?.storyboard || [];
+  const total = Math.max(1, deliverRuntime(project));
+  state.audioTimelineDuration = total;
+  let offset = 0;
+  const shotSegments = shots.map((shot) => {
+    const duration = Math.max(1, Number(shot.duration_seconds || 1));
+    const start = offset;
+    offset += duration;
+    return { shot, start, duration };
+  });
+  const segmentMarkup = shotSegments.map(({ shot, start, duration }) => `<button type="button" class="audio-shot-segment" data-audio-seek="${start}" style="--clip-size:${(duration / total * 100).toFixed(3)}%" aria-label="跳转到镜头 ${shot.number} ${compactDuration(start)}"><span class="mono">${String(shot.number).padStart(2, "0")}</span></button>`).join("");
+  const cueMarkup = audioTimelineCues(project).map((cue) => {
+    const left = Math.min(100, Math.max(0, cue.start / total * 100));
+    const width = Math.max(0.6, Math.min(100 - left, (Math.max(cue.end, cue.start + 0.2) - cue.start) / total * 100));
+    return `<button type="button" class="audio-subtitle-cue" data-audio-seek="${cue.start}" data-cue-start="${cue.start}" data-cue-end="${cue.end}" style="left:${left.toFixed(3)}%;width:${width.toFixed(3)}%" title="${esc(cue.text)}"><span>${esc(truncate(cue.text, 22))}</span></button>`;
+  }).join("");
+  const trackMarkup = AUDIO_TRACK_ORDER.map((key, index) => {
+    const label = AUDIO_TRACK_LABELS[key];
+    const enabled = project?.audio_tracks?.[key]?.enabled !== false;
+    const clips = shotSegments.map(({ duration }) => `<span class="audio-clip" style="--clip-size:${(duration / total * 100).toFixed(3)}%"></span>`).join("");
+    const duckBands = key === "music" && project?.smart_ducking?.enabled !== false
+      ? audioTimelineCues(project).map((cue) => {
+        const left = Math.min(100, Math.max(0, cue.start / total * 100));
+        const width = Math.max(0.8, Math.min(100 - left, (Math.max(cue.end, cue.start + 0.4) - cue.start) / total * 100));
+        return `<i class="audio-ducking-band" style="left:${left.toFixed(3)}%;width:${width.toFixed(3)}%" title="SMART DUCKING · ${esc(cue.text)}"></i>`;
+      }).join("") : "";
+    return `<div class="audio-timeline-track" data-audio-track-row="${key}"><span class="audio-track-name mono">${label.en}</span><div class="audio-track-lane ${enabled ? "is-enabled" : "is-muted"}">${key === "music" ? `${audioWaveformMarkup(index + 3)}${duckBands}` : clips}</div></div>`;
+  }).join("");
+  const markup = `
+    <header class="audio-timeline-head"><span><span class="deliver-label mono">SOUND TIMELINE / 声音时间线</span><strong>VOICE · MUSIC · SFX · AMBIENCE</strong></span><span class="audio-timeline-time mono" data-audio-timeline-label>00:00 / ${compactDuration(total)}</span></header>
+    <div class="audio-timeline-ruler mono"><span>00:00</span><span>00:15</span><span>00:30</span><span>${compactDuration(total)}</span></div>
+    <div class="audio-timeline-stage" data-audio-seek-track>
+      <div class="audio-shot-row"><span class="audio-track-name mono">SHOTS</span><div class="audio-shot-lane">${segmentMarkup || '<span class="audio-empty mono">镜头时间线将在分镜就绪后出现。</span>'}</div></div>
+      ${trackMarkup}
+      <div class="audio-subtitle-row"><span class="audio-track-name mono">SUB</span><div class="audio-subtitle-lane">${cueMarkup || '<span class="audio-empty mono">锁定台词本后显示字幕 cue。</span>'}</div></div>
+      <i class="audio-playhead" data-audio-playhead aria-hidden="true"><b></b></i>
+    </div>`;
+  targets.forEach((target) => {
+    target.innerHTML = markup;
+    target.querySelectorAll("[data-audio-seek]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const time = Number(button.dataset.audioSeek || 0);
+        const media = state.hasFinalVideo ? els.finalVideo : els.roughCutVideo;
+        if (media && media.src) {
+          media.currentTime = time;
+          media.play().catch(() => {});
+        }
+        syncAudioTimeline(time, total);
+      });
+    });
+  });
+  syncAudioTimeline(0, total);
+}
+
+function syncAudioTimeline(currentTime = 0, duration = state.audioTimelineDuration || 1) {
+  const total = Math.max(1, Number(duration) || state.audioTimelineDuration || 1);
+  const ratio = Math.max(0, Math.min(1, Number(currentTime || 0) / total));
+  const percent = `${(ratio * 100).toFixed(3)}%`;
+  [els.audioTimeline, els.audioTimelineEditor].filter(Boolean).forEach((timeline) => {
+    timeline.style.setProperty("--audio-progress", percent);
+    timeline.querySelectorAll("[data-audio-playhead]").forEach((playhead) => { playhead.style.left = percent; });
+    timeline.querySelectorAll("[data-audio-timeline-label]").forEach((label) => { label.textContent = `${compactDuration(currentTime)} / ${compactDuration(total)}`; });
+    timeline.querySelectorAll(".audio-subtitle-cue").forEach((cue) => {
+      const start = Number(cue.dataset.cueStart || 0);
+      const end = Number(cue.dataset.cueEnd || start);
+      cue.classList.toggle("is-active", currentTime >= start && currentTime <= end);
+    });
+  });
+}
+
 function renderAudioDesign(project) {
   if (!project) return;
   const mode = audioModeFor(project);
   state.musicMode = mode;
   state.musicAssetName = project.music_asset_name || "";
+  const rawIntensity = Number(project.music_intensity ?? project.music_brief?.intensity ?? 0.6);
+  state.musicIntensity = Number.isFinite(rawIntensity) ? Math.max(0, Math.min(1, rawIntensity)) : 0.6;
   state.smartDucking = project.smart_ducking?.enabled !== false;
   if (els.audioDesignState) els.audioDesignState.textContent = project.music_brief?.mode_status || (mode === "ai" ? "BRIEF READY" : mode.toUpperCase());
-  els.audioModeSwitch?.querySelectorAll("[data-audio-mode]").forEach((button) => {
+  document.querySelectorAll(".audio-mode-switch [data-audio-mode]").forEach((button) => {
     const selected = button.dataset.audioMode === mode;
     button.classList.toggle("is-selected", selected);
     button.setAttribute("aria-checked", String(selected));
   });
   els.audioUploadRow?.classList.toggle("hidden", mode !== "upload");
   if (els.musicUploadNote) els.musicUploadNote.textContent = state.musicAssetName ? `已选择：${state.musicAssetName}` : "上传后将作为 MUSIC 轨来源。";
+  els.deliverAudioUploadRow?.classList.toggle("hidden", mode !== "upload");
+  if (els.deliverMusicUploadNote) els.deliverMusicUploadNote.textContent = state.musicAssetName ? `已选择：${state.musicAssetName}` : "上传后将作为 MUSIC 轨来源。";
+  if (els.deliverMusicIntensity) els.deliverMusicIntensity.value = String(state.musicIntensity);
+  if (els.deliverMusicIntensityValue) els.deliverMusicIntensityValue.textContent = `${Math.round(state.musicIntensity * 100)}%`;
   if (els.musicBriefSource) els.musicBriefSource.textContent = project.music_brief?.source || AUDIO_MODE_LABELS[mode];
   if (els.musicBriefVersion) els.musicBriefVersion.textContent = `V${project.music_brief?.version || 1}`;
   if (els.musicBriefGrid) els.musicBriefGrid.innerHTML = renderMusicBriefMarkup(project);
@@ -1566,8 +1748,17 @@ function renderAudioDesign(project) {
     const cueCount = project.smart_ducking?.voice_cues?.length || 0;
     els.smartDuckingCopy.textContent = `${cueCount} 个语音区间 · ${project.smart_ducking?.description || "旁白 / 对白出现时，Music 自动降低并平滑恢复。"}`;
   }
+  if (els.deliverSmartDuckingToggle) els.deliverSmartDuckingToggle.checked = state.smartDucking;
+  if (els.deliverSmartDuckingValue) els.deliverSmartDuckingValue.textContent = `${project.smart_ducking?.amount_db ?? -8} dB`;
+  if (els.deliverSmartDuckingCopy) {
+    const cueCount = project.smart_ducking?.voice_cues?.length || 0;
+    els.deliverSmartDuckingCopy.textContent = cueCount
+      ? `${cueCount} 个语音区间 · 对白出现时自动降低配乐，结束后平滑恢复。`
+      : "锁定台词本后，系统会按语音区间自动降低配乐。";
+  }
   renderEmotionalArc(project);
   renderAudioTrackList(project, els.audioTrackList);
+  renderAudioTimeline(project);
   if (els.deliverAudioState) els.deliverAudioState.textContent = project.mix_state?.status || "MIX PLAN READY";
   if (els.deliverMusicBrief) els.deliverMusicBrief.innerHTML = renderMusicBriefMarkup(project, true);
   renderAudioTrackList(project, els.deliverAudioTrackList);
@@ -1577,6 +1768,7 @@ async function persistAudioDesign(changes = {}) {
   if (!state.project) return;
   const payload = {
     music_mode: changes.music_mode || state.musicMode || "ai",
+    music_intensity: changes.music_intensity ?? state.musicIntensity ?? 0.6,
     smart_ducking: changes.smart_ducking ?? state.smartDucking,
     music_asset_name: changes.music_asset_name ?? state.musicAssetName ?? "",
     track_enabled: Object.fromEntries(AUDIO_TRACK_ORDER.map((key) => [key, state.project?.audio_tracks?.[key]?.enabled !== false])),
@@ -1648,8 +1840,8 @@ function handleAudioInteraction(event) {
 
 async function uploadMusicFile(file) {
   if (!state.project || !file) return;
-  const note = els.musicUploadNote;
-  if (note) note.textContent = "正在接收用户配乐…";
+  const notes = [els.musicUploadNote, els.deliverMusicUploadNote].filter(Boolean);
+  notes.forEach((note) => { note.textContent = "正在接收用户配乐…"; });
   try {
     const response = await fetch(`/api/projects/${encodeURIComponent(state.project.project_id)}/audio/upload`, {
       method: "POST",
@@ -1665,7 +1857,7 @@ async function uploadMusicFile(file) {
     renderLogFeed(project);
     toast("用户配乐已挂接到 MUSIC 轨道。");
   } catch (error) {
-    if (note) note.textContent = "上传失败，请重试。";
+    notes.forEach((note) => { note.textContent = "上传失败，请重试。"; });
     toast(`配乐上传失败：${error.message}`, true);
   }
 }
@@ -1762,9 +1954,76 @@ function applyFinalLookPreview(look) {
     els.screen.style.setProperty("--look-vignette", String(resolved.vignette));
     els.screen.style.setProperty("--look-soften", String(resolved.highlight_soften));
   }
-  if (els.finalVideo) els.finalVideo.style.filter = finalLookVideoFilter(resolved);
+  // Before/After comparison keeps the source cut clean and applies the
+  // draft grade only to the clipped Final Look layer.
+  if (els.finalVideo) els.finalVideo.style.filter = "none";
+  if (els.finalVideoAfter) els.finalVideoAfter.style.filter = finalLookVideoFilter(resolved);
+  if (els.finalCompareAfter) els.finalCompareAfter.style.setProperty("--grade-split", `${state.finalLookSplit}%`);
+  if (els.finalCompareDivider) {
+    els.finalCompareDivider.style.left = `${state.finalLookSplit}%`;
+    els.finalCompareDivider.setAttribute("aria-valuenow", String(Math.round(state.finalLookSplit)));
+  }
   if (els.finalLookPresetName) els.finalLookPresetName.textContent = info.english;
   if (els.finalLookDescription) els.finalLookDescription.textContent = info.description;
+}
+
+function setFinalCompareSplit(value) {
+  state.finalLookSplit = Math.max(8, Math.min(92, Number(value) || 50));
+  if (els.finalCompareAfter) els.finalCompareAfter.style.setProperty("--grade-split", `${state.finalLookSplit}%`);
+  if (els.finalCompareDivider) {
+    els.finalCompareDivider.style.left = `${state.finalLookSplit}%`;
+    els.finalCompareDivider.setAttribute("aria-valuenow", String(Math.round(state.finalLookSplit)));
+  }
+}
+
+function initFinalCompare() {
+  const compare = els.finalCompare;
+  const divider = els.finalCompareDivider;
+  if (!compare || !divider) return;
+  let dragging = false;
+  const updateFromPointer = (event) => {
+    const rect = compare.getBoundingClientRect();
+    if (!rect.width) return;
+    setFinalCompareSplit(((event.clientX - rect.left) / rect.width) * 100);
+  };
+  divider.addEventListener("pointerdown", (event) => {
+    dragging = true;
+    divider.setPointerCapture?.(event.pointerId);
+    divider.classList.add("is-dragging");
+    updateFromPointer(event);
+    event.preventDefault();
+  });
+  divider.addEventListener("pointermove", (event) => {
+    if (dragging) updateFromPointer(event);
+  });
+  const release = (event) => {
+    if (!dragging) return;
+    dragging = false;
+    divider.releasePointerCapture?.(event.pointerId);
+    divider.classList.remove("is-dragging");
+  };
+  divider.addEventListener("pointerup", release);
+  divider.addEventListener("pointercancel", release);
+  divider.addEventListener("keydown", (event) => {
+    if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+      event.preventDefault();
+      setFinalCompareSplit(state.finalLookSplit + (event.key === "ArrowRight" ? 4 : -4));
+    }
+    if (event.key === "Home") { event.preventDefault(); setFinalCompareSplit(8); }
+    if (event.key === "End") { event.preventDefault(); setFinalCompareSplit(92); }
+  });
+  setFinalCompareSplit(state.finalLookSplit);
+}
+
+function syncFinalCompareMedia(source = els.finalVideo) {
+  const mirror = els.finalVideoAfter;
+  if (!source || !mirror) return;
+  try {
+    if (Number.isFinite(source.currentTime) && Math.abs((mirror.currentTime || 0) - source.currentTime) > 0.12) mirror.currentTime = source.currentTime;
+  } catch { /* the mirrored layer can be waiting for metadata */ }
+  if (source.paused) mirror.pause();
+  else mirror.play().catch(() => {});
+  syncAudioTimeline(source.currentTime || 0, source.duration || state.audioTimelineDuration || 1);
 }
 
 function renderFinalLook(project) {
@@ -1925,14 +2184,14 @@ function renderDeliverTimeline(project) {
   if (!els.deliverShotTimeline) return;
   let offset = 0;
   const total = deliverRuntime(project);
-  els.deliverTimelineTotal.textContent = total ? `${compactDuration(total)} · ${shots.length} SHOTS` : "—";
+  els.deliverTimelineTotal.textContent = total ? `${compactDuration(total)} · ${shots.length} SHOTS` : "·";
   els.deliverShotTimeline.innerHTML = shots.length
     ? shots.map((shot) => {
       const duration = Math.max(1, Number(shot.duration_seconds || 1));
       const start = offset;
       offset += duration;
       const stateInfo = shotWorkflowState(shot.status);
-      return `<button class="deliver-timeline-shot ${stateInfo.key}" type="button" role="listitem" data-deliver-start="${start}" style="--shot-duration:${duration};" aria-label="跳转到镜头 ${shot.number}"><span class="mono">SHOT ${String(shot.number).padStart(2, "0")}</span><small>${compactDuration(start)} — ${compactDuration(start + duration)}</small><i>${duration}s</i></button>`;
+      return `<button class="deliver-timeline-shot ${stateInfo.key}" type="button" role="listitem" data-deliver-start="${start}" style="--shot-duration:${duration};" aria-label="跳转到镜头 ${shot.number}"><span class="mono">SHOT ${String(shot.number).padStart(2, "0")}</span><small>${compactDuration(start)} · ${compactDuration(start + duration)}</small><i>${duration}s</i></button>`;
     }).join("")
     : '<p class="empty-note">镜头生成后，这里会出现可跳转的时间线。</p>';
   els.deliverShotTimeline.querySelectorAll("[data-deliver-start]").forEach((button) => {
@@ -1951,8 +2210,15 @@ async function renderScreening(project) {
   const probeRun = ++state.finalVideoProbeRun;
   state.hasFinalVideo = false;
   state.finalVideoUrl = null;
+  // Reset the mutually exclusive Deliver surfaces before probing media. This
+  // prevents a previous project's player from flashing while a new HEAD check
+  // is in flight.
+  els.deliverSummary?.classList.remove("hidden");
+  els.deliverFinal?.classList.add("hidden");
   els.finalVideo?.removeAttribute("src");
   els.finalVideo?.load();
+  els.finalVideoAfter?.removeAttribute("src");
+  els.finalVideoAfter?.load();
   els.roughCutVideo?.removeAttribute("src");
   els.roughCutVideo?.load();
   els.roughCutStage?.classList.remove("has-media");
@@ -1989,6 +2255,10 @@ async function renderScreening(project) {
         state.hasFinalVideo = true;
         state.finalVideoUrl = candidate;
         if (els.finalVideo) els.finalVideo.src = candidate;
+        if (els.finalVideoAfter) {
+          els.finalVideoAfter.src = candidate;
+          els.finalVideoAfter.load();
+        }
       }
     } catch { /* final media is optional in mock mode */ }
   }
@@ -1999,27 +2269,33 @@ async function renderScreening(project) {
     els.deliverStateBadge.textContent = resolvedState.badge;
     els.deliverStateBadge.dataset.state = resolvedState.key;
   }
-  const showFinal = finalStatus;
+  const showFinal = finalStatus && state.hasFinalVideo;
+  const showPlaceholder = !state.hasFinalVideo;
+  if (els.deliverSummary) els.deliverSummary.classList.toggle("hidden", !showPlaceholder);
   if (els.deliverFinal) els.deliverFinal.classList.toggle("hidden", !showFinal);
-  if (els.finalNotGenerated) els.finalNotGenerated.classList.toggle("hidden", state.hasFinalVideo);
+  if (els.finalNotGenerated) els.finalNotGenerated.classList.add("hidden");
   if (els.screen) els.screen.classList.toggle("has-video", state.hasFinalVideo);
   if (els.finalPlayerState) els.finalPlayerState.textContent = state.hasFinalVideo ? "READY TO SCREEN" : "MEDIA MISSING";
-  if (els.deliverMetaDuration) els.deliverMetaDuration.textContent = deliverRuntime(project) ? compactDuration(deliverRuntime(project)) : "—";
-  if (els.deliverMetaResolution) els.deliverMetaResolution.textContent = state.hasFinalVideo ? "读取中…" : "—";
+  if (els.deliverMetaDuration) els.deliverMetaDuration.textContent = deliverRuntime(project) ? compactDuration(deliverRuntime(project)) : "·";
+  if (els.deliverMetaResolution) els.deliverMetaResolution.textContent = state.hasFinalVideo ? "读取中…" : "·";
   if (els.deliverMetaAspect) els.deliverMetaAspect.textContent = "16:9";
-  if (els.deliverMetaCodec) els.deliverMetaCodec.textContent = state.hasFinalVideo ? "H.264 / AAC" : "—";
+  if (els.deliverMetaCodec) els.deliverMetaCodec.textContent = state.hasFinalVideo ? "H.264 / AAC" : "·";
   if (els.deliverMetaSubtitles) els.deliverMetaSubtitles.textContent = subtitleModeLabel(project?.subtitle_mode || project?.script?.subtitle_mode || "burned");
   if (els.deliverMetaVoiceover) els.deliverMetaVoiceover.textContent = project?.script?.dialogue_locked ? "LOCKED TRACK" : "LOCK REQUIRED";
   if (els.deliverMetaAudio) els.deliverMetaAudio.textContent = project?.script?.dialogue_locked ? "VOICE · MUSIC · SFX · ATMOS" : "LOCK REQUIRED";
   if (els.btnAiEdit) {
-    els.btnAiEdit.classList.toggle("hidden", finalStatus || ["rough", "editing"].includes(resolvedState.key));
+    const canStartAiEdit = showPlaceholder && !["rough", "editing"].includes(resolvedState.key);
+    els.btnAiEdit.classList.toggle("hidden", !canStartAiEdit);
     els.btnAiEdit.disabled = state.editing || !((project?.storyboard || []).length && (project.storyboard || []).every((shot) => String(shot.status || "").startsWith("approved")));
     els.btnAiEdit.innerHTML = state.editing ? "AI Edit 粗剪中…" : 'AI 剪辑成片 <span class="cta-arrow" aria-hidden="true">→</span>';
   }
   if (els.btnExportFinal) els.btnExportFinal.classList.toggle("hidden", !state.hasFinalVideo);
-  if (els.btnReedit) els.btnReedit.classList.toggle("hidden", !finalStatus);
+  if (els.btnReedit) els.btnReedit.classList.toggle("hidden", !state.hasFinalVideo);
   if (els.btnEditSubtitles) els.btnEditSubtitles.classList.toggle("hidden", !project);
-  if (els.editStatus && !state.editing && resolvedState.key === "missing") els.editStatus.textContent = "FINAL CUT NOT GENERATED · 请在 Spark 完成真实 FFmpeg 成片后刷新。";
+  if (els.editStatus && !state.editing) {
+    if (resolvedState.key === "missing") els.editStatus.textContent = "FINAL CUT NOT GENERATED · 先启动 AI 剪辑成片，完成后再回到这里审片。";
+    else if (showFinal) els.editStatus.textContent = "FINAL CUT READY · 可审片、调整声音与 Final Look，然后导出。";
+  }
   renderFinalLook(project);
   if (els.crewFlow) syncCrewBoard(project, { silent: true });
   updatePipelineForProject(project);
@@ -2181,7 +2457,9 @@ function clearCrewCardSelection() {
 function syncInspectorSelection() {
   const active = String(state.activeShotNumber ?? "");
   document.querySelectorAll(".shot-card[data-shot], .timeline-segment[data-shot]").forEach((element) => {
-    element.classList.toggle("is-inspected", state.drawerType === "shot" && String(element.dataset.shot) === active);
+    const isShot = String(element.dataset.shot) === active;
+    element.classList.toggle("is-inspected", state.drawerType === "shot" && isShot);
+    element.classList.toggle("is-current", element.classList.contains("shot-card") && isShot);
   });
 }
 
@@ -2247,6 +2525,28 @@ function inspectorShotPreviewMarkup(shot) {
     </section>`;
 }
 
+const PROMPT_SEMANTICS = [
+  { key: "character", label: "CHARACTER", tests: /角色|人物|主角|演员|character|subject|figure/i },
+  { key: "environment", label: "ENVIRONMENT", tests: /环境|空间|场景|荒原|城市|房间|观测站|environment|location|interior|exterior/i },
+  { key: "lighting", label: "LIGHTING", tests: /光|照明|灯|曝光|阴影|高光|lighting|light|shadow|highlight|exposure/i },
+  { key: "camera", label: "CAMERA", tests: /镜头|摄影|机位|焦段|景别|推|拉|环绕|camera|lens|dolly|orbit|shot/i },
+  { key: "mood", label: "MOOD", tests: /情绪|氛围|质感|风格|梦|紧张|孤独|mood|tone|atmosphere|texture/i },
+];
+
+function structuredPromptMarkup(prompt) {
+  const text = String(prompt || "").trim();
+  if (!text) return '<p class="prompt-empty mono">FINAL PROMPT / 等待提示词生成。</p>';
+  const chunks = text.split(/(?<=[。！？.!?；;])\s*|\n+/).map((item) => item.trim()).filter(Boolean);
+  const parts = chunks.length ? chunks : [text];
+  const assigned = parts.map((part, index) => {
+    const match = PROMPT_SEMANTICS.find((item) => item.tests.test(part));
+    return { key: match?.key || PROMPT_SEMANTICS[index % PROMPT_SEMANTICS.length].key, text: part };
+  });
+  const chips = PROMPT_SEMANTICS.map((item) => `<button type="button" class="prompt-token" data-prompt-key="${item.key}" aria-pressed="false">${item.label}</button>`).join("");
+  const phrases = assigned.map((part) => `<span class="prompt-phrase" data-prompt-key="${part.key}">${esc(part.text)}</span>`).join(" ");
+  return `<div class="prompt-structure" role="toolbar" aria-label="提示词语义区段">${chips}</div><div class="prompt-segments" tabindex="0" aria-label="结构化最终提示词">${phrases}</div>`;
+}
+
 function buildShotInspectorMarkup(project, shot) {
   const shots = project.storyboard || [];
   const index = Math.max(0, shots.findIndex((item) => item.number === shot.number));
@@ -2279,20 +2579,20 @@ function buildShotInspectorMarkup(project, shot) {
 
       <dl class="inspector-facts">
         <div><dt class="mono">DURATION</dt><dd>${esc(shot.duration_seconds)}<small>s</small></dd></div>
-        <div><dt class="mono">FRAMING</dt><dd>${esc(shot.framing || "—")}</dd></div>
+        <div><dt class="mono">FRAMING</dt><dd>${esc(shot.framing || "·")}</dd></div>
         <div><dt class="mono">GENERATION</dt><dd class="mono">${esc(shot.generation_mode || "T2V")}</dd></div>
         <div><dt class="mono">TAKES</dt><dd class="mono">${esc(shot.attempts || 0)}<small>×</small></dd></div>
       </dl>
 
       <section class="inspector-copy-section">
-        <div class="inspector-copy-block inspector-copy-block--wide"><span class="inspector-label mono">IMAGE / 画面</span><p>${esc(shot.image_description || "—")}</p></div>
-        <div class="inspector-copy-block"><span class="inspector-label mono">ACTION / 动作</span><p>${esc(shot.action || "—")}</p></div>
-        <div class="inspector-copy-block"><span class="inspector-label mono">SOUND / 声音</span><p>${esc(shot.sound_design || "—")}</p></div>
+        <div class="inspector-copy-block inspector-copy-block--wide"><span class="inspector-label mono">IMAGE / 画面</span><p>${esc(shot.image_description || "·")}</p></div>
+        <div class="inspector-copy-block"><span class="inspector-label mono">ACTION / 动作</span><p>${esc(shot.action || "·")}</p></div>
+        <div class="inspector-copy-block"><span class="inspector-label mono">SOUND / 声音</span><p>${esc(shot.sound_design || "·")}</p></div>
       </section>
 
       <section class="inspector-prompt-block">
         <header class="inspector-section-head mono"><span>FINAL PROMPT / 最终提示词</span><button class="inspector-copy-btn mono" data-copy-prompt type="button">复制</button></header>
-        <pre class="inspector-prompt-readonly">${esc(shot.prompt || "—")}</pre>
+        ${structuredPromptMarkup(shot.prompt)}
         <p class="inspector-prompt-note mono">展开 Shot Workspace 后可编辑提示词与镜头字段。</p>
       </section>
 
@@ -2333,6 +2633,23 @@ function bindShotInspector(project, shot, { initial = false } = {}) {
     } catch {
       toast("复制失败，请手动选择文本。", true);
     }
+  });
+  const setPromptFocus = (key, active) => {
+    els.drawer.querySelectorAll("[data-prompt-key]").forEach((item) => {
+      item.classList.toggle("is-prompt-focus", active && item.dataset.promptKey === key);
+    });
+  };
+  els.drawer.querySelectorAll(".prompt-token").forEach((token) => {
+    const key = token.dataset.promptKey;
+    token.addEventListener("mouseenter", () => setPromptFocus(key, true));
+    token.addEventListener("mouseleave", () => setPromptFocus(key, false));
+    token.addEventListener("focus", () => setPromptFocus(key, true));
+    token.addEventListener("blur", () => setPromptFocus(key, false));
+    token.addEventListener("click", () => {
+      const active = token.classList.toggle("is-prompt-focus");
+      setPromptFocus(key, active);
+      token.setAttribute("aria-pressed", String(active));
+    });
   });
   els.drawer.querySelector('[data-inspector-action="replan"]')?.addEventListener("click", () => regenerateShot(shot.number, "replan"));
   els.drawer.querySelector('[data-inspector-action="regenerate"]')?.addEventListener("click", () => renderSingleShot(shot.number));
@@ -2640,6 +2957,7 @@ function createLiveProject(event) {
     subtitle_mode: "burned",
     edit_plan: {},
     music_mode: "ai",
+    music_intensity: 0.6,
     music_asset_name: "",
     music_brief: {},
     audio_tracks: {},
@@ -2770,6 +3088,7 @@ async function startCreation() {
   state.editing = false;
   state.editProgressStep = 0;
   state.musicMode = "ai";
+  state.musicIntensity = 0.6;
   state.musicAssetName = "";
   state.smartDucking = true;
   state.workingAgent = null;
@@ -2955,6 +3274,7 @@ async function startAiEdit() {
       `/api/projects/${state.project.project_id}/edit/stream`,
       {
         music_mode: state.musicMode || state.project.music_mode || "ai",
+        music_intensity: state.musicIntensity ?? state.project.music_intensity ?? 0.6,
         smart_ducking: state.smartDucking,
         music_asset_name: state.musicAssetName || state.project.music_asset_name || "",
         track_enabled: Object.fromEntries(AUDIO_TRACK_ORDER.map((key) => [key, state.project?.audio_tracks?.[key]?.enabled !== false])),
@@ -3159,8 +3479,23 @@ function buildStyleCards() {
 /* ── 视图路由：首页 ⇄ 创作页（电影遮幅转场） ────────────────── */
 
 const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+const LOW_PERFORMANCE = Number(navigator.hardwareConcurrency || 4) <= 2 || Number(navigator.deviceMemory || 4) <= 2;
 const views = { landing: els.viewLanding, studio: els.viewStudio };
 let viewTransitioning = false;
+
+function clampUnit(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.max(0, Math.min(1, number)) : 0;
+}
+
+function lerpValue(from, to, amount) {
+  return from + (to - from) * amount;
+}
+
+function smoothUnit(value) {
+  const unit = clampUnit(value);
+  return unit * unit * (3 - 2 * unit);
+}
 
 function currentView() {
   return location.hash === "#/studio" ? "studio" : "landing";
@@ -3183,9 +3518,13 @@ function gotoView(name) {
   viewTransitioning = true;
   els.shutter.classList.add("is-closed");
   setTimeout(() => {
-    location.hash = name === "studio" ? "#/studio" : "#/";
-    applyView(name);
-    window.scrollTo(0, 0);
+    const switchView = () => {
+      location.hash = name === "studio" ? "#/studio" : "#/";
+      applyView(name);
+      window.scrollTo(0, 0);
+    };
+    if (typeof document.startViewTransition === "function") document.startViewTransition(switchView);
+    else switchView();
     els.shutter.classList.remove("is-closed");
     setTimeout(() => {
       viewTransitioning = false;
@@ -3302,43 +3641,495 @@ function initLandingInteractions() {
   for (const el of $$(".reveal")) observer.observe(el);
 
   const hero = $(".landing-hero");
-  let parallaxFrame = null;
+  const spotlight = $(".landing-spotlight");
+  let landingFrame = null;
+  window.setTimeout(() => hero?.classList.add("is-booted"), REDUCED_MOTION ? 0 : 120);
   window.addEventListener("pointermove", (event) => {
     if (REDUCED_MOTION || currentView() !== "landing" || !hero) return;
-    if (parallaxFrame) cancelAnimationFrame(parallaxFrame);
-    parallaxFrame = requestAnimationFrame(() => {
+    if (landingFrame) cancelAnimationFrame(landingFrame);
+    landingFrame = requestAnimationFrame(() => {
       const x = ((event.clientX / window.innerWidth) - 0.5) * 10;
       const y = ((event.clientY / window.innerHeight) - 0.5) * 8;
       hero.style.setProperty("--aurora-x", `${x}px`);
       hero.style.setProperty("--aurora-y", `${y}px`);
+      if (spotlight) {
+        const x = (event.clientX / Math.max(1, window.innerWidth)) * 100;
+        const y = (event.clientY / Math.max(1, window.innerHeight)) * 100;
+        const angle = -18 + ((event.clientX / Math.max(1, window.innerWidth)) - 0.5) * 7;
+        const dx = ((event.clientX / Math.max(1, window.innerWidth)) - 0.5) * 10;
+        const dy = ((event.clientY / Math.max(1, window.innerHeight)) - 0.5) * 7;
+        spotlight.style.setProperty("--spotlight-x", `${x.toFixed(2)}%`);
+        spotlight.style.setProperty("--spotlight-y", `${y.toFixed(2)}%`);
+        spotlight.style.setProperty("--spotlight-angle", `${angle.toFixed(2)}deg`);
+        spotlight.style.setProperty("--spotlight-dx", `${dx.toFixed(2)}px`);
+        spotlight.style.setProperty("--spotlight-dy", `${dy.toFixed(2)}px`);
+      }
+      landingFrame = null;
     });
   });
 }
 
-/* 滚动摄影机：把页面滚动位置转成景深偏移与全局进度，低成本且可自然降级。 */
-function initScrollMotion() {
+/* 首页显影台：pointer distance -> 0..1 -> lerp -> 分层视觉状态。
+   画面本身不监听 hover 状态，离开后仍会沿着物理回弹曲线退回暗房。 */
+function initLandingProximity() {
+  const hero = $(".landing-hero");
+  const reveal = $("#landing-reveal");
+  if (!hero || !reveal || REDUCED_MOTION) {
+    reveal?.style.setProperty("--reveal-script", "0.2");
+    reveal?.style.setProperty("--reveal-sketch", "0.24");
+    reveal?.style.setProperty("--reveal-light", "0.12");
+    return;
+  }
+
+  const motion = {
+    targetProgress: 0,
+    progress: 0,
+    targetLightX: 54,
+    targetLightY: 44,
+    lightX: 54,
+    lightY: 44,
+    targetLightAlpha: 0,
+    lightAlpha: 0,
+    targetDepthX: 0,
+    targetDepthY: 0,
+    depthX: 0,
+    depthY: 0,
+    pointerInside: false,
+    frame: null,
+  };
+
+  const setVar = (name, value) => reveal.style.setProperty(name, String(value));
+  const setLightVar = (name, value) => hero.style.setProperty(name, String(value));
+
+  const render = () => {
+    motion.progress = lerpValue(motion.progress, motion.targetProgress, LOW_PERFORMANCE ? 0.14 : 0.095);
+    motion.lightX = lerpValue(motion.lightX, motion.targetLightX, 0.12);
+    motion.lightY = lerpValue(motion.lightY, motion.targetLightY, 0.12);
+    motion.lightAlpha = lerpValue(motion.lightAlpha, motion.targetLightAlpha, 0.11);
+    motion.depthX = lerpValue(motion.depthX, motion.targetDepthX, 0.11);
+    motion.depthY = lerpValue(motion.depthY, motion.targetDepthY, 0.11);
+
+    const progress = motion.progress;
+    const script = 0.08 + progress * 0.2;
+    const sketch = smoothUnit((progress - 0.02) / 0.3);
+    const light = smoothUnit((progress - 0.18) / 0.32);
+    const color = smoothUnit((progress - 0.46) / 0.34);
+    const finalFrame = smoothUnit((progress - 0.7) / 0.3);
+    setVar("--reveal-progress", progress.toFixed(3));
+    setVar("--reveal-script", script.toFixed(3));
+    setVar("--reveal-sketch", (sketch * 0.86).toFixed(3));
+    setVar("--reveal-light", (light * 0.95).toFixed(3));
+    setVar("--reveal-color", color.toFixed(3));
+    setVar("--reveal-final", finalFrame.toFixed(3));
+    setVar("--reveal-vignette", (0.22 + finalFrame * 0.2).toFixed(3));
+    setVar("--reveal-grain", (finalFrame * 0.12).toFixed(3));
+    setVar("--reveal-caption", (0.2 + progress * 0.55).toFixed(3));
+    setVar("--reveal-final-radius", `${(8 + finalFrame * 92).toFixed(2)}%`);
+    setVar("--reveal-light-x", `${motion.lightX.toFixed(2)}%`);
+    setVar("--reveal-light-y", `${motion.lightY.toFixed(2)}%`);
+    setVar("--reveal-depth-x", `${(motion.depthX * 0.12).toFixed(2)}px`);
+    setVar("--reveal-depth-y", `${(motion.depthY * 0.12).toFixed(2)}px`);
+    setVar("--script-shift-x", `${(motion.depthX * 0.18).toFixed(2)}px`);
+    setVar("--script-shift-y", `${(motion.depthY * 0.18).toFixed(2)}px`);
+    setVar("--sketch-shift-x", `${(motion.depthX * 0.34).toFixed(2)}px`);
+    setVar("--sketch-shift-y", `${(motion.depthY * 0.34).toFixed(2)}px`);
+    setVar("--color-shift-x", `${(motion.depthX * 0.58).toFixed(2)}px`);
+    setVar("--color-shift-y", `${(motion.depthY * 0.58).toFixed(2)}px`);
+    setVar("--final-shift-x", `${(motion.depthX * 0.82).toFixed(2)}px`);
+    setVar("--final-shift-y", `${(motion.depthY * 0.82).toFixed(2)}px`);
+    setLightVar("--shared-light-x", `${(motion.targetLightX * 0.86 + 7).toFixed(2)}%`);
+    setLightVar("--shared-light-y", `${(motion.targetLightY * 0.78 + 5).toFixed(2)}%`);
+    setLightVar("--shared-light-alpha", motion.lightAlpha.toFixed(3));
+
+    const settling = Math.abs(motion.targetProgress - motion.progress) < 0.002
+      && Math.abs(motion.targetLightAlpha - motion.lightAlpha) < 0.002
+      && Math.abs(motion.targetDepthX - motion.depthX) < 0.12
+      && Math.abs(motion.targetDepthY - motion.depthY) < 0.12;
+    if (motion.pointerInside || !settling) motion.frame = requestAnimationFrame(render);
+    else motion.frame = null;
+  };
+
+  const requestRender = () => {
+    if (motion.frame === null) motion.frame = requestAnimationFrame(render);
+  };
+
+  const updateTarget = (event) => {
+    if (event.pointerType === "touch") return;
+    const revealRect = reveal.getBoundingClientRect();
+    const heroRect = hero.getBoundingClientRect();
+    const closestX = Math.max(revealRect.left, Math.min(event.clientX, revealRect.right));
+    const closestY = Math.max(revealRect.top, Math.min(event.clientY, revealRect.bottom));
+    const distance = Math.hypot(event.clientX - closestX, event.clientY - closestY);
+    const radius = Math.max(220, Math.min(620, Math.max(revealRect.width * 0.66, revealRect.height * 1.06)));
+    const raw = clampUnit(1 - distance / radius);
+    motion.targetProgress = smoothUnit(raw);
+    motion.targetLightX = clampUnit((event.clientX - revealRect.left) / Math.max(1, revealRect.width)) * 100;
+    motion.targetLightY = clampUnit((event.clientY - revealRect.top) / Math.max(1, revealRect.height)) * 100;
+    motion.targetLightAlpha = motion.targetProgress * (LOW_PERFORMANCE ? 0.42 : 0.62);
+    motion.targetDepthX = Math.max(-12, Math.min(12, (event.clientX - (heroRect.left + heroRect.width * 0.5)) / Math.max(1, heroRect.width) * 18));
+    motion.targetDepthY = Math.max(-9, Math.min(9, (event.clientY - (heroRect.top + heroRect.height * 0.46)) / Math.max(1, heroRect.height) * 14));
+    motion.pointerInside = true;
+    requestRender();
+  };
+
+  hero.addEventListener("pointerenter", updateTarget, { passive: true });
+  hero.addEventListener("pointermove", updateTarget, { passive: true });
+  hero.addEventListener("pointerleave", () => {
+    motion.pointerInside = false;
+    motion.targetProgress = 0;
+    motion.targetLightAlpha = 0;
+    motion.targetLightX = 54;
+    motion.targetLightY = 44;
+    motion.targetDepthX = 0;
+    motion.targetDepthY = 0;
+    requestRender();
+  }, { passive: true });
+  window.addEventListener("resize", requestRender, { passive: true });
+  requestRender();
+}
+
+/* Crew Assembly：鼠标在生产链上的距离会连续点亮节点和相邻交接线，
+   不改变真实的 Agent 状态，只为当前路径提供空间化反馈。 */
+function initCrewProximity() {
+  const flow = els.crewFlow;
+  if (!flow || REDUCED_MOTION) return;
+  const motions = new Map();
+  let pointerInside = false;
   let frame = null;
-  const update = () => {
-    const viewport = window.innerHeight || 1;
-    const pageLength = Math.max(1, document.documentElement.scrollHeight - viewport);
-    const progress = Math.min(1, Math.max(0, window.scrollY / pageLength));
-    document.documentElement.style.setProperty("--page-progress", progress.toFixed(3));
-    const aurora = document.querySelector(".aurora");
-    if (aurora) aurora.style.setProperty("--aurora-scroll", `${Math.min(110, window.scrollY * 0.08).toFixed(1)}px`);
-    document.querySelectorAll(".panel, .feature-card, .crew-radio-wrap").forEach((element, index) => {
-      const rect = element.getBoundingClientRect();
-      const distance = (viewport * 0.5 - (rect.top + rect.height * 0.5)) / viewport;
-      const shift = Math.max(-1, Math.min(1, distance)) * (index % 2 ? 4 : -4);
-      element.style.setProperty("--depth-shift", `${shift.toFixed(1)}px`);
+
+  const ensureMotion = (card) => {
+    if (!motions.has(card)) motions.set(card, { value: 0, target: 0, x: 50, y: 50, targetX: 50, targetY: 50 });
+    return motions.get(card);
+  };
+  const render = () => {
+    const cards = Array.from(flow.querySelectorAll(".crew-card"));
+    const liveCards = new Set(cards);
+    for (const card of motions.keys()) if (!liveCards.has(card)) motions.delete(card);
+    for (const card of cards) {
+      const item = ensureMotion(card);
+      item.value = lerpValue(item.value, item.target, LOW_PERFORMANCE ? 0.2 : 0.13);
+      item.x = lerpValue(item.x, item.targetX, 0.15);
+      item.y = lerpValue(item.y, item.targetY, 0.15);
+      card.style.setProperty("--crew-proximity", item.value.toFixed(3));
+      card.style.setProperty("--crew-proximity-x", `${item.x.toFixed(1)}%`);
+      card.style.setProperty("--crew-proximity-y", `${item.y.toFixed(1)}%`);
+      card.style.setProperty("--crew-proximity-border", (item.value * 0.72).toFixed(3));
+    }
+    const nodes = Array.from(flow.querySelectorAll(".crew-flow-node"));
+    nodes.forEach((node, index) => {
+      const left = node.querySelector(".crew-card");
+      const right = nodes[index + 1]?.querySelector(".crew-card");
+      const link = node.querySelector(".crew-flow-link");
+      if (!link || !left || !right) return;
+      const leftValue = motions.get(left)?.value || 0;
+      const rightValue = motions.get(right)?.value || 0;
+      const proximity = Math.max(leftValue, rightValue) * 0.86;
+      link.style.setProperty("--link-proximity", proximity.toFixed(3));
+      link.style.setProperty("--link-proximity-border", (0.18 + proximity * 0.64).toFixed(3));
+      link.classList.toggle("is-proximity", proximity > 0.06);
     });
-    frame = null;
+    const settling = !pointerInside && Array.from(motions.values()).every((item) => item.value < 0.004 && item.target < 0.004);
+    if (pointerInside || !settling) frame = requestAnimationFrame(render);
+    else frame = null;
   };
-  const requestUpdate = () => {
-    if (frame === null) frame = requestAnimationFrame(update);
+  const requestRender = () => { if (frame === null) frame = requestAnimationFrame(render); };
+  const updateTarget = (event) => {
+    if (event.pointerType === "touch") return;
+    pointerInside = true;
+    const cards = Array.from(flow.querySelectorAll(".crew-card"));
+    for (const card of cards) {
+      const item = ensureMotion(card);
+      const rect = card.getBoundingClientRect();
+      const closestX = Math.max(rect.left, Math.min(event.clientX, rect.right));
+      const closestY = Math.max(rect.top, Math.min(event.clientY, rect.bottom));
+      const distance = Math.hypot(event.clientX - closestX, event.clientY - closestY);
+      const radius = Math.max(150, Math.min(280, Math.max(rect.width, rect.height) * 1.55));
+      item.target = smoothUnit(1 - distance / radius);
+      item.targetX = clampUnit((event.clientX - rect.left) / Math.max(1, rect.width)) * 100;
+      item.targetY = clampUnit((event.clientY - rect.top) / Math.max(1, rect.height)) * 100;
+    }
+    requestRender();
   };
-  window.addEventListener("scroll", requestUpdate, { passive: true });
-  window.addEventListener("resize", requestUpdate, { passive: true });
-  requestUpdate();
+  flow.addEventListener("pointerenter", updateTarget, { passive: true });
+  flow.addEventListener("pointermove", updateTarget, { passive: true });
+  flow.addEventListener("pointerleave", () => {
+    pointerInside = false;
+    for (const item of motions.values()) item.target = 0;
+    requestRender();
+  }, { passive: true });
+  requestRender();
+}
+
+/* 分镜胶片带：原生 scroll-snap + pointer drag + 轻惯性，拖拽时只加入极轻的速度倾斜。 */
+function initFilmstripInteractions() {
+  const viewport = els.filmstripViewport;
+  const strip = els.filmstrip;
+  if (!viewport || !strip) return;
+  let dragging = false;
+  let moved = false;
+  let startX = 0;
+  let startScroll = 0;
+  let lastX = 0;
+  let lastTime = 0;
+  let velocity = 0;
+  let skewFrame = null;
+  let inertiaFrame = null;
+  let captured = false;
+  const settleSkew = () => {
+    velocity *= 0.78;
+    strip.style.setProperty("--filmstrip-skew", `${Math.max(-1.8, Math.min(1.8, velocity * -0.06)).toFixed(2)}deg`);
+    if (Math.abs(velocity) > 0.15) skewFrame = requestAnimationFrame(settleSkew);
+    else { skewFrame = null; strip.style.setProperty("--filmstrip-skew", "0deg"); }
+  };
+  const runInertia = () => {
+    if (REDUCED_MOTION || Math.abs(velocity) < 0.2) {
+      inertiaFrame = null;
+      cancelAnimationFrame(skewFrame);
+      skewFrame = requestAnimationFrame(settleSkew);
+      return;
+    }
+    viewport.scrollLeft -= velocity * 1.35;
+    velocity *= 0.91;
+    strip.style.setProperty("--filmstrip-skew", `${Math.max(-1.8, Math.min(1.8, velocity * -0.06)).toFixed(2)}deg`);
+    inertiaFrame = requestAnimationFrame(runInertia);
+  };
+  viewport.addEventListener("pointerdown", (event) => {
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    cancelAnimationFrame(inertiaFrame);
+    inertiaFrame = null;
+    cancelAnimationFrame(skewFrame);
+    skewFrame = null;
+    dragging = true;
+    moved = false;
+    startX = event.clientX;
+    startScroll = viewport.scrollLeft;
+    lastX = event.clientX;
+    lastTime = performance.now();
+    captured = false;
+    viewport.classList.add("is-dragging");
+  });
+  viewport.addEventListener("pointermove", (event) => {
+    if (!dragging) return;
+    const dx = event.clientX - startX;
+    if (!moved && Math.abs(dx) <= 10) return;
+    moved = true;
+    if (!captured) {
+      viewport.setPointerCapture?.(event.pointerId);
+      captured = true;
+    }
+    viewport.scrollLeft = startScroll - dx;
+    const now = performance.now();
+    const dt = Math.max(8, now - lastTime);
+    velocity = (event.clientX - lastX) / dt * 16;
+    lastX = event.clientX;
+    lastTime = now;
+    strip.style.setProperty("--filmstrip-skew", `${Math.max(-1.8, Math.min(1.8, velocity * -0.06)).toFixed(2)}deg`);
+    event.preventDefault();
+  });
+  const release = (event) => {
+    if (!dragging) return;
+    dragging = false;
+    state.filmstripDragging = moved;
+    viewport.classList.remove("is-dragging");
+    if (captured) viewport.releasePointerCapture?.(event.pointerId);
+    captured = false;
+    cancelAnimationFrame(skewFrame);
+    if (moved && !REDUCED_MOTION) inertiaFrame = requestAnimationFrame(runInertia);
+    else skewFrame = requestAnimationFrame(settleSkew);
+    if (moved) window.setTimeout(() => { state.filmstripDragging = false; }, 40);
+  };
+  viewport.addEventListener("pointerup", release);
+  viewport.addEventListener("pointercancel", release);
+  viewport.addEventListener("click", (event) => {
+    if (!state.filmstripDragging) return;
+    event.preventDefault();
+    event.stopPropagation();
+    state.filmstripDragging = false;
+  }, true);
+  viewport.addEventListener("wheel", (event) => {
+    if (Math.abs(event.deltaY) > Math.abs(event.deltaX) && viewport.scrollWidth > viewport.clientWidth) {
+      viewport.scrollLeft += event.deltaY;
+      event.preventDefault();
+    }
+  }, { passive: false });
+}
+
+/* 分镜显影：距离最近的 Shot 从线稿推到彩色 keyframe，已生成视频仍由视频层接管。 */
+function initStoryboardProximity() {
+  const viewport = els.filmstripViewport;
+  if (!viewport || REDUCED_MOTION) return;
+  const motions = new Map();
+  let pointerInside = false;
+  let frame = null;
+  const ensureMotion = (card) => {
+    if (!motions.has(card)) motions.set(card, { value: 0, target: 0, x: 50, y: 50, targetX: 50, targetY: 50 });
+    return motions.get(card);
+  };
+  const render = () => {
+    const cards = Array.from(viewport.querySelectorAll(".shot-card"));
+    const liveCards = new Set(cards);
+    for (const card of motions.keys()) if (!liveCards.has(card)) motions.delete(card);
+    for (const card of cards) {
+      const item = ensureMotion(card);
+      item.value = lerpValue(item.value, item.target, LOW_PERFORMANCE ? 0.22 : 0.14);
+      item.x = lerpValue(item.x, item.targetX, 0.16);
+      item.y = lerpValue(item.y, item.targetY, 0.16);
+      card.style.setProperty("--shot-proximity", item.value.toFixed(3));
+      card.style.setProperty("--shot-proximity-x", `${item.x.toFixed(1)}%`);
+      card.style.setProperty("--shot-proximity-y", `${item.y.toFixed(1)}%`);
+      card.style.setProperty("--shot-sketch-opacity", (0.68 - item.value * 0.58).toFixed(3));
+      card.style.setProperty("--shot-color-opacity", (item.value * 0.86).toFixed(3));
+      card.style.setProperty("--shot-color-scale", (1.015 + item.value * 0.035).toFixed(3));
+      card.style.setProperty("--shot-sketch-x", `${((item.x - 50) * 0.04).toFixed(2)}px`);
+      card.style.setProperty("--shot-sketch-y", `${((item.y - 50) * 0.04).toFixed(2)}px`);
+      card.style.setProperty("--shot-color-x", `${((item.x - 50) * 0.1).toFixed(2)}px`);
+      card.style.setProperty("--shot-color-y", `${((item.y - 50) * 0.1).toFixed(2)}px`);
+    }
+    const settling = !pointerInside && Array.from(motions.values()).every((item) => item.value < 0.004 && item.target < 0.004);
+    if (pointerInside || !settling) frame = requestAnimationFrame(render);
+    else frame = null;
+  };
+  const requestRender = () => { if (frame === null) frame = requestAnimationFrame(render); };
+  const updateTarget = (event) => {
+    if (event.pointerType === "touch") return;
+    pointerInside = true;
+    for (const card of viewport.querySelectorAll(".shot-card")) {
+      const item = ensureMotion(card);
+      const rect = card.getBoundingClientRect();
+      const closestX = Math.max(rect.left, Math.min(event.clientX, rect.right));
+      const closestY = Math.max(rect.top, Math.min(event.clientY, rect.bottom));
+      const distance = Math.hypot(event.clientX - closestX, event.clientY - closestY);
+      const radius = Math.max(150, Math.min(320, rect.width * 1.42));
+      item.target = smoothUnit(1 - distance / radius);
+      item.targetX = clampUnit((event.clientX - rect.left) / Math.max(1, rect.width)) * 100;
+      item.targetY = clampUnit((event.clientY - rect.top) / Math.max(1, rect.height)) * 100;
+    }
+    requestRender();
+  };
+  viewport.addEventListener("pointerenter", updateTarget, { passive: true });
+  viewport.addEventListener("pointermove", updateTarget, { passive: true });
+  viewport.addEventListener("pointerleave", () => {
+    pointerInside = false;
+    for (const item of motions.values()) item.target = 0;
+    requestRender();
+  }, { passive: true });
+  requestRender();
+}
+
+/* 滚动摄影机：用 IntersectionObserver 做离散景深提示，避免在主线程绑 scroll 事件。 */
+function initScrollMotion() {
+  document.documentElement.style.setProperty("--page-progress", "0");
+  const elements = Array.from(document.querySelectorAll(".panel, .feature-card, .crew-radio-wrap"));
+  if (!elements.length || typeof IntersectionObserver !== "function") return;
+  const observer = new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      const index = elements.indexOf(entry.target);
+      const direction = index % 2 ? 1 : -1;
+      const visibility = Math.max(0, Math.min(1, entry.intersectionRatio));
+      const shift = (1 - visibility) * direction * 4;
+      entry.target.style.setProperty("--depth-shift", `${shift.toFixed(1)}px`);
+    }
+  }, { threshold: [0, 0.25, 0.5, 0.75, 1] });
+  elements.forEach((element) => observer.observe(element));
+}
+
+/* 全站保留浏览器原生光标；局部受光和节点状态承担上下文反馈。 */
+/* ── 主题系统：Screening Room ⇄ Production Desk ─────────────
+   首选项只存储用户的明确选择。没有手动选择时，跟随系统主题，
+   并在切换期间用一层灯光遮罩把两种材料感连起来。 */
+const THEME_STORAGE_KEY = "movie-agent-theme";
+
+function readThemePreference() {
+  try {
+    const value = localStorage.getItem(THEME_STORAGE_KEY);
+    return value === "light" || value === "dark" ? value : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function systemTheme() {
+  return window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+}
+
+function themeDisplayName(theme) {
+  return theme === "light" ? "Production Desk" : "Screening Room";
+}
+
+function updateThemeToggle(theme) {
+  const toggle = els.themeToggle;
+  if (!toggle) return;
+  const isLight = theme === "light";
+  const nextTheme = isLight ? "Screening Room" : "Production Desk";
+  const label = toggle.querySelector(".theme-toggle-label");
+  const icon = toggle.querySelector(".theme-toggle-icon");
+  if (label) label.textContent = isLight ? "DESK" : "SCREENING";
+  if (icon) icon.classList.toggle("is-sun", isLight);
+  toggle.setAttribute("aria-pressed", String(isLight));
+  toggle.setAttribute("aria-label", `当前为 ${themeDisplayName(theme)}，切换到 ${nextTheme}`);
+  toggle.title = `切换到 ${nextTheme}`;
+  toggle.dataset.theme = theme;
+}
+
+function syncThemeColor() {
+  if (!els.themeColor) return;
+  const value = getComputedStyle(document.documentElement).getPropertyValue("--surface-0").trim();
+  if (value) els.themeColor.setAttribute("content", value);
+}
+
+function applyTheme(theme, { persist = false, animate = true } = {}) {
+  const next = theme === "light" ? "light" : "dark";
+  const root = document.documentElement;
+  const current = root.dataset.theme === "light" ? "light" : "dark";
+  if (persist) {
+    try { localStorage.setItem(THEME_STORAGE_KEY, next); } catch (_) { /* private browsing can deny storage */ }
+  }
+  if (current === next) {
+    document.body?.setAttribute("data-theme", next);
+    updateThemeToggle(next);
+    syncThemeColor();
+    return;
+  }
+
+  const wash = els.themeWash;
+  const shouldAnimate = animate && !REDUCED_MOTION && wash;
+  if (shouldAnimate) {
+    wash.dataset.to = next;
+    wash.classList.add("is-active");
+  }
+  root.dataset.theme = next;
+  document.body?.setAttribute("data-theme", next);
+  updateThemeToggle(next);
+  syncThemeColor();
+
+  if (shouldAnimate) {
+    window.setTimeout(() => {
+      wash.classList.remove("is-active");
+      window.setTimeout(() => {
+        if (!wash.classList.contains("is-active")) delete wash.dataset.to;
+      }, 560);
+    }, 56);
+  }
+}
+
+function initTheme() {
+  const root = document.documentElement;
+  const preference = readThemePreference();
+  const initial = preference || (root.dataset.theme === "light" ? "light" : systemTheme());
+  root.dataset.theme = initial;
+  document.body?.setAttribute("data-theme", initial);
+  updateThemeToggle(initial);
+  syncThemeColor();
+
+  els.themeToggle?.addEventListener("click", () => {
+    const next = root.dataset.theme === "light" ? "dark" : "light";
+    applyTheme(next, { persist: true, animate: true });
+  });
+
+  const media = window.matchMedia?.("(prefers-color-scheme: light)");
+  media?.addEventListener?.("change", () => {
+    if (!readThemePreference()) applyTheme(media.matches ? "light" : "dark", { animate: true });
+  });
 }
 
 function updateSoundToggle() {
@@ -3373,6 +4164,8 @@ async function loadHealth() {
 }
 
 function init() {
+  initTheme();
+  if (LOW_PERFORMANCE) document.body.classList.add("low-performance");
   applyView(currentView());
   setPipeline({ plan: "active" });
   setBrowserActivity("idle");
@@ -3392,6 +4185,11 @@ function init() {
   els.btnPremierePlay.addEventListener("click", () => closePremiere(true));
   els.btnPremiereSkip.addEventListener("click", () => closePremiere(false));
   initLandingInteractions();
+  initLandingProximity();
+  initFilmstripInteractions();
+  initStoryboardProximity();
+  initCrewProximity();
+  initFinalCompare();
   initScrollMotion();
   buildStyleCards();
   startTypewriter();
@@ -3434,8 +4232,24 @@ function init() {
     renderAudioDesign(state.project);
     persistAudioDesign({ smart_ducking: state.smartDucking });
   });
+  els.deliverSmartDuckingToggle?.addEventListener("change", () => {
+    state.smartDucking = Boolean(els.deliverSmartDuckingToggle.checked);
+    renderAudioDesign(state.project);
+    persistAudioDesign({ smart_ducking: state.smartDucking });
+  });
+  els.deliverMusicIntensity?.addEventListener("input", () => {
+    state.musicIntensity = Number(els.deliverMusicIntensity.value || 0.6);
+    if (els.deliverMusicIntensityValue) els.deliverMusicIntensityValue.textContent = `${Math.round(state.musicIntensity * 100)}%`;
+  });
+  els.deliverMusicIntensity?.addEventListener("change", () => {
+    persistAudioDesign({ music_intensity: state.musicIntensity });
+  });
   els.musicUpload?.addEventListener("change", () => {
     const file = els.musicUpload.files?.[0];
+    if (file) uploadMusicFile(file);
+  });
+  els.deliverMusicUpload?.addEventListener("change", () => {
+    const file = els.deliverMusicUpload.files?.[0];
     if (file) uploadMusicFile(file);
   });
   els.exportSheet?.addEventListener("click", (event) => {
@@ -3450,7 +4264,19 @@ function init() {
     els.moreExportMenu?.classList.toggle("hidden", isOpen);
     els.btnMoreExport?.setAttribute("aria-expanded", String(!isOpen));
   });
-  els.finalVideo?.addEventListener("loadedmetadata", updateFinalVideoMetadata);
+  [els.finalVideo, els.roughCutVideo].forEach((media) => {
+    if (!media) return;
+    media.addEventListener("loadedmetadata", () => {
+      if (media === els.finalVideo) updateFinalVideoMetadata();
+      syncFinalCompareMedia(media);
+    });
+    media.addEventListener("timeupdate", () => {
+      if (media === els.finalVideo) syncFinalCompareMedia(media);
+      else syncAudioTimeline(media.currentTime, media.duration || state.audioTimelineDuration || 1);
+    });
+    media.addEventListener("play", () => media === els.finalVideo ? syncFinalCompareMedia(media) : syncAudioTimeline(media.currentTime, media.duration || state.audioTimelineDuration || 1));
+    media.addEventListener("pause", () => media === els.finalVideo ? syncFinalCompareMedia(media) : syncAudioTimeline(media.currentTime, media.duration || state.audioTimelineDuration || 1));
+  });
   els.manualTabs.addEventListener("click", (event) => {
     const button = event.target.closest(".tab");
     if (button) renderManual(state.project, button.dataset.tab);

@@ -557,6 +557,7 @@ class MovieOrchestrator:
         music_mode: str | None = None,
         smart_ducking: bool | None = None,
         music_asset_name: str | None = None,
+        music_intensity: float | None = None,
         track_enabled: dict[str, bool] | None = None,
     ) -> MovieProject:
         project = self.store.load(project_id)
@@ -573,6 +574,7 @@ class MovieOrchestrator:
             music_mode=music_mode,
             smart_ducking=smart_ducking,
             music_asset_name=music_asset_name,
+            music_intensity=music_intensity,
         )
         for key, enabled in (track_enabled or {}).items():
             if key in project.audio_tracks:
@@ -645,6 +647,7 @@ class MovieOrchestrator:
         music_mode: str | None = None,
         smart_ducking: bool | None = None,
         music_asset_name: str | None = None,
+        music_intensity: float | None = None,
         track_enabled: dict[str, bool] | None = None,
     ) -> MovieProject:
         """Persist sound-department choices without starting an edit render."""
@@ -652,6 +655,7 @@ class MovieOrchestrator:
         project = self.store.load(project_id)
         before_config = {
             "music_mode": project.music_mode,
+            "music_intensity": project.music_intensity,
             "music_asset_name": project.music_asset_name,
             "smart_ducking": bool((project.smart_ducking or {}).get("enabled", True)),
         }
@@ -671,12 +675,14 @@ class MovieOrchestrator:
             music_mode=music_mode,
             smart_ducking=smart_ducking,
             music_asset_name=music_asset_name,
+            music_intensity=music_intensity,
         )
         for key, enabled in (track_enabled or {}).items():
             if key in project.audio_tracks:
                 project.audio_tracks[key]["enabled"] = bool(enabled)
         after_config = {
             "music_mode": project.music_mode,
+            "music_intensity": project.music_intensity,
             "music_asset_name": project.music_asset_name,
             "smart_ducking": bool((project.smart_ducking or {}).get("enabled", True)),
             "track_enabled": {

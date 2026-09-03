@@ -16,5 +16,7 @@ cache/
 *.png
 *.jpg
 *.jpeg
+*.webp
+!static/assets/cinematic-darkroom-frame.webp
 *.wav
 *.mp3

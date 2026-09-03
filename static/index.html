@@ -5,10 +5,22 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Movie-Agent · AI 片场</title>
 <meta name="description" content="一句话科幻创意，交给一支 AI 剧组：导演、编剧、美术、分镜、质检、生成、剪辑。">
-<link id="favicon" rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230d0c0a'/%3E%3Crect x='6' y='12' width='5' height='8' fill='%23e8a34c'/%3E%3Crect x='14' y='12' width='5' height='8' fill='%23e8a34c' opacity='.55'/%3E%3Crect x='22' y='12' width='5' height='8' fill='%23e8a34c' opacity='.3'/%3E%3C/svg%3E">
+<meta name="theme-color" content="#15110b">
+<script>
+  (() => {
+    const key = "movie-agent-theme";
+    let saved = null;
+    try { saved = localStorage.getItem(key); } catch (_) { saved = null; }
+    const systemLight = window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches;
+    const theme = saved === "light" || saved === "dark" ? saved : (systemLight ? "light" : "dark");
+    document.documentElement.dataset.theme = theme;
+  })();
+</script>
+<link id="favicon" rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%2315110b'/%3E%3Crect x='6' y='12' width='5' height='8' fill='%23c28a3e'/%3E%3Crect x='14' y='12' width='5' height='8' fill='%23c28a3e' opacity='.55'/%3E%3Crect x='22' y='12' width='5' height='8' fill='%23c28a3e' opacity='.3'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="/static/style.css">
 </head>
-<body data-view="landing">
+<body data-view="landing" data-design="archive-console">
+<div class="theme-transition-wash" id="theme-transition-wash" aria-hidden="true"></div>
 <div class="grain" aria-hidden="true"></div>
 <div class="vignette" aria-hidden="true"></div>
 <div class="shutter" aria-hidden="true"></div>
@@ -22,6 +34,9 @@
     <span class="step" data-step="deliver"><b>04</b><span>DELIVER</span><small class="step-state mono">未开始</small></span>
   </nav>
   <button class="sound-toggle mono" id="btn-sound" type="button" aria-label="切换界面音效" title="界面音效">♪ OFF</button>
+  <button class="theme-toggle mono" id="theme-toggle" type="button" aria-label="切换到 Production Desk" aria-pressed="false" title="切换到 Production Desk">
+    <span class="theme-toggle-icon" aria-hidden="true"></span><span class="theme-toggle-label">SCREENING</span>
+  </button>
   <div class="rec-clock mono"><span class="rec-dot" aria-hidden="true"></span>REC <span id="clock">00:00:00</span></div>
 </header>
 
@@ -31,13 +46,45 @@
   <section class="view view-landing" id="view-landing">
     <div class="landing-hero">
       <div class="aurora" aria-hidden="true"><i></i><i></i><i></i></div>
+      <div class="landing-spotlight" aria-hidden="true"><i class="spotlight-beam"></i><i class="spotlight-dust"></i></div>
+      <div class="landing-proximity-light" aria-hidden="true"></div>
+      <div class="landing-reveal" id="landing-reveal" aria-hidden="true">
+        <div class="landing-reveal-frame">
+          <div class="landing-reveal-layer landing-reveal-script mono">
+            <span style="--script-x: 8%; --script-y: 17%;">INT. OBSERVATORY / NIGHT</span>
+            <span style="--script-x: 63%; --script-y: 14%;">24 FPS / TAKE 01</span>
+            <span style="--script-x: 17%; --script-y: 76%;">THE MOON IS LISTENING</span>
+            <span style="--script-x: 70%; --script-y: 82%;">LIGHT CUE: AMBER 04</span>
+            <span style="--script-x: 43%; --script-y: 47%;">[ HOLD FOR SIGNAL ]</span>
+          </div>
+          <svg class="landing-reveal-layer landing-reveal-sketch" viewBox="0 0 720 405" focusable="false">
+            <path d="M22 319 C128 278 176 286 258 318 S411 356 511 310 629 280 698 302" />
+            <path d="M72 292 L118 260 165 292 M101 276 101 219 148 219 148 286" />
+            <path d="M111 219 C111 192 138 174 165 184 L165 219" />
+            <path d="M130 202 C140 188 154 188 164 201" />
+            <circle cx="130" cy="101" r="36" />
+            <path d="M94 101 H166 M130 65 V137 M105 76 L155 126 M155 76 L105 126" />
+            <path d="M391 334 C415 281 449 247 495 218 L543 183 594 181 625 211 642 271 680 319" />
+            <path d="M468 252 L468 179 495 150 523 179 523 234 M468 179 H523 M481 168 H512" />
+            <path d="M590 180 V146 M579 146 H601" />
+            <path d="M392 334 H678 M425 319 H647" />
+          </svg>
+          <div class="landing-reveal-layer landing-reveal-light"></div>
+          <div class="landing-reveal-layer landing-reveal-color"></div>
+          <div class="landing-reveal-layer landing-reveal-final">
+            <img src="/static/assets/cinematic-darkroom-frame.webp" alt="" loading="eager" decoding="async" />
+          </div>
+          <div class="landing-reveal-grain" aria-hidden="true"></div>
+          <span class="landing-reveal-caption mono">DARKROOM / PROXIMITY DEVELOPMENT</span>
+        </div>
+      </div>
       <div class="landing-copy">
-        <p class="landing-eyebrow mono">AI FILM STUDIO — MOVIE AGENT</p>
+        <p class="landing-eyebrow mono">AI FILM STUDIO · MOVIE AGENT</p>
         <h1 class="landing-title">
           <span class="landing-line"><span>把一句话，</span></span>
           <span class="landing-line"><span>拍成一部<em>电影</em>。</span></span>
         </h1>
-        <p class="landing-sub">导演、编剧、美术、分镜、质检、生成、剪辑——七位 AI 剧组成员已就位，等你开机。</p>
+        <p class="landing-sub">导演、编剧、美术、分镜、质检、生成、剪辑 · 七位 AI 剧组成员已就位，等你开机。</p>
         <div class="landing-actions">
           <button class="cta cta-landing" id="btn-enter" type="button">进入片场 <span class="cta-arrow" aria-hidden="true">→</span></button>
           <p class="landing-hint mono">原创科幻 · 全程可审阅 · 项目随时导出</p>
@@ -50,11 +97,8 @@
         <span>AI FILM STUDIO</span>
         <span class="landing-hud-time">00:00:00:00</span>
       </div>
-      <div class="landing-marquee" aria-hidden="true">
+      <div class="landing-marquee" aria-label="Agent production route">
         <div class="marquee-track">
-          <span class="marquee-group">
-            <span>导演 DIRECTOR</span><i>→</i><span>编剧 WRITER</span><i>→</i><span>美术指导 ART DIRECTOR</span><i>→</i><span>分镜师 STORYBOARD</span><i>→</i><span>质检 QC GATE</span><i>→</i><span>生成调度 GENERATION</span><i>→</i><span>剪辑 EDITOR</span><i>→</i>
-          </span>
           <span class="marquee-group">
             <span>导演 DIRECTOR</span><i>→</i><span>编剧 WRITER</span><i>→</i><span>美术指导 ART DIRECTOR</span><i>→</i><span>分镜师 STORYBOARD</span><i>→</i><span>质检 QC GATE</span><i>→</i><span>生成调度 GENERATION</span><i>→</i><span>剪辑 EDITOR</span><i>→</i>
           </span>
@@ -94,7 +138,7 @@
 
       <div class="slate" id="slate">
         <div class="slate-header">
-          <div class="slugline mono" id="slugline"><span class="slate-rec" aria-hidden="true"></span>INT. 未命名的科幻短片 — 夜</div>
+          <div class="slugline mono" id="slugline"><span class="slate-rec" aria-hidden="true"></span>INT. 未命名的科幻短片 · 夜</div>
           <span class="slate-index mono">CREATIVE INPUT / 01</span>
         </div>
         <div class="idea-console">
@@ -102,11 +146,11 @@
             <span class="idea-console-label mono">ORIGINAL PREMISE / 原创科幻创意</span>
             <span class="idea-counter mono" id="idea-counter">0 / 2000</span>
           </div>
-          <textarea id="idea" rows="3" maxlength="2000" placeholder="" aria-label="原创科幻创意" aria-describedby="idea-error" aria-required="true" aria-invalid="false"></textarea>
+          <textarea id="idea" rows="8" maxlength="2000" placeholder="" aria-label="原创科幻创意" aria-describedby="idea-error" aria-required="true" aria-invalid="false"></textarea>
           <p class="idea-helper mono">一句话即可。剧组会把它扩写成可拍摄的电影方案。</p>
         </div>
         <p class="form-error mono" id="idea-error" role="alert" aria-live="polite"></p>
-        <div class="slate-controlbar">
+        <div class="slate-controlbar slate-parameters" aria-label="制作参数">
           <label class="timecode-control">
             <span class="control-heading"><span class="tc-caption mono">目标时长</span><span class="tc-value mono" id="tc-value">00:00:48</span></span>
             <input type="range" id="duration" min="30" max="80" value="48" aria-label="目标时长（秒）">
@@ -115,14 +159,14 @@
             <div class="control-heading"><span class="tc-caption mono">视觉预设</span><span class="style-current mono" id="style-current">写实近未来</span></div>
             <div class="style-cards" id="style-cards" role="radiogroup" aria-label="视觉风格"></div>
           </div>
-          <div class="slate-actions">
-            <button class="cta" id="btn-start" type="button">开机 <span class="cta-arrow" aria-hidden="true">→</span></button>
-            <div class="engine-state">
-              <span class="engine-lamp is-pending" aria-hidden="true"></span>
-              <p class="mode-note mono" id="mode-note">正在确认制作引擎状态…</p>
-            </div>
-            <p class="form-error form-error--action mono" id="creation-error" role="alert" aria-live="polite"></p>
+        </div>
+        <div class="slate-actions" aria-label="开机操作">
+          <button class="cta" id="btn-start" type="button">开机制作 <span class="cta-arrow" aria-hidden="true">→</span></button>
+          <div class="engine-state">
+            <span class="engine-lamp is-pending" aria-hidden="true"></span>
+            <span class="engine-copy"><span class="engine-label mono">PRODUCTION ENGINE</span><p class="mode-note mono" id="mode-note">正在确认制作引擎状态…</p></span>
           </div>
+          <p class="form-error form-error--action mono" id="creation-error" role="alert" aria-live="polite"></p>
         </div>
       </div>
 
@@ -145,7 +189,8 @@
         <p class="act-meta mono"><span class="act-meta-label">STATUS</span><span id="crew-meta">READY / STANDBY</span></p>
       </div>
       <div class="crew-flow-head">
-        <span class="mono">PRODUCTION ROUTE / DIRECTOR → EDITOR</span>
+        <span class="mono">PRODUCTION ROUTE / INPUT → HANDOFF → OUTPUT</span>
+        <span class="crew-flow-progress mono" id="crew-flow-progress">0/7 COMPLETE · STANDBY</span>
         <span class="crew-flow-legend mono" aria-label="节点状态图例"><i data-state="active"></i>ACTIVE <i data-state="done"></i>COMPLETED <i data-state="waiting"></i>QUEUED</span>
       </div>
       <div class="crew-flow" id="crew-flow" aria-label="Director 到 Editor 的 Agent 生产流水线"></div>
@@ -161,13 +206,13 @@
       <div class="panel filmstrip-panel">
         <div class="panel-head">
           <h2>分镜墙</h2>
-          <span class="panel-meta mono" id="filmstrip-meta">—</span>
+          <span class="panel-meta mono" id="filmstrip-meta">·</span>
         </div>
-        <div class="filmstrip-viewport">
+        <div class="filmstrip-viewport" id="filmstrip-viewport" aria-label="横向分镜胶片带">
           <div class="filmstrip" id="filmstrip"></div>
         </div>
         <div class="edit-timeline-wrap">
-          <div class="timeline-head mono"><span>EDIT TIMELINE</span><span id="timeline-total">—</span></div>
+          <div class="timeline-head mono"><span>EDIT TIMELINE</span><span id="timeline-total">·</span></div>
           <div class="edit-timeline" id="edit-timeline" role="list" aria-label="剪辑时间线"></div>
         </div>
         <p class="panel-note">点击镜头卡片查看完整画面、动作、声音与最终提示词；对不满意的镜头可单独重新规划。</p>
@@ -176,7 +221,7 @@
       <div class="panel monitor-panel">
         <div class="panel-head">
           <h2>片场监视器</h2>
-          <span class="panel-meta mono" id="project-id-label">—</span>
+          <span class="panel-meta mono" id="project-id-label">·</span>
         </div>
         <div class="monitor-screen">
           <div class="viewfinder" aria-hidden="true"><i class="vf tl"></i><i class="vf tr"></i><i class="vf bl"></i><i class="vf br"></i><i class="vf-safe"></i><i class="vf-cross"></i></div>
@@ -270,6 +315,7 @@
                 <div class="audio-mode-row"><span class="manual-label mono">MUSIC SOURCE / 配乐来源</span><div class="audio-mode-switch" id="audio-mode-switch" role="radiogroup" aria-label="配乐来源"><button type="button" class="audio-mode-button is-selected" data-audio-mode="ai" role="radio" aria-checked="true"><b>AI 自动配乐</b><small>EMOTIONAL ARC</small></button><button type="button" class="audio-mode-button" data-audio-mode="library" role="radio" aria-checked="false"><b>素材库音乐</b><small>STUDIO LIBRARY</small></button><button type="button" class="audio-mode-button" data-audio-mode="upload" role="radio" aria-checked="false"><b>用户上传音乐</b><small>USER SOURCE</small></button></div></div>
                 <div class="audio-upload-row hidden" id="audio-upload-row"><label class="audio-upload-control"><span class="manual-label mono">USER SCORE / 上传文件</span><input id="music-upload" type="file" accept="audio/*"><small class="mono" id="music-upload-note">上传后将作为 MUSIC 轨来源。</small></label></div>
                 <div class="music-brief-card"><div class="music-brief-head"><div><span class="deliver-label mono">MUSIC BRIEF / AI 配乐方案</span><strong id="music-brief-source">AI MUSIC / EMOTIONAL ARC</strong></div><span class="music-brief-version mono" id="music-brief-version">V1</span></div><div class="music-brief-grid" id="music-brief-grid"></div><div class="emotional-arc" id="emotional-arc" aria-label="情绪曲线"></div><p class="music-brief-direction" id="music-brief-direction">AI Music 将读取导演设定、剧本情绪、视觉风格和镜头节奏。</p><p class="music-brief-instruments mono" id="music-brief-instruments">INSTRUMENTS / 低音合成器 · 颗粒钢琴 · 弓弦纹理 · 低频打击</p></div>
+                <div class="audio-timeline" id="audio-timeline-editor" aria-label="声音设计时间线"></div>
                 <div class="audio-track-list" id="audio-track-list" aria-label="四类声音轨道"></div>
                 <label class="smart-ducking" id="smart-ducking-control"><input type="checkbox" id="smart-ducking-toggle" checked><span><b>SMART DUCKING</b><small id="smart-ducking-copy">旁白 / 对白出现时，Music 自动降低并平滑恢复。</small></span><i class="mono" id="smart-ducking-value">−8 dB</i></label>
               </section>
@@ -286,13 +332,18 @@
               <div class="final-cut-screening">
                 <div class="final-player-shell" id="screen" data-final-look="original">
                   <div class="final-player-topline mono"><span><i class="rec-dot" aria-hidden="true"></i> FINAL CUT</span><span id="final-player-state">READY TO SCREEN</span></div>
-                  <video id="final-video" controls playsinline preload="metadata" aria-label="最终成片视频"></video>
-                  <div class="final-look-overlay" id="final-look-overlay" aria-hidden="true"></div>
+                  <div class="final-compare" id="final-compare" aria-label="Final Look 前后对比">
+                    <video id="final-video" controls playsinline preload="metadata" aria-label="最终成片视频"></video>
+                    <div class="final-compare-after" id="final-compare-after" aria-hidden="true"><video id="final-video-after" muted playsinline preload="metadata" tabindex="-1"></video><div class="final-look-overlay" id="final-look-overlay" aria-hidden="true"></div></div>
+                    <button class="final-compare-divider" id="final-compare-divider" type="button" role="slider" aria-label="拖动 Final Look 前后对比分割线" aria-valuemin="0" aria-valuemax="100" aria-valuenow="50"><span aria-hidden="true"></span></button>
+                    <span class="final-compare-label final-compare-label--original mono">ORIGINAL</span>
+                    <span class="final-compare-label final-compare-label--final mono">FINAL LOOK</span>
+                  </div>
                   <div class="final-not-generated" id="final-not-generated"><strong class="mono">FINAL CUT NOT GENERATED</strong><span>后端尚未提供可播放的最终视频文件。</span></div>
                 </div>
                 <div class="deliver-video-meta" id="deliver-video-meta" aria-label="成片技术信息">
-                  <div><span class="deliver-label mono">DURATION</span><strong id="deliver-meta-duration">—</strong></div>
-                  <div><span class="deliver-label mono">RESOLUTION</span><strong id="deliver-meta-resolution">—</strong></div>
+                  <div><span class="deliver-label mono">DURATION</span><strong id="deliver-meta-duration">·</strong></div>
+                  <div><span class="deliver-label mono">RESOLUTION</span><strong id="deliver-meta-resolution">·</strong></div>
                   <div><span class="deliver-label mono">ASPECT</span><strong id="deliver-meta-aspect">16:9</strong></div>
                   <div><span class="deliver-label mono">CODEC</span><strong id="deliver-meta-codec">H.264 / AAC</strong></div>
                   <div><span class="deliver-label mono">SUBTITLES</span><strong id="deliver-meta-subtitles">BURNED</strong></div>
@@ -300,10 +351,20 @@
                   <div><span class="deliver-label mono">AUDIO</span><strong id="deliver-meta-audio">VOICE · MUSIC · SFX · ATMOS</strong></div>
                 </div>
                 <div class="deliver-shot-timeline-wrap">
-                  <div class="deliver-shot-timeline-head"><span class="deliver-label mono">SHOT TIMELINE / 快速跳转</span><span class="mono" id="deliver-timeline-total">—</span></div>
+                  <div class="deliver-shot-timeline-head"><span class="deliver-label mono">SHOT TIMELINE / 快速跳转</span><span class="mono" id="deliver-timeline-total">·</span></div>
                   <div class="deliver-shot-timeline" id="deliver-shot-timeline" role="list" aria-label="成片镜头时间线"></div>
                 </div>
-              </div>
+                <section class="deliver-audio-panel" id="deliver-audio-panel" aria-label="最终混音与声音设计">
+                  <header class="deliver-audio-head"><div><span class="deliver-label mono">FINAL MIX / SOUND DEPARTMENT</span><h4>声音设计与配乐</h4></div><span class="mono" id="deliver-audio-state">MIX PLAN READY</span></header>
+                  <div class="deliver-audio-source-row"><span class="manual-label mono">MUSIC SOURCE / 配乐来源</span><div class="audio-mode-switch deliver-audio-mode-switch" id="deliver-audio-mode-switch" role="radiogroup" aria-label="最终配乐来源"><button type="button" class="audio-mode-button is-selected" data-audio-mode="ai" role="radio" aria-checked="true"><b>AI 自动配乐</b><small>EMOTIONAL ARC</small></button><button type="button" class="audio-mode-button" data-audio-mode="library" role="radio" aria-checked="false"><b>素材库音乐</b><small>STUDIO LIBRARY</small></button><button type="button" class="audio-mode-button" data-audio-mode="upload" role="radio" aria-checked="false"><b>用户上传音乐</b><small>USER SOURCE</small></button></div></div>
+                  <div class="audio-upload-row hidden" id="deliver-audio-upload-row"><label class="audio-upload-control"><span class="manual-label mono">USER SCORE / 上传文件</span><input id="deliver-music-upload" type="file" accept="audio/*"><small class="mono" id="deliver-music-upload-note">上传后将作为 MUSIC 轨来源。</small></label></div>
+                  <div class="deliver-audio-controls" aria-label="配乐与混音控制"><label class="deliver-audio-range"><span><b>MUSIC INTENSITY / 音乐强度</b><output id="deliver-music-intensity-value">60%</output></span><input id="deliver-music-intensity" type="range" min="0" max="1" step="0.01" value="0.6"></label><label class="smart-ducking deliver-smart-ducking"><input type="checkbox" id="deliver-smart-ducking-toggle" checked><span><b>SMART DUCKING / 旁白闪避</b><small id="deliver-smart-ducking-copy">对白出现时自动降低配乐，结束后平滑恢复。</small></span><i class="mono" id="deliver-smart-ducking-value">−8 dB</i></label></div>
+                  <div class="deliver-audio-track-head"><span class="deliver-label mono">TRACKS / 四轨混音</span><span class="mono">VOICE · MUSIC · SFX · AMBIENCE</span></div>
+                  <div class="deliver-music-brief" id="deliver-music-brief"></div>
+                  <div class="audio-timeline" id="audio-timeline" aria-label="声音设计时间线"></div>
+                  <div class="deliver-audio-track-list" id="deliver-audio-track-list"></div>
+                </section>
+             </div>
               <aside class="final-look-panel" id="final-look-panel" aria-label="最终润色控制台">
                 <header class="final-look-head"><div><span class="deliver-kicker mono">FINAL LOOK / COLOR FINISH</span><h4>最终润色</h4></div><span class="final-look-status mono" id="final-look-status">READY TO FINISH</span></header>
                 <p class="final-look-intro">在导出前为整部短片定下统一的视觉气质。点击预设即可试听画面效果。</p>
@@ -328,7 +389,6 @@
                 <p class="final-look-note mono">预览只改变当前审片画面；点击应用后才会写入全片交付配置。</p>
               </aside>
             </div>
-            <section class="deliver-audio-panel" id="deliver-audio-panel" aria-label="最终混音轨道"><header class="deliver-audio-head"><div><span class="deliver-label mono">FINAL MIX / SOUND DEPARTMENT</span><h4>四轨声音设计</h4></div><span class="mono" id="deliver-audio-state">MIX PLAN READY</span></header><div class="deliver-music-brief" id="deliver-music-brief"></div><div class="deliver-audio-track-list" id="deliver-audio-track-list"></div></section>
           </section>
 
           <section class="deliver-actions" id="deliver-actions" aria-label="放映室操作">
@@ -351,7 +411,7 @@
 
           <p class="deliver-status-line mono" id="edit-status" aria-live="polite"></p>
           <div class="delivery deliver-credits">
-            <div class="credits-roll-viewport"><div class="credits-roll mono" id="credits-roll">—</div></div>
+            <div class="credits-roll-viewport"><div class="credits-roll mono" id="credits-roll">·</div></div>
           </div>
         </section>
       </div>
@@ -360,7 +420,7 @@
   </div>
 </main>
 
-<footer class="credits mono">▮▮ MOVIE·AGENT — 为 ModelScope「AI+∞ 影视流」而作 · 每一次创作决策都被存档</footer>
+<footer class="credits mono">▮▮ MOVIE·AGENT · 为 ModelScope「AI+∞ 影视流」而作 · 每一次创作决策都被存档</footer>
 
 <!-- Final Cut 导出配置 -->
 <div class="export-sheet hidden" id="export-sheet" role="dialog" aria-modal="true" aria-labelledby="export-sheet-title">

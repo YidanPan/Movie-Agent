@@ -18,6 +18,7 @@ from movie_agent.services.subtitles import script_subtitle_track
 MUSIC_MODES = {"ai", "library", "upload"}
 TRACK_ORDER = ("voice", "music", "sfx", "ambience")
 EDIT_AUDIO_STAGES = ("picture_cut", "voice", "music", "sfx", "subtitles", "mix", "final_encode")
+DEFAULT_MUSIC_INTENSITY = 0.6
 
 
 def normalise_music_mode(value: Any) -> str:
@@ -34,6 +35,16 @@ def normalise_music_mode(value: Any) -> str:
     }
     mode = aliases.get(str(value or "").strip().lower(), str(value or "").strip().lower())
     return mode if mode in MUSIC_MODES else "ai"
+
+
+def normalise_music_intensity(value: Any) -> float:
+    """Keep the score intensity in a predictable 0–1 range for UI and FFmpeg."""
+
+    try:
+        intensity = float(value)
+    except (TypeError, ValueError):
+        intensity = DEFAULT_MUSIC_INTENSITY
+    return round(max(0.0, min(1.0, intensity)), 2)
 
 
 def _compact(value: Any, fallback: str = "") -> str:
@@ -87,10 +98,19 @@ def _mode_source(mode: str, asset_name: str = "") -> tuple[str, str]:
     return "AI MUSIC / EMOTIONAL ARC", "BRIEF READY · AUDIO PENDING"
 
 
-def build_music_brief(project: Any, *, mode: str | None = None, asset_name: str = "") -> dict[str, Any]:
+def build_music_brief(
+    project: Any,
+    *,
+    mode: str | None = None,
+    asset_name: str = "",
+    intensity: float | None = None,
+) -> dict[str, Any]:
     """Create a compact Music Brief from director, writer, art, and shot data."""
 
     resolved_mode = normalise_music_mode(mode or getattr(project, "music_mode", "ai"))
+    resolved_intensity = normalise_music_intensity(
+        getattr(project, "music_intensity", DEFAULT_MUSIC_INTENSITY) if intensity is None else intensity
+    )
     shots = list(getattr(project, "storyboard", []) or [])
     runtime = max(1, int(getattr(project, "duration_seconds", 48) or 48))
     theme = _compact((getattr(project, "brief", {}) or {}).get("主题"), "a quiet human choice")
@@ -118,6 +138,8 @@ def build_music_brief(project: Any, *, mode: str | None = None, asset_name: str 
     source, mode_status = _mode_source(resolved_mode, asset_name)
     return {
         "mode": resolved_mode,
+        "intensity": resolved_intensity,
+        "intensity_percent": int(round(resolved_intensity * 100)),
         "mode_status": mode_status,
         "source": source,
         "style": f"{visual_style} · cinematic score",
@@ -136,8 +158,17 @@ def build_music_brief(project: Any, *, mode: str | None = None, asset_name: str 
     }
 
 
-def build_audio_tracks(project: Any, *, mode: str | None = None, asset_name: str = "") -> dict[str, dict[str, Any]]:
+def build_audio_tracks(
+    project: Any,
+    *,
+    mode: str | None = None,
+    asset_name: str = "",
+    music_intensity: float | None = None,
+) -> dict[str, dict[str, Any]]:
     resolved_mode = normalise_music_mode(mode or getattr(project, "music_mode", "ai"))
+    resolved_intensity = normalise_music_intensity(
+        getattr(project, "music_intensity", DEFAULT_MUSIC_INTENSITY) if music_intensity is None else music_intensity
+    )
     locked = bool((getattr(project, "script", {}) or {}).get("dialogue_locked"))
     shots = list(getattr(project, "storyboard", []) or [])
     music_source, music_status = _mode_source(resolved_mode, asset_name)
@@ -162,7 +193,7 @@ def build_audio_tracks(project: Any, *, mode: str | None = None, asset_name: str
             "status": music_status,
             "source": music_source,
             "enabled": True,
-            "volume_db": -14,
+            "volume_db": round(-20 + (resolved_intensity * 10), 1),
             "preview_url": None,
             "can_regenerate": True,
         },
@@ -224,12 +255,17 @@ def ensure_audio_design(
     music_mode: str | None = None,
     smart_ducking: bool | None = None,
     music_asset_name: str | None = None,
+    music_intensity: float | None = None,
 ) -> Any:
     """Mutate a project with the current sound department's reviewable plan."""
 
     previous_mode = normalise_music_mode(getattr(project, "music_mode", "ai"))
     previous_asset_name = _compact(getattr(project, "music_asset_name", ""), "")
     mode = normalise_music_mode(music_mode or previous_mode)
+    previous_intensity = normalise_music_intensity(
+        getattr(project, "music_intensity", DEFAULT_MUSIC_INTENSITY)
+    )
+    resolved_intensity = previous_intensity if music_intensity is None else normalise_music_intensity(music_intensity)
     asset_source = previous_asset_name if music_asset_name is None else music_asset_name
     # A stored upload is not an active source after switching to AI or the
     # curated library. Keep the file on disk for recovery, but do not expose
@@ -244,13 +280,19 @@ def ensure_audio_design(
     old_tracks = deepcopy(getattr(project, "audio_tracks", {}) or {})
     project.music_mode = mode
     project.music_asset_name = asset_name
-    project.music_brief = build_music_brief(project, mode=mode, asset_name=asset_name)
-    project.audio_tracks = build_audio_tracks(project, mode=mode, asset_name=asset_name)
+    project.music_intensity = resolved_intensity
+    project.music_brief = build_music_brief(project, mode=mode, asset_name=asset_name, intensity=resolved_intensity)
+    project.audio_tracks = build_audio_tracks(
+        project,
+        mode=mode,
+        asset_name=asset_name,
+        music_intensity=resolved_intensity,
+    )
     for key, track in project.audio_tracks.items():
         previous = old_tracks.get(key) or {}
         if "enabled" in previous:
             track["enabled"] = bool(previous["enabled"])
-        if "volume_db" in previous:
+        if "volume_db" in previous and not (key == "music" and music_intensity is not None):
             track["volume_db"] = previous["volume_db"]
         if previous.get("preview_url") and not (key == "music" and mode != "upload"):
             track["preview_url"] = previous["preview_url"]

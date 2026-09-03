@@ -74,6 +74,22 @@ class AudioDesignTests(unittest.TestCase):
             self.assertIsNone(changed.final_output_placeholder)
             self.assertEqual(changed.mix_state["status"], "DESIGN UPDATED · RE-CUT REQUIRED")
 
+    def test_music_intensity_persists_and_updates_score_level(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            settings = Settings(
+                "http://127.0.0.1:8188", 900, Path("workflows"), 9071, root, True,
+                outputs_dir=root / "outputs",
+            )
+            orchestrator = MovieOrchestrator(settings)
+            project = orchestrator.create_project(
+                "一名守夜人发现空城每天都在等他下班。", 48, "胶片科幻"
+            )
+            changed = orchestrator.set_audio_design(project.project_id, music_intensity=0.25)
+            self.assertEqual(changed.music_intensity, 0.25)
+            self.assertEqual(changed.music_brief["intensity_percent"], 25)
+            self.assertEqual(changed.audio_tracks["music"]["volume_db"], -17.5)
+
 
 if __name__ == "__main__":
     unittest.main()

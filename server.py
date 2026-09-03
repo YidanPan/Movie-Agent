@@ -85,6 +85,7 @@ class ApproveEditPayload(BaseModel):
 
 class AudioDesignPayload(BaseModel):
     music_mode: Literal["ai", "library", "upload"] = "ai"
+    music_intensity: float | None = Field(default=None, ge=0, le=1)
     smart_ducking: bool = True
     music_asset_name: str = Field(default="", max_length=240)
     track_enabled: dict[str, bool] = Field(default_factory=dict)
@@ -294,6 +295,7 @@ async def create_rough_cut_stream(project_id: str, request: Request) -> Streamin
                 project_id,
                 progress_callback=on_progress,
                 music_mode=payload.music_mode,
+                music_intensity=payload.music_intensity,
                 smart_ducking=payload.smart_ducking,
                 music_asset_name=payload.music_asset_name,
                 track_enabled=payload.track_enabled,
@@ -315,6 +317,7 @@ async def update_audio_design(project_id: str, request: Request):
         project = orchestrator.set_audio_design(
             project_id,
             music_mode=payload.music_mode,
+            music_intensity=payload.music_intensity,
             smart_ducking=payload.smart_ducking,
             music_asset_name=payload.music_asset_name,
             track_enabled=payload.track_enabled,
