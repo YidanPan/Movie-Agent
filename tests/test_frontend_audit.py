@@ -141,3 +141,21 @@ def test_homepage_production_route_uses_three_equal_semantic_stages():
     assert "grid-auto-rows: 1fr" in CSS
     assert "min-height: 438px" in CSS
     assert "production-ruler-line" in CSS
+
+
+def test_global_header_keeps_left_and_right_tracks_stable_when_pipeline_is_hidden():
+    assert 'class="global-header-inner"' in INDEX
+    assert 'class="header-left"' in INDEX
+    assert 'class="header-center"' in INDEX
+    assert 'class="header-right"' in INDEX
+    assert 'class="sound-toggle mono type-control"' in INDEX
+    assert 'class="theme-toggle mono type-control"' in INDEX
+    assert 'class="rec-clock mono"' in INDEX
+    assert "grid-template-columns: minmax(190px, max-content) minmax(0, 1fr) 334px;" in CSS
+    assert ".header-left { justify-self: start" in CSS
+    assert ".header-center { justify-self: center" in CSS
+    assert ".header-right" in CSS and "justify-self: end" in CSS
+    assert "min-width: 72px" in CSS
+    assert "min-width: 92px" in CSS
+    assert "flex: 0 0 138px" in CSS
+    assert 'body[data-view="landing"] .pipeline { visibility: hidden' in CSS

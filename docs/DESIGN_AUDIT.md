@@ -123,3 +123,7 @@ Inspector 的 `volume_db`、`pan` 与 `ducking` 通过 `/api/projects/{project_i
 3. **03 DELIVERY / OUTPUT**：把 Final Cut、Music、Subtitle、Final Look 和 Export 收束为交付结果。
 
 三张阶段卡使用相同的列宽、最小高度、内边距和标题基线，外部几何是统一的；内部则分别采用输入规格表、Agent 名单与交付栈，不再复制“标题 + 描述”的 SaaS 卡片模板。`REC / 24 FPS / AI FILM STUDIO / TIMECODE` 继续保留在 Hero HUD，作为整条路线的场记标尺。路线线条与阶段节点保持静态清晰，实时数据流只由 Crew Assembly 页面真实状态驱动。
+
+## Global Header Alignment
+
+Header 现在由固定的 `LEFT / CENTER / RIGHT` 三栏组成：品牌位于左栏，`PLAN / PREVIS / RENDER / DELIVER` 位于中栏，`OFF / DESK / REC` 共享右栏固定轨道。首页仅把中栏设为不可见而不移除轨道，工作区则显示阶段导航；两种状态都不会重新分配右侧控件的位置。右侧按钮使用稳定的最小宽度和统一 36px 高度，窄屏隐藏中栏并保留左右锚点，避免页面切换时发生横向漂移或状态框重叠。

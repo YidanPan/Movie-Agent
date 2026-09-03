@@ -26,18 +26,26 @@
 <div class="shutter" aria-hidden="true"></div>
 
 <header class="topbar">
-  <button class="brand" id="brand-home" type="button" title="返回首页"><span class="brand-mark" aria-hidden="true">▮▮</span><span class="brand-name">MOVIE·AGENT</span></button>
-  <nav class="pipeline" id="pipeline" aria-label="制作阶段">
-    <span class="step" data-step="plan"><b>01</b><span>PLAN</span><small class="step-state mono type-status">当前</small></span><i class="sep" aria-hidden="true"></i>
-    <span class="step" data-step="previs"><b>02</b><span>PREVIS</span><small class="step-state mono type-status">未开始</small></span><i class="sep" aria-hidden="true"></i>
-    <span class="step" data-step="render"><b>03</b><span>RENDER</span><small class="step-state mono type-status">未开始</small></span><i class="sep" aria-hidden="true"></i>
-    <span class="step" data-step="deliver"><b>04</b><span>DELIVER</span><small class="step-state mono type-status">未开始</small></span>
-  </nav>
-  <button class="sound-toggle mono type-control" id="btn-sound" type="button" aria-label="切换界面音效" title="界面音效">♪ OFF</button>
-  <button class="theme-toggle mono type-control" id="theme-toggle" type="button" aria-label="切换到 Production Desk" aria-pressed="false" title="切换到 Production Desk">
-    <span class="theme-toggle-icon" aria-hidden="true"></span><span class="theme-toggle-label">SCREENING</span>
-  </button>
-  <div class="rec-clock mono"><span class="rec-dot" aria-hidden="true"></span>REC <span id="clock">00:00:00</span></div>
+  <div class="global-header-inner">
+    <div class="header-left">
+      <button class="brand" id="brand-home" type="button" title="返回首页"><span class="brand-mark" aria-hidden="true">▮▮</span><span class="brand-name">MOVIE·AGENT</span></button>
+    </div>
+    <div class="header-center">
+      <nav class="pipeline" id="pipeline" aria-label="制作阶段">
+        <span class="step" data-step="plan"><b>01</b><span>PLAN</span><small class="step-state mono type-status">当前</small></span><i class="sep" aria-hidden="true"></i>
+        <span class="step" data-step="previs"><b>02</b><span>PREVIS</span><small class="step-state mono type-status">未开始</small></span><i class="sep" aria-hidden="true"></i>
+        <span class="step" data-step="render"><b>03</b><span>RENDER</span><small class="step-state mono type-status">未开始</small></span><i class="sep" aria-hidden="true"></i>
+        <span class="step" data-step="deliver"><b>04</b><span>DELIVER</span><small class="step-state mono type-status">未开始</small></span>
+      </nav>
+    </div>
+    <div class="header-right">
+      <button class="sound-toggle mono type-control" id="btn-sound" type="button" aria-label="切换界面音效" title="界面音效">♪ OFF</button>
+      <button class="theme-toggle mono type-control" id="theme-toggle" type="button" aria-label="切换到 Production Desk" aria-pressed="false" title="切换到 Production Desk">
+        <span class="theme-toggle-icon" aria-hidden="true"></span><span class="theme-toggle-label">SCREENING</span>
+      </button>
+      <div class="rec-clock mono"><span class="rec-dot" aria-hidden="true"></span>REC <span id="clock">00:00:00</span></div>
+    </div>
+  </div>
 </header>
 
 <main>
