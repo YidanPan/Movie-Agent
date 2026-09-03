@@ -17,7 +17,7 @@
   })();
 </script>
 <link id="favicon" rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%2315110b'/%3E%3Crect x='6' y='12' width='5' height='8' fill='%23c28a3e'/%3E%3Crect x='14' y='12' width='5' height='8' fill='%23c28a3e' opacity='.55'/%3E%3Crect x='22' y='12' width='5' height='8' fill='%23c28a3e' opacity='.3'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="/static/style.css?v=type-system-20260903">
+<link rel="stylesheet" href="/static/style.css?v=monitor-desk-20260903">
 </head>
 <body data-view="landing" data-design="archive-console">
 <div class="theme-transition-wash" id="theme-transition-wash" aria-hidden="true"></div>
@@ -284,23 +284,34 @@
           <h2>片场监视器</h2>
           <span class="panel-meta mono type-system-meta" id="project-id-label">·</span>
         </div>
-        <div class="monitor-screen">
-          <div class="viewfinder" aria-hidden="true"><i class="vf tl"></i><i class="vf tr"></i><i class="vf bl"></i><i class="vf br"></i><i class="vf-safe"></i><i class="vf-cross"></i></div>
-          <div class="monitor-topline mono type-system-meta">
-            <span class="rec-inline" id="render-rec"><span class="rec-dot" aria-hidden="true"></span>REC</span>
-            <span id="monitor-shot">STANDBY</span>
-            <span id="monitor-tc" class="hidden">TC 00:00:00:00</span>
-            <span id="monitor-pct"></span>
+        <div class="monitor-hardware">
+          <div class="monitor-screen">
+            <div class="viewfinder" aria-hidden="true"><i class="vf tl"></i><i class="vf tr"></i><i class="vf bl"></i><i class="vf br"></i><i class="vf-safe"></i><i class="vf-cross"></i></div>
+            <div class="monitor-topline mono type-system-meta">
+              <span class="rec-inline" id="render-rec"><span class="rec-dot" aria-hidden="true"></span>REC</span>
+              <span id="monitor-shot">STANDBY</span>
+              <span id="monitor-tc" class="hidden">TC 00:00:00:00</span>
+              <span id="monitor-pct"></span>
+            </div>
+            <div class="shot-map" id="shot-map" aria-label="镜头状态"></div>
+            <div class="monitor-progress"><div class="bar"><i id="monitor-bar"></i></div></div>
+            <p class="monitor-desc type-helper" id="monitor-desc">尚未开机。</p>
           </div>
-          <div class="shot-map" id="shot-map" aria-label="镜头状态"></div>
-          <div class="monitor-progress"><div class="bar"><i id="monitor-bar"></i></div></div>
-          <p class="monitor-desc type-helper" id="monitor-desc">尚未开机。</p>
+          <div class="monitor-actions">
+            <button class="cta cta--render" id="btn-render" type="button">提交 Spark 真实生成</button>
+            <p class="render-note type-helper" id="render-note"></p>
+          </div>
         </div>
-        <div class="monitor-actions">
-          <button class="cta cta--render" id="btn-render" type="button">提交 Spark 真实生成</button>
-          <p class="render-note type-helper" id="render-note"></p>
-        </div>
-        <pre class="log-feed type-system-meta" id="log-feed" aria-label="任务日志"></pre>
+        <details class="monitor-activity" id="monitor-activity">
+          <summary>
+            <span class="activity-title mono">AGENT ACTIVITY</span>
+            <span class="monitor-activity-recent mono" id="monitor-activity-recent">等待片场信号</span>
+            <span class="activity-chevron" aria-hidden="true">⌄</span>
+          </summary>
+          <div class="monitor-activity-body">
+            <pre class="log-feed type-system-meta" id="log-feed" aria-label="任务日志"></pre>
+          </div>
+        </details>
       </div>
 
       <div class="panel manual-panel">
@@ -534,6 +545,6 @@
 
 <div class="toast mono" id="toast" role="status"></div>
 
-<script src="/static/app.js?v=type-system-20260903"></script>
+<script src="/static/app.js?v=monitor-desk-20260903"></script>
 </body>
 </html>

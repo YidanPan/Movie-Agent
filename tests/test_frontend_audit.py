@@ -159,3 +159,18 @@ def test_global_header_keeps_left_and_right_tracks_stable_when_pipeline_is_hidde
     assert "min-width: 92px" in CSS
     assert "flex: 0 0 138px" in CSS
     assert 'body[data-view="landing"] .pipeline { visibility: hidden' in CSS
+
+
+def test_production_desk_monitor_is_embedded_hardware_with_collapsed_activity():
+    assert 'class="monitor-hardware"' in INDEX
+    assert 'class="monitor-activity"' in INDEX
+    assert 'id="monitor-activity-recent"' in INDEX
+    assert "--desk-monitor-surface: #28231d" in CSS
+    assert "--desk-monitor-surface-deep: #242019" in CSS
+    assert "--desk-monitor-frame" in CSS
+    assert "--desk-monitor-status-ready" in CSS
+    assert 'html[data-theme="light"] body[data-design="archive-console"] .monitor-hardware' in CSS
+    assert ".monitor-activity[open] .activity-chevron" in CSS
+    assert 'lines.slice(-3).join("\\n")' in APP
+    assert ".cta--render:disabled" in CSS
+    assert "pointer-events: none" in CSS

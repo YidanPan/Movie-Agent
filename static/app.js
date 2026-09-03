@@ -71,6 +71,7 @@ const els = {
   btnAiEdit: $("#btn-ai-edit"),
   editStatus: $("#edit-status"),
   logFeed: $("#log-feed"),
+  monitorActivityRecent: $("#monitor-activity-recent"),
   manualTabs: $("#manual-tabs"),
   manualBody: $("#manual-body"),
   manualSummary: $("#manual-summary"),
@@ -1118,7 +1119,11 @@ function renderShotMap(project) {
 }
 
 function renderLogFeed(project) {
-  els.logFeed.textContent = (project.logs || []).join("\n");
+  const lines = (project.logs || []).map((line) => String(line)).filter(Boolean);
+  els.logFeed.textContent = lines.join("\n");
+  if (els.monitorActivityRecent) {
+    els.monitorActivityRecent.textContent = lines.slice(-3).join("\n") || "等待片场信号";
+  }
   els.logFeed.scrollTop = els.logFeed.scrollHeight;
 }
 

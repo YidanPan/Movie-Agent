@@ -127,3 +127,12 @@ Inspector 的 `volume_db`、`pan` 与 `ducking` 通过 `/api/projects/{project_i
 ## Global Header Alignment
 
 Header 现在由固定的 `LEFT / CENTER / RIGHT` 三栏组成：品牌位于左栏，`PLAN / PREVIS / RENDER / DELIVER` 位于中栏，`OFF / DESK / REC` 共享右栏固定轨道。首页仅把中栏设为不可见而不移除轨道，工作区则显示阶段导航；两种状态都不会重新分配右侧控件的位置。右侧按钮使用稳定的最小宽度和统一 36px 高度，窄屏隐藏中栏并保留左右锚点，避免页面切换时发生横向漂移或状态框重叠。
+
+## Production Desk Monitor
+
+Light / `Production Desk` 下的片场监视器采用“纸张工作台中的嵌入式设备”处理：
+
+- `monitor-hardware` 负责浅暖灰设备框体、细 brass 边线和与页面之间的留白；`monitor-screen` 使用 `#28231D` 到 `#242019` 的 warm charcoal 介质面，不再直接贴在暖白面板上。
+- 屏幕只保留轻微暗角、扫描纹理和内缘线，避免大面积 blur、外发光与玻璃拟态。`6/6 READY`、`100%`、时间码和状态说明使用独立的高对比 monitor token，确保屏内信息不比页面 metadata 更难读。
+- shot 状态条与进度线使用低饱和 brass / moss 色，表达监看设备状态灯而不是游戏 HUD。Spark 真实生成按钮在 disabled 时保持可读文字、去除高光并禁止 pointer，不依赖低 opacity 制造不可用感。
+- 监视器下方日志改为默认折叠的 `AGENT ACTIVITY`。摘要持续显示最新三条事件，展开后读取完整 `log-feed`，让监视器保持主视觉而不丢失可审阅的生产记录。
