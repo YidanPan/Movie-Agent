@@ -100,3 +100,16 @@
 - `Status Text`：14px Sans / 400 / 正常字距，用于引擎、Agent、渲染和交付状态值。
 
 Dark `Screening Room` 与 Light `Production Desk` 共用这套角色，但颜色由主题 token 提供。`text-muted` 仅保留给非必要 metadata，用户需要阅读的正文、字段、控制和状态都提升到 `text-body` 或更高层级。中文界面不再额外拉大字距，英文工业 metadata 才保留适度 Mono tracking。
+
+## Sound Console / Progressive Disclosure
+
+本轮声音设计页不再把 Voice、Music、SFX、Ambience 做成四张等权重参数卡，而是按声音制作的决策顺序重排为：
+
+1. **Music Direction**：先确认来源、风格、BPM、进出点和版本；完整 AI 解释收进默认关闭的 `SHOW NOTES` disclosure。
+2. **Emotional Arc**：以每个 Shot 的能量柱呈现情绪走势，作为配乐和剪辑节奏的共同参考。
+3. **Sound Timeline**：扩大时间线高度，使用 48 段 waveform、Shot 分段、Subtitle cue、SFX cue marker、Smart Ducking 区间和可移动播放头；不再用斜线纹理模拟“动态”。
+4. **Track Mixer**：四条音轨收敛成一组平面列表，保留监听、启停、试听和重新规划；点击一条轨道才打开共享 Inspector，增益、声像和 ducking 等高级参数在此渐进披露。
+
+时间线动效只响应真实媒体语义：播放/暂停驱动 waveform 呼吸，播放器的 `timeupdate` 驱动 playhead 与字幕高亮，Shot/SFX cue 可跳转，Smart Ducking 以绿色区间标出语音让位。`prefers-reduced-motion` 下关闭 waveform 连续动画和 Inspector 入场动画。声音页的排版采用 12–20px 的 Sans / Mono 层级，避免把中文说明压成 9–10px 的低对比 metadata。
+
+Inspector 的 `volume_db`、`pan` 与 `ducking` 通过 `/api/projects/{project_id}/audio/design` 持久化，并在后端限制到安全范围；Music Intensity 会同步更新 Music 轨增益，避免 UI 强度和混音合同脱节。这样声音设计既保持黑金片场气质，也更接近专业但易用的 AI Film Sound Console。

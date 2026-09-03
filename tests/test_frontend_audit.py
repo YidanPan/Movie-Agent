@@ -97,3 +97,29 @@ def test_frontend_assets_are_versioned_and_not_cached():
     assert "/static/app.js?v=" in INDEX
     assert "prevent_stale_frontend_cache" in server
     assert 'response.headers["Cache-Control"] = "no-store, max-age=0"' in server
+
+
+def test_sound_console_uses_progressive_disclosure_and_track_inspector():
+    assert 'class="audio-focus-grid"' in INDEX
+    assert 'class="audio-brief-disclosure"' in INDEX
+    assert 'class="audio-mixer-layout"' in INDEX
+    assert 'data-audio-inspector' in INDEX
+    assert 'data-deliver-emotional-arc' in INDEX
+    assert "function audioTrackParamsPayload()" in APP
+    assert "function syncAudioInspectors" in APP
+    assert "function handleAudioInspectorInput" in APP
+    assert "track_params" in APP
+    assert "audio-cue-marker" in APP
+    assert "audio-wave-pulse" in CSS
+    assert ".audio-timeline.is-playing" in CSS
+    assert "font: 600 11px/1.1 var(--mono)" in CSS
+
+
+def test_sound_console_timeline_is_media_synced_and_semantically_sized():
+    assert "syncAudioTimeline(media.currentTime" in APP
+    assert "setAudioTimelinePlaybackState(true)" in APP
+    assert "setAudioTimelinePlaybackState(false)" in APP
+    assert "audio-timeline-stage" in CSS
+    assert "min-height: 176px" in CSS
+    assert "min-height: 258px" in CSS
+    assert "{ length: 48 }" in APP

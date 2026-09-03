@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from collections.abc import Callable
+from typing import Any
 from uuid import uuid4
 
 from movie_agent.agents.director import DirectorAgent
@@ -18,7 +19,13 @@ from movie_agent.models import MovieProject
 from movie_agent.storage.project_store import ProjectStore
 from movie_agent.services.llm import build_creative_llm
 from movie_agent.services.quality import PlanningQualityGate, SemanticCopyrightReviewer
-from movie_agent.services.audio import EDIT_AUDIO_STAGES, ensure_audio_design, mark_audio_stage, regenerate_track
+from movie_agent.services.audio import (
+    EDIT_AUDIO_STAGES,
+    apply_audio_track_params,
+    ensure_audio_design,
+    mark_audio_stage,
+    regenerate_track,
+)
 from movie_agent.services.final_look import ensure_final_look, normalise_final_look, reset_final_look
 from movie_agent.services.subtitles import (
     align_script_to_shots,
@@ -559,6 +566,7 @@ class MovieOrchestrator:
         music_asset_name: str | None = None,
         music_intensity: float | None = None,
         track_enabled: dict[str, bool] | None = None,
+        track_params: dict[str, dict[str, Any]] | None = None,
     ) -> MovieProject:
         project = self.store.load(project_id)
         self._require_dialogue_locked(project)
@@ -579,6 +587,7 @@ class MovieOrchestrator:
         for key, enabled in (track_enabled or {}).items():
             if key in project.audio_tracks:
                 project.audio_tracks[key]["enabled"] = bool(enabled)
+        apply_audio_track_params(project, track_params)
         project.mix_state["media_mixed"] = False
         project.mix_state["stage_status"] = {stage: "queued" for stage in EDIT_AUDIO_STAGES}
         project.mix_state["active_stage"] = "picture_cut"
@@ -649,6 +658,7 @@ class MovieOrchestrator:
         music_asset_name: str | None = None,
         music_intensity: float | None = None,
         track_enabled: dict[str, bool] | None = None,
+        track_params: dict[str, dict[str, Any]] | None = None,
     ) -> MovieProject:
         """Persist sound-department choices without starting an edit render."""
 
@@ -661,6 +671,14 @@ class MovieOrchestrator:
         }
         before_config["track_enabled"] = {
             key: (project.audio_tracks or {}).get(key, {}).get("enabled", True)
+            for key in ("voice", "music", "sfx", "ambience")
+        }
+        before_config["track_params"] = {
+            key: {
+                "volume_db": (project.audio_tracks or {}).get(key, {}).get("volume_db"),
+                "pan": (project.audio_tracks or {}).get(key, {}).get("pan", 0),
+                "ducking": (project.audio_tracks or {}).get(key, {}).get("ducking", key == "music"),
+            }
             for key in ("voice", "music", "sfx", "ambience")
         }
         had_edit_output = bool(
@@ -680,6 +698,7 @@ class MovieOrchestrator:
         for key, enabled in (track_enabled or {}).items():
             if key in project.audio_tracks:
                 project.audio_tracks[key]["enabled"] = bool(enabled)
+        apply_audio_track_params(project, track_params)
         after_config = {
             "music_mode": project.music_mode,
             "music_intensity": project.music_intensity,
@@ -687,6 +706,14 @@ class MovieOrchestrator:
             "smart_ducking": bool((project.smart_ducking or {}).get("enabled", True)),
             "track_enabled": {
                 key: (project.audio_tracks or {}).get(key, {}).get("enabled", True)
+                for key in ("voice", "music", "sfx", "ambience")
+            },
+            "track_params": {
+                key: {
+                    "volume_db": (project.audio_tracks or {}).get(key, {}).get("volume_db"),
+                    "pan": (project.audio_tracks or {}).get(key, {}).get("pan", 0),
+                    "ducking": (project.audio_tracks or {}).get(key, {}).get("ducking", key == "music"),
+                }
                 for key in ("voice", "music", "sfx", "ambience")
             },
         }

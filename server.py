@@ -99,6 +99,7 @@ class AudioDesignPayload(BaseModel):
     smart_ducking: bool = True
     music_asset_name: str = Field(default="", max_length=240)
     track_enabled: dict[str, bool] = Field(default_factory=dict)
+    track_params: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
     @field_validator("music_asset_name")
     @classmethod
@@ -309,6 +310,7 @@ async def create_rough_cut_stream(project_id: str, request: Request) -> Streamin
                 smart_ducking=payload.smart_ducking,
                 music_asset_name=payload.music_asset_name,
                 track_enabled=payload.track_enabled,
+                track_params=payload.track_params,
             )
             emit({"type": "done", "project": project.to_dict()})
 
@@ -331,6 +333,7 @@ async def update_audio_design(project_id: str, request: Request):
             smart_ducking=payload.smart_ducking,
             music_asset_name=payload.music_asset_name,
             track_enabled=payload.track_enabled,
+            track_params=payload.track_params,
         )
     except FileNotFoundError:
         return project_not_found(project_id)

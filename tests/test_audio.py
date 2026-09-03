@@ -90,6 +90,31 @@ class AudioDesignTests(unittest.TestCase):
             self.assertEqual(changed.music_brief["intensity_percent"], 25)
             self.assertEqual(changed.audio_tracks["music"]["volume_db"], -17.5)
 
+    def test_track_inspector_params_are_bounded_and_persisted(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            settings = Settings(
+                "http://127.0.0.1:8188", 900, Path("workflows"), 9071, root, True,
+                outputs_dir=root / "outputs",
+            )
+            orchestrator = MovieOrchestrator(settings)
+            project = orchestrator.create_project(
+                "一名守夜人发现空城每天都在等他下班。", 48, "胶片科幻"
+            )
+            changed = orchestrator.set_audio_design(
+                project.project_id,
+                track_params={
+                    "music": {"volume_db": -99, "pan": 2, "ducking": False},
+                    "sfx": {"volume_db": -4.25, "pan": -0.35, "ducking": True},
+                },
+            )
+            self.assertEqual(changed.audio_tracks["music"]["volume_db"], -60.0)
+            self.assertEqual(changed.audio_tracks["music"]["pan"], 1.0)
+            self.assertFalse(changed.audio_tracks["music"]["ducking"])
+            self.assertEqual(changed.audio_tracks["sfx"]["volume_db"], -4.2)
+            self.assertEqual(changed.audio_tracks["sfx"]["pan"], -0.35)
+            self.assertTrue(changed.audio_tracks["sfx"]["ducking"])
+
 
 if __name__ == "__main__":
     unittest.main()

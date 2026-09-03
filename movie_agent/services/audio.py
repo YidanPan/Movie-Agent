@@ -185,6 +185,8 @@ def build_audio_tracks(
             "volume_db": -2,
             "preview_url": None,
             "can_regenerate": False,
+            "pan": 0,
+            "ducking": False,
         },
         "music": {
             "key": "music",
@@ -196,6 +198,8 @@ def build_audio_tracks(
             "volume_db": round(-20 + (resolved_intensity * 10), 1),
             "preview_url": None,
             "can_regenerate": True,
+            "pan": 0,
+            "ducking": True,
         },
         "sfx": {
             "key": "sfx",
@@ -207,6 +211,8 @@ def build_audio_tracks(
             "volume_db": -10,
             "preview_url": None,
             "can_regenerate": True,
+            "pan": 0,
+            "ducking": False,
         },
         "ambience": {
             "key": "ambience",
@@ -218,6 +224,8 @@ def build_audio_tracks(
             "volume_db": -22,
             "preview_url": None,
             "can_regenerate": True,
+            "pan": 0,
+            "ducking": False,
         },
     }
 
@@ -294,6 +302,9 @@ def ensure_audio_design(
             track["enabled"] = bool(previous["enabled"])
         if "volume_db" in previous and not (key == "music" and music_intensity is not None):
             track["volume_db"] = previous["volume_db"]
+        for setting in ("pan", "ducking"):
+            if setting in previous:
+                track[setting] = previous[setting]
         if previous.get("preview_url") and not (key == "music" and mode != "upload"):
             track["preview_url"] = previous["preview_url"]
         if previous.get("media_path") and not (key == "music" and mode != "upload"):
@@ -313,6 +324,28 @@ def ensure_audio_design(
         "media_mixed": bool(previous_mix.get("media_mixed", False)),
         "stage_status": {stage: str(previous_stage_status.get(stage, "queued")) for stage in EDIT_AUDIO_STAGES},
     }
+    return project
+
+
+def apply_audio_track_params(project: Any, track_params: dict[str, dict[str, Any]] | None = None) -> Any:
+    """Apply bounded per-track mix controls from the sound console Inspector."""
+
+    for key, params in (track_params or {}).items():
+        if key not in ("voice", "music", "sfx", "ambience") or not isinstance(params, dict):
+            continue
+        track = (project.audio_tracks or {}).setdefault(key, {})
+        if params.get("volume_db") is not None:
+            try:
+                track["volume_db"] = round(max(-60.0, min(6.0, float(params["volume_db"]))), 1)
+            except (TypeError, ValueError):
+                pass
+        if params.get("pan") is not None:
+            try:
+                track["pan"] = round(max(-1.0, min(1.0, float(params["pan"]))), 2)
+            except (TypeError, ValueError):
+                pass
+        if params.get("ducking") is not None:
+            track["ducking"] = bool(params["ducking"])
     return project
 
 

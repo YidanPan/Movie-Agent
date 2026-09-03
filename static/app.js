@@ -333,6 +333,8 @@ const state = {
   musicIntensity: 0.6,
   musicAssetName: "",
   smartDucking: true,
+  audioInspectorTrack: "music",
+  audioInspectorOpen: false,
   finalLookProjectId: null,
   finalLookDraft: null,
   finalLookDirty: false,
@@ -1592,6 +1594,8 @@ function audioTracksFor(project) {
       volume_db: key === "voice" ? -2 : key === "music" ? -14 : key === "sfx" ? -10 : -22,
       preview_url: null,
       can_regenerate: key !== "voice",
+      pan: 0,
+      ducking: key === "music",
     };
     return [key, { ...fallback, ...(source[key] || {}), key }];
   }));
@@ -1615,18 +1619,18 @@ function renderMusicBriefMarkup(project, compact = false) {
   if (compact) {
     return `<div class="deliver-music-brief-head"><span class="deliver-label type-system-meta">MUSIC BRIEF</span><strong class="type-control">${esc(brief.source || AUDIO_MODE_LABELS[audioModeFor(project)])}</strong><span class="type-system-meta">${brief.bpm ? `${brief.bpm} BPM` : "BRIEF READY"}</span></div><div class="deliver-music-brief-stats">${fieldsMarkup}</div>`;
   }
-  return `<div class="music-brief-inline-stats">${fieldsMarkup}</div>`;
+  return fieldsMarkup;
 }
 
 function renderEmotionalArc(project) {
-  if (!els.emotionalArc) return;
   const arc = Array.isArray(project?.music_brief?.emotional_arc) ? project.music_brief.emotional_arc : [];
-  els.emotionalArc.innerHTML = arc.length
+  const markup = arc.length
     ? arc.map((item) => {
       const intensity = Math.max(0.12, Math.min(1, Number(item.intensity || 0.2)));
       return `<span class="arc-segment" style="--arc-intensity:${intensity}" title="SHOT ${item.shot} · ${esc(item.emotion || "arc")}"><i></i><b class="type-system-meta">${String(item.shot).padStart(2, "0")}</b></span>`;
     }).join("")
-    : '<span class="audio-empty mono">情绪曲线将在分镜就绪后生成。</span>';
+    : '<span class="audio-empty type-helper">情绪曲线将在分镜就绪后生成。</span>';
+  [els.emotionalArc, ...$$('[data-deliver-emotional-arc]')].filter(Boolean).forEach((target) => { target.innerHTML = markup; });
 }
 
 function renderAudioTrackList(project, target) {
@@ -1638,7 +1642,8 @@ function renderAudioTrackList(project, target) {
     const enabled = track.enabled !== false;
     const canRegenerate = track.can_regenerate !== false;
     const previewUrl = track.preview_url || "";
-    return `<article class="audio-track ${enabled ? "is-enabled" : "is-muted"}" data-audio-track="${key}">
+    const selected = state.audioInspectorTrack === key;
+    return `<article class="audio-track ${enabled ? "is-enabled" : "is-muted"} ${selected ? "is-selected" : ""}" data-audio-track="${key}" data-audio-track-select="${key}" tabindex="0" aria-label="选择 ${labels.en} 音轨" aria-current="${selected ? "true" : "false"}">
       <button class="audio-track-toggle" type="button" data-audio-toggle="${key}" aria-pressed="${enabled}" aria-label="${enabled ? "关闭" : "开启"} ${labels.en} 轨道"><span class="audio-track-led"></span></button>
       <div class="audio-track-main"><div class="audio-track-title"><span class="type-system-meta">${labels.en}</span><strong class="type-control">${esc(track.name || labels.zh)}</strong></div><p class="type-helper">${esc(track.source || "SOUND DESIGN PLAN")}</p></div>
       <div class="audio-track-meter" aria-label="音量 ${esc(track.volume_db ?? 0)} dB"><i style="--meter-level:${Math.max(8, Math.min(100, 68 + Number(track.volume_db || 0) * 2))}%"></i></div>
@@ -1646,6 +1651,71 @@ function renderAudioTrackList(project, target) {
       <div class="audio-track-actions"><button type="button" class="audio-track-action type-control" data-audio-preview="${key}" data-audio-url="${esc(previewUrl)}">试听</button><button type="button" class="audio-track-action type-control" data-audio-regenerate="${key}" ${canRegenerate ? "" : "disabled"}>重新生成</button></div>
     </article>`;
   }).join("");
+}
+
+function audioTrackParamsPayload() {
+  const tracks = state.project?.audio_tracks || {};
+  return Object.fromEntries(AUDIO_TRACK_ORDER.map((key) => {
+    const track = tracks[key] || {};
+    return [key, {
+      volume_db: Number.isFinite(Number(track.volume_db)) ? Number(track.volume_db) : 0,
+      pan: Number.isFinite(Number(track.pan)) ? Number(track.pan) : 0,
+      // Only Music ducks by default.  Older projects may not have the field,
+      // so do not accidentally enable ducking on Voice/SFX/Ambience.
+      ducking: key === "music" ? track.ducking !== false : track.ducking === true,
+    }];
+  }));
+}
+
+function syncAudioInspectors(project = state.project) {
+  const tracks = audioTracksFor(project);
+  const key = AUDIO_TRACK_ORDER.includes(state.audioInspectorTrack) ? state.audioInspectorTrack : "music";
+  state.audioInspectorTrack = key;
+  const track = tracks[key];
+  const labels = AUDIO_TRACK_LABELS[key];
+  document.querySelectorAll("[data-audio-track-select]").forEach((row) => {
+    const selected = row.dataset.audioTrackSelect === key;
+    row.classList.toggle("is-selected", selected);
+    row.setAttribute("aria-current", String(selected));
+  });
+  document.querySelectorAll("[data-audio-inspector-toggle]").forEach((button) => {
+    button.setAttribute("aria-expanded", String(state.audioInspectorOpen));
+    button.textContent = state.audioInspectorOpen ? "CLOSE INSPECTOR" : "OPEN INSPECTOR";
+  });
+  document.querySelectorAll("[data-audio-inspector]").forEach((inspector) => {
+    inspector.hidden = !state.audioInspectorOpen;
+    inspector.dataset.track = key;
+    const label = inspector.querySelector("[data-audio-inspector-label]");
+    const name = inspector.querySelector("[data-audio-inspector-name]");
+    const status = inspector.querySelector("[data-audio-inspector-status]");
+    const copy = inspector.querySelector("[data-audio-inspector-copy]");
+    if (label) label.textContent = labels.en;
+    if (name) name.textContent = track.name || labels.zh;
+    if (status) status.textContent = track.status || "DESIGN READY";
+    if (copy) copy.textContent = `${track.source || "SOUND DESIGN PLAN"}。调节后会写回当前项目的混音方案。`;
+    const gain = inspector.querySelector('[data-audio-inspector-field="volume_db"]');
+    const pan = inspector.querySelector('[data-audio-inspector-field="pan"]');
+    const ducking = inspector.querySelector('[data-audio-inspector-field="ducking"]');
+    if (gain) gain.value = String(track.volume_db ?? 0);
+    if (pan) pan.value = String(track.pan ?? 0);
+    if (ducking) ducking.checked = track.ducking !== false;
+    const gainOutput = inspector.querySelector('[data-audio-inspector-output="volume_db"]');
+    const panOutput = inspector.querySelector('[data-audio-inspector-output="pan"]');
+    if (gainOutput) gainOutput.textContent = `${Number(track.volume_db ?? 0).toFixed(1)} dB`;
+    if (panOutput) panOutput.textContent = Number(track.pan ?? 0) === 0 ? "C" : (Number(track.pan) < 0 ? `L ${Math.abs(Number(track.pan)).toFixed(2)}` : `R ${Number(track.pan).toFixed(2)}`);
+    if (ducking) ducking.disabled = key === "voice";
+    const preview = inspector.querySelector("[data-audio-inspector-preview]");
+    const regenerate = inspector.querySelector("[data-audio-inspector-regenerate]");
+    if (preview) { preview.dataset.audioPreview = key; preview.dataset.audioUrl = track.preview_url || ""; }
+    if (regenerate) { regenerate.dataset.audioInspectorRegenerate = key; regenerate.disabled = track.can_regenerate === false; }
+  });
+}
+
+function selectAudioTrack(key) {
+  if (!AUDIO_TRACK_ORDER.includes(key)) return;
+  state.audioInspectorTrack = key;
+  state.audioInspectorOpen = true;
+  syncAudioInspectors(state.project);
 }
 
 function audioTimelineCues(project) {
@@ -1662,7 +1732,7 @@ function audioTimelineCues(project) {
 }
 
 function audioWaveformMarkup(seed = 1) {
-  const bars = Array.from({ length: 18 }, (_, index) => {
+  const bars = Array.from({ length: 48 }, (_, index) => {
     const value = 24 + ((seed * 17 + index * 29) % 62);
     return `<i style="--wave-height:${value}%"></i>`;
   }).join("");
@@ -1692,23 +1762,28 @@ function renderAudioTimeline(project) {
     const label = AUDIO_TRACK_LABELS[key];
     const enabled = project?.audio_tracks?.[key]?.enabled !== false;
     const clips = shotSegments.map(({ duration }) => `<span class="audio-clip" style="--clip-size:${(duration / total * 100).toFixed(3)}%"></span>`).join("");
+    const sfxMarkers = key === "sfx"
+      ? shotSegments.map(({ shot, start }) => `<i class="audio-cue-marker" style="left:${Math.min(100, Math.max(0, start / total * 100)).toFixed(3)}%" title="SFX CUE · SHOT ${shot.number}"></i>`).join("")
+      : "";
     const duckBands = key === "music" && project?.smart_ducking?.enabled !== false
       ? audioTimelineCues(project).map((cue) => {
         const left = Math.min(100, Math.max(0, cue.start / total * 100));
         const width = Math.max(0.8, Math.min(100 - left, (Math.max(cue.end, cue.start + 0.4) - cue.start) / total * 100));
-        return `<i class="audio-ducking-band" style="left:${left.toFixed(3)}%;width:${width.toFixed(3)}%" title="SMART DUCKING · ${esc(cue.text)}"></i>`;
+        return `<i class="audio-ducking-band" style="left:${left.toFixed(3)}%;width:${width.toFixed(3)}%" title="SMART DUCKING · ${esc(cue.text)}"><span>DUCK</span></i>`;
       }).join("") : "";
-    return `<div class="audio-timeline-track" data-audio-track-row="${key}"><span class="audio-track-name type-system-meta">${label.en}</span><div class="audio-track-lane ${enabled ? "is-enabled" : "is-muted"}">${key === "music" ? `${audioWaveformMarkup(index + 3)}${duckBands}` : clips}</div></div>`;
+    return `<div class="audio-timeline-track" data-audio-track-row="${key}"><span class="audio-track-name type-system-meta">${label.en}</span><div class="audio-track-lane ${enabled ? "is-enabled" : "is-muted"}">${key === "music" ? `${audioWaveformMarkup(index + 3)}${duckBands}` : `${clips}${sfxMarkers}`}</div></div>`;
   }).join("");
+  const rulerMarkup = [0, 0.25, 0.5, 0.75, 1].map((ratio) => `<span>${compactDuration(total * ratio)}</span>`).join("");
   const markup = `
     <header class="audio-timeline-head"><span><span class="deliver-label type-system-meta">SOUND TIMELINE / 声音时间线</span><strong class="type-control">VOICE · MUSIC · SFX · AMBIENCE</strong></span><span class="audio-timeline-time type-system-meta" data-audio-timeline-label>00:00 / ${compactDuration(total)}</span></header>
-    <div class="audio-timeline-ruler type-system-meta"><span>00:00</span><span>00:15</span><span>00:30</span><span>${compactDuration(total)}</span></div>
+    <div class="audio-timeline-ruler type-system-meta">${rulerMarkup}</div>
     <div class="audio-timeline-stage" data-audio-seek-track>
       <div class="audio-shot-row"><span class="audio-track-name type-system-meta">SHOTS</span><div class="audio-shot-lane">${segmentMarkup || '<span class="audio-empty type-helper">镜头时间线将在分镜就绪后出现。</span>'}</div></div>
       ${trackMarkup}
       <div class="audio-subtitle-row"><span class="audio-track-name type-system-meta">SUB</span><div class="audio-subtitle-lane">${cueMarkup || '<span class="audio-empty type-helper">锁定台词本后显示字幕 cue。</span>'}</div></div>
       <i class="audio-playhead" data-audio-playhead aria-hidden="true"><b></b></i>
-    </div>`;
+    </div>
+    <footer class="audio-timeline-footer"><span class="type-helper">播放头跟随预览，点击 Shot 或字幕 cue 可快速定位。</span><span class="type-system-meta">CUE / PLAYHEAD / MIX</span></footer>`;
   targets.forEach((target) => {
     target.innerHTML = markup;
     target.querySelectorAll("[data-audio-seek]").forEach((button) => {
@@ -1742,8 +1817,17 @@ function syncAudioTimeline(currentTime = 0, duration = state.audioTimelineDurati
   });
 }
 
+function setAudioTimelinePlaybackState(isPlaying) {
+  [els.audioTimeline, els.audioTimelineEditor].filter(Boolean).forEach((timeline) => {
+    timeline.classList.toggle("is-playing", Boolean(isPlaying));
+  });
+}
+
 function renderAudioDesign(project) {
   if (!project) return;
+  const activeMedia = [els.finalVideo, els.roughCutVideo].find((media) => media && media.src && !media.hidden);
+  const timelineTime = activeMedia?.currentTime || 0;
+  const timelinePlaying = Boolean(activeMedia && !activeMedia.paused);
   const mode = audioModeFor(project);
   state.musicMode = mode;
   state.musicAssetName = project.music_asset_name || "";
@@ -1787,16 +1871,32 @@ function renderAudioDesign(project) {
   if (els.deliverAudioState) els.deliverAudioState.textContent = project.mix_state?.status || "MIX PLAN READY";
   if (els.deliverMusicBrief) els.deliverMusicBrief.innerHTML = renderMusicBriefMarkup(project, true);
   renderAudioTrackList(project, els.deliverAudioTrackList);
+  syncAudioInspectors(project);
+  // Re-rendering a control should not make a playing timeline jump back to 00:00.
+  syncAudioTimeline(timelineTime, activeMedia?.duration || state.audioTimelineDuration || 1);
+  setAudioTimelinePlaybackState(timelinePlaying);
 }
 
 async function persistAudioDesign(changes = {}) {
   if (!state.project) return;
+  const trackParams = changes.track_params
+    ? JSON.parse(JSON.stringify(changes.track_params))
+    : audioTrackParamsPayload();
+  // Intensity is the public Music control.  Keep its derived gain in sync
+  // unless an Inspector update explicitly supplied a gain value.
+  if (changes.music_intensity != null) {
+    trackParams.music ||= {};
+    if (changes.track_params?.music?.volume_db == null) {
+      trackParams.music.volume_db = Number((-20 + Number(changes.music_intensity) * 10).toFixed(1));
+    }
+  }
   const payload = {
     music_mode: changes.music_mode || state.musicMode || "ai",
     music_intensity: changes.music_intensity ?? state.musicIntensity ?? 0.6,
     smart_ducking: changes.smart_ducking ?? state.smartDucking,
     music_asset_name: changes.music_asset_name ?? state.musicAssetName ?? "",
     track_enabled: Object.fromEntries(AUDIO_TRACK_ORDER.map((key) => [key, state.project?.audio_tracks?.[key]?.enabled !== false])),
+    track_params: trackParams,
   };
   try {
     const response = await fetch(`/api/projects/${encodeURIComponent(state.project.project_id)}/audio/design`, {
@@ -1833,6 +1933,12 @@ async function regenerateAudioTrack(trackKey) {
 }
 
 function handleAudioInteraction(event) {
+  const inspectorToggle = event.target.closest("[data-audio-inspector-toggle]");
+  if (inspectorToggle) {
+    state.audioInspectorOpen = !state.audioInspectorOpen;
+    syncAudioInspectors(state.project);
+    return;
+  }
   const modeButton = event.target.closest("[data-audio-mode]");
   if (modeButton) {
     state.musicMode = modeButton.dataset.audioMode || "ai";
@@ -1849,6 +1955,25 @@ function handleAudioInteraction(event) {
     persistAudioDesign();
     return;
   }
+  const trackSelect = event.target.closest("[data-audio-track-select]");
+  if (trackSelect && !event.target.closest("button, input, select, textarea")) {
+    selectAudioTrack(trackSelect.dataset.audioTrackSelect);
+    return;
+  }
+  const inspectorPreview = event.target.closest("[data-audio-inspector-preview]");
+  if (inspectorPreview) {
+    const key = inspectorPreview.closest("[data-audio-inspector]")?.dataset.track || state.audioInspectorTrack;
+    const track = audioTracksFor(state.project)[key] || {};
+    if (!track.preview_url) { toast("该音轨还没有可试听的真实音频媒体。先完成 AI Edit 或上传配乐。", true); return; }
+    const player = state.audioPreview;
+    if (player && !player.paused) player.pause();
+    state.audioPreview = new Audio(track.preview_url);
+    state.audioPreview.play().catch(() => toast("浏览器阻止了试听，请再次点击试听。", true));
+    toast(`${key.toUpperCase()} 试听中。`);
+    return;
+  }
+  const inspectorRegenerate = event.target.closest("[data-audio-inspector-regenerate]");
+  if (inspectorRegenerate) { regenerateAudioTrack(inspectorRegenerate.dataset.audioInspectorRegenerate || state.audioInspectorTrack); return; }
   const regenerate = event.target.closest("[data-audio-regenerate]");
   if (regenerate) { regenerateAudioTrack(regenerate.dataset.audioRegenerate); return; }
   const preview = event.target.closest("[data-audio-preview]");
@@ -1860,6 +1985,30 @@ function handleAudioInteraction(event) {
     state.audioPreview = new Audio(url);
     state.audioPreview.play().catch(() => toast("浏览器阻止了试听，请再次点击试听。", true));
     toast(`${preview.dataset.audioPreview.toUpperCase()} 试听中。`);
+  }
+}
+
+function handleAudioInspectorKeydown(event) {
+  if ((event.key !== "Enter" && event.key !== " ") || !event.target.matches("[data-audio-track-select]")) return;
+  event.preventDefault();
+  selectAudioTrack(event.target.dataset.audioTrackSelect);
+}
+
+function handleAudioInspectorInput(event) {
+  const field = event.target.closest("[data-audio-inspector-field]");
+  if (!field || !state.project) return;
+  const inspector = field.closest("[data-audio-inspector]");
+  const key = inspector?.dataset.track || state.audioInspectorTrack;
+  state.project.audio_tracks ||= {};
+  state.project.audio_tracks[key] ||= {};
+  const name = field.dataset.audioInspectorField;
+  state.project.audio_tracks[key][name] = field.type === "checkbox" ? Boolean(field.checked) : Number(field.value);
+  const output = inspector?.querySelector(`[data-audio-inspector-output="${name}"]`);
+  if (output && name === "volume_db") output.textContent = `${Number(field.value).toFixed(1)} dB`;
+  if (output && name === "pan") output.textContent = Number(field.value) === 0 ? "C" : (Number(field.value) < 0 ? `L ${Math.abs(Number(field.value)).toFixed(2)}` : `R ${Number(field.value).toFixed(2)}`);
+  if (name === "volume_db") {
+    document.querySelectorAll(`[data-audio-track="${key}"] .audio-track-meter i`).forEach((meter) => { meter.style.setProperty("--meter-level", `${Math.max(8, Math.min(100, 68 + Number(field.value || 0) * 2))}%`); });
+    document.querySelectorAll(`[data-audio-track="${key}"] .audio-track-status small`).forEach((small) => { small.textContent = `${Number(field.value).toFixed(1)} dB`; });
   }
 }
 
@@ -4323,6 +4472,13 @@ function init() {
   els.btnExportClose?.addEventListener("click", closeExportSheet);
   els.btnExportRun?.addEventListener("click", exportFinalCut);
   document.addEventListener("click", handleAudioInteraction);
+  document.addEventListener("keydown", handleAudioInspectorKeydown);
+  document.addEventListener("input", handleAudioInspectorInput);
+  document.addEventListener("change", (event) => {
+    if (!event.target.closest("[data-audio-inspector-field]")) return;
+    handleAudioInspectorInput(event);
+    persistAudioDesign({ track_params: audioTrackParamsPayload() });
+  });
   document.addEventListener("click", handleFinalLookInteraction);
   els.finalLookIntensity?.addEventListener("input", () => updateFinalLookDraft("intensity", els.finalLookIntensity.value));
   els.finalLookGrain?.addEventListener("input", () => updateFinalLookDraft("grain", els.finalLookGrain.value));
@@ -4371,14 +4527,24 @@ function init() {
     if (!media) return;
     media.addEventListener("loadedmetadata", () => {
       if (media === els.finalVideo) updateFinalVideoMetadata();
+      syncAudioTimeline(media.currentTime || 0, media.duration || state.audioTimelineDuration || 1);
       syncFinalCompareMedia(media);
     });
     media.addEventListener("timeupdate", () => {
+      syncAudioTimeline(media.currentTime, media.duration || state.audioTimelineDuration || 1);
       if (media === els.finalVideo) syncFinalCompareMedia(media);
-      else syncAudioTimeline(media.currentTime, media.duration || state.audioTimelineDuration || 1);
     });
-    media.addEventListener("play", () => media === els.finalVideo ? syncFinalCompareMedia(media) : syncAudioTimeline(media.currentTime, media.duration || state.audioTimelineDuration || 1));
-    media.addEventListener("pause", () => media === els.finalVideo ? syncFinalCompareMedia(media) : syncAudioTimeline(media.currentTime, media.duration || state.audioTimelineDuration || 1));
+    media.addEventListener("play", () => {
+      syncAudioTimeline(media.currentTime, media.duration || state.audioTimelineDuration || 1);
+      setAudioTimelinePlaybackState(true);
+      if (media === els.finalVideo) syncFinalCompareMedia(media);
+    });
+    media.addEventListener("pause", () => {
+      syncAudioTimeline(media.currentTime, media.duration || state.audioTimelineDuration || 1);
+      setAudioTimelinePlaybackState(false);
+      if (media === els.finalVideo) syncFinalCompareMedia(media);
+    });
+    media.addEventListener("ended", () => setAudioTimelinePlaybackState(false));
   });
   els.manualTabs.addEventListener("click", (event) => {
     const button = event.target.closest(".tab");
