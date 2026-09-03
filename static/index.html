@@ -407,7 +407,7 @@
               </section>
               <div class="edit-console-controls">
                 <label class="subtitle-mode-control"><span class="manual-label mono">SUBTITLE OUTPUT / 字幕输出</span><select id="subtitle-mode" aria-label="字幕输出模式"><option value="burned">烧录字幕 · BURNED</option><option value="soft">软字幕 · SOFT + SRT/VTT</option><option value="none">无字幕 · CLEAN PICTURE</option></select></label>
-                <div class="edit-console-actions"><button class="ghost" id="btn-recut" type="button">重新规划粗剪</button><button class="cta" id="btn-approve-edit" type="button">批准最终成片 <span class="cta-arrow" aria-hidden="true">→</span></button></div>
+                <div class="edit-console-actions"><button class="ghost" id="btn-recut" type="button">重新规划粗剪</button></div>
               </div>
               <p class="edit-console-note mono" id="edit-console-note">AI Edit 会严格读取已锁定的台词本与字幕轨。</p>
             </div>
@@ -427,36 +427,9 @@
                   </div>
                   <div class="final-not-generated" id="final-not-generated"><strong class="mono">FINAL CUT NOT GENERATED</strong><span>后端尚未提供可播放的最终视频文件。</span></div>
                 </div>
-                <div class="deliver-video-meta" id="deliver-video-meta" aria-label="成片技术信息">
-                  <div><span class="deliver-label mono">DURATION</span><strong id="deliver-meta-duration">·</strong></div>
-                  <div><span class="deliver-label mono">RESOLUTION</span><strong id="deliver-meta-resolution">·</strong></div>
-                  <div><span class="deliver-label mono">ASPECT</span><strong id="deliver-meta-aspect">16:9</strong></div>
-                  <div><span class="deliver-label mono">CODEC</span><strong id="deliver-meta-codec">H.264 / AAC</strong></div>
-                  <div><span class="deliver-label mono">SUBTITLES</span><strong id="deliver-meta-subtitles">BURNED</strong></div>
-                  <div><span class="deliver-label mono">VOICEOVER</span><strong id="deliver-meta-voiceover">LOCKED TRACK</strong></div>
-                  <div><span class="deliver-label mono">AUDIO</span><strong id="deliver-meta-audio">VOICE · MUSIC · SFX · ATMOS</strong></div>
-                </div>
-                <div class="deliver-shot-timeline-wrap">
-                  <div class="deliver-shot-timeline-head"><span class="deliver-label mono">SHOT TIMELINE / 快速跳转</span><span class="mono" id="deliver-timeline-total">·</span></div>
-                  <div class="deliver-shot-timeline" id="deliver-shot-timeline" role="list" aria-label="成片镜头时间线"></div>
-                </div>
-                <section class="deliver-audio-panel" id="deliver-audio-panel" aria-label="最终混音与声音设计">
-                  <header class="deliver-audio-head"><div><span class="deliver-label mono">FINAL MIX / SOUND DEPARTMENT</span><h4>声音设计与配乐</h4></div><span class="mono" id="deliver-audio-state">MIX PLAN READY</span></header>
-                  <div class="audio-focus-grid deliver-audio-focus-grid">
-                    <section class="music-direction-panel" aria-label="Music Direction"><header class="audio-block-head"><div><span class="deliver-label mono">MUSIC DIRECTION</span><strong>最终混音方向</strong></div><span class="type-system-meta">LOCKED PLAN</span></header><div class="deliver-music-brief" id="deliver-music-brief"></div><details class="audio-brief-disclosure"><summary><span>AI 配乐说明</span><span class="type-system-meta">SHOW NOTES</span></summary><p class="type-helper">配乐强度、进入点和高潮位置与镜头节奏保持同步；Voice 出现时由 Smart Ducking 自动让位。</p></details></section>
-                    <section class="emotional-arc-panel" aria-label="Emotional Arc"><header class="audio-block-head"><div><span class="deliver-label mono">EMOTIONAL ARC</span><strong>镜头能量曲线</strong></div><span class="type-system-meta">SHOT ENERGY</span></header><div class="emotional-arc-frame"><div class="emotional-arc" data-deliver-emotional-arc aria-label="情绪曲线"></div><div class="emotional-arc-axis type-system-meta"><span>QUIET</span><span>PEAK</span></div></div></section>
-                  </div>
-                  <div class="audio-source-zone"><div class="deliver-audio-source-row"><span class="manual-label type-ui-label">MUSIC SOURCE / 配乐来源</span><div class="audio-mode-switch deliver-audio-mode-switch" id="deliver-audio-mode-switch" role="radiogroup" aria-label="最终配乐来源"><button type="button" class="audio-mode-button is-selected" data-audio-mode="ai" role="radio" aria-checked="true"><b>AI 自动配乐</b><small>EMOTIONAL ARC</small></button><button type="button" class="audio-mode-button" data-audio-mode="library" role="radio" aria-checked="false"><b>素材库音乐</b><small>STUDIO LIBRARY</small></button><button type="button" class="audio-mode-button" data-audio-mode="upload" role="radio" aria-checked="false"><b>用户上传音乐</b><small>USER SOURCE</small></button></div></div>
-                    <div class="audio-upload-row hidden" id="deliver-audio-upload-row"><label class="audio-upload-control"><span class="manual-label type-ui-label">USER SCORE / 上传文件</span><input id="deliver-music-upload" type="file" accept="audio/*"><small class="type-helper" id="deliver-music-upload-note">上传后将作为 MUSIC 轨来源。</small></label></div></div>
-                  <div class="deliver-audio-controls" aria-label="配乐与混音控制"><label class="deliver-audio-range"><span><b>MUSIC INTENSITY / 音乐强度</b><output id="deliver-music-intensity-value">60%</output></span><input id="deliver-music-intensity" type="range" min="0" max="1" step="0.01" value="0.6"></label><label class="smart-ducking deliver-smart-ducking"><input type="checkbox" id="deliver-smart-ducking-toggle" checked><span><b>SMART DUCKING / 旁白闪避</b><small id="deliver-smart-ducking-copy">对白出现时自动降低配乐，结束后平滑恢复。</small></span><i class="mono" id="deliver-smart-ducking-value">−8 dB</i></label></div>
-                  <div class="audio-timeline" id="audio-timeline" aria-label="声音设计时间线"></div>
-                  <section class="audio-mixer" aria-label="Track Mixer 四轨混音"><header class="audio-mixer-head"><div><span class="deliver-label mono">TRACK MIXER / 四轨混音</span><strong>按轨道监听与开关</strong></div><button class="ghost type-control" type="button" data-audio-inspector-toggle aria-expanded="false">OPEN INSPECTOR</button></header><div class="audio-mixer-layout"><div class="deliver-audio-track-list audio-track-list" id="deliver-audio-track-list"></div><aside class="audio-track-inspector" data-audio-inspector hidden aria-label="音轨 Inspector"><header><div><span class="audio-inspector-track-label type-system-meta" data-audio-inspector-label>MUSIC</span><strong class="type-control" data-audio-inspector-name>选择音轨</strong></div><span class="type-status" data-audio-inspector-status>DESIGN READY</span></header><p class="type-helper" data-audio-inspector-copy>选择一条音轨查看增益、声像与闪避参数。</p><div class="audio-inspector-controls"><label><span class="type-ui-label">GAIN / 增益 <output data-audio-inspector-output="volume_db">-14 dB</output></span><input type="range" min="-24" max="6" step="0.5" value="-14" data-audio-inspector-field="volume_db"></label><label><span class="type-ui-label">PAN / 声像 <output data-audio-inspector-output="pan">0</output></span><input type="range" min="-1" max="1" step="0.01" value="0" data-audio-inspector-field="pan"></label><label class="audio-inspector-check"><input type="checkbox" checked data-audio-inspector-field="ducking"><span><b>VOICE DUCKING</b><small>语音出现时应用当前轨道闪避。</small></span></label></div><div class="audio-inspector-actions"><button class="ghost type-control" type="button" data-audio-inspector-preview>试听当前轨</button><button class="ghost type-control" type="button" data-audio-inspector-regenerate>重新规划</button></div></aside></div></section>
-                </section>
-             </div>
+              </div>
               <aside class="final-look-panel" id="final-look-panel" aria-label="最终润色控制台">
                 <header class="final-look-head"><div><span class="deliver-kicker mono">FINAL LOOK / COLOR FINISH</span><h4>最终润色</h4></div><span class="final-look-status mono" id="final-look-status">READY TO FINISH</span></header>
-                <p class="final-look-intro">在导出前为整部短片定下统一的视觉气质。点击预设即可试听画面效果。</p>
-                <div class="final-look-scope"><div><span class="deliver-label mono">APPLY TO</span><strong id="final-look-scope">WHOLE FILM / 全片</strong></div><span class="final-look-scope-lock mono">LOCKED</span><small>高级模式：当前镜头 / 当前场景范围预留</small></div>
                 <div class="final-look-presets-head"><span class="deliver-label mono">LOOK PRESETS / 滤镜预设</span><span class="mono" id="final-look-preset-name">ORIGINAL</span></div>
                 <div class="final-look-preset-grid" id="final-look-preset-grid" role="listbox" aria-label="Final Look 滤镜预设">
                   <button type="button" class="final-look-preset is-selected" data-final-look-preset="original" role="option" aria-selected="true"><i class="look-swatch look-swatch--original"></i><span><b>原片</b><small>ORIGINAL</small></span></button>
@@ -474,19 +447,68 @@
                 </div>
                 <p class="final-look-description" id="final-look-description">保留原始曝光、色彩与镜头质感。</p>
                 <div class="final-look-actions"><button class="ghost" id="btn-reset-final-look" type="button">恢复原片</button><button class="cta" id="btn-apply-final-look" type="button">应用 Final Look <span class="cta-arrow" aria-hidden="true">→</span></button></div>
-                <p class="final-look-note mono">预览只改变当前审片画面；点击应用后才会写入全片交付配置。</p>
               </aside>
             </div>
+
+            <section class="tech-summary" id="tech-summary">
+              <header class="tech-summary-head">
+                <span class="deliver-label mono">TECHNICAL SUMMARY / 技术摘要</span>
+                <button class="tech-summary-toggle mono" id="tech-summary-toggle" type="button" aria-expanded="false">Technical Details <span aria-hidden="true">⌄</span></button>
+              </header>
+              <div class="tech-summary-brief" id="tech-summary-brief">
+                <div><span class="deliver-label mono">DURATION</span><strong id="deliver-meta-duration">·</strong></div>
+                <div><span class="deliver-label mono">RESOLUTION</span><strong id="deliver-meta-resolution">·</strong></div>
+                <div><span class="deliver-label mono">ASPECT</span><strong id="deliver-meta-aspect">16:9</strong></div>
+                <div><span class="deliver-label mono">CODEC</span><strong id="deliver-meta-codec">H.264 / AAC</strong></div>
+              </div>
+              <div class="tech-summary-details hidden" id="tech-summary-details">
+                <div><span class="deliver-label mono">SUBTITLES</span><strong id="deliver-meta-subtitles">BURNED</strong></div>
+                <div><span class="deliver-label mono">VOICEOVER</span><strong id="deliver-meta-voiceover">LOCKED TRACK</strong></div>
+                <div><span class="deliver-label mono">AUDIO</span><strong id="deliver-meta-audio">VOICE · MUSIC · SFX · ATMOS</strong></div>
+              </div>
+            </section>
+
+            <section class="shot-timeline-section" id="shot-timeline-section">
+              <div class="deliver-shot-timeline-head"><span class="deliver-label mono">SHOT TIMELINE / 镜头时间线</span><span class="mono" id="deliver-timeline-total">·</span></div>
+              <div class="deliver-shot-timeline" id="deliver-shot-timeline" role="list" aria-label="成片镜头时间线"></div>
+            </section>
+
+            <section class="sound-summary" id="sound-summary">
+              <button class="sound-summary-head" id="sound-summary-toggle" type="button" aria-expanded="false">
+                <div class="sound-summary-head-text">
+                  <span class="deliver-label mono">SOUND DEPARTMENT / 声音设计</span>
+                  <h4>声音设计与配乐</h4>
+                </div>
+                <div class="sound-summary-status" id="sound-summary-status"></div>
+                <span class="sound-summary-chevron" aria-hidden="true">⌄</span>
+              </button>
+              <div class="sound-summary-body hidden" id="sound-summary-body">
+                <section class="deliver-audio-panel" id="deliver-audio-panel" aria-label="最终混音与声音设计">
+                  <header class="deliver-audio-head"><div><span class="deliver-label mono">FINAL MIX / SOUND DEPARTMENT</span><h4>完整声音设计</h4></div><span class="mono" id="deliver-audio-state">MIX PLAN READY</span></header>
+                  <div class="audio-focus-grid deliver-audio-focus-grid">
+                    <section class="music-direction-panel" aria-label="Music Direction"><header class="audio-block-head"><div><span class="deliver-label mono">MUSIC DIRECTION</span><strong>最终混音方向</strong></div><span class="type-system-meta">LOCKED PLAN</span></header><div class="deliver-music-brief" id="deliver-music-brief"></div><details class="audio-brief-disclosure"><summary><span>AI 配乐说明</span><span class="type-system-meta">SHOW NOTES</span></summary><p class="type-helper">配乐强度、进入点和高潮位置与镜头节奏保持同步；Voice 出现时由 Smart Ducking 自动让位。</p></details></section>
+                    <section class="emotional-arc-panel" aria-label="Emotional Arc"><header class="audio-block-head"><div><span class="deliver-label mono">EMOTIONAL ARC</span><strong>镜头能量曲线</strong></div><span class="type-system-meta">SHOT ENERGY</span></header><div class="emotional-arc-frame"><div class="emotional-arc" data-deliver-emotional-arc aria-label="情绪曲线"></div><div class="emotional-arc-axis type-system-meta"><span>QUIET</span><span>PEAK</span></div></div></section>
+                  </div>
+                  <div class="audio-source-zone"><div class="deliver-audio-source-row"><span class="manual-label type-ui-label">MUSIC SOURCE / 配乐来源</span><div class="audio-mode-switch deliver-audio-mode-switch" id="deliver-audio-mode-switch" role="radiogroup" aria-label="最终配乐来源"><button type="button" class="audio-mode-button is-selected" data-audio-mode="ai" role="radio" aria-checked="true"><b>AI 自动配乐</b><small>EMOTIONAL ARC</small></button><button type="button" class="audio-mode-button" data-audio-mode="library" role="radio" aria-checked="false"><b>素材库音乐</b><small>STUDIO LIBRARY</small></button><button type="button" class="audio-mode-button" data-audio-mode="upload" role="radio" aria-checked="false"><b>用户上传音乐</b><small>USER SOURCE</small></button></div></div>
+                    <div class="audio-upload-row hidden" id="deliver-audio-upload-row"><label class="audio-upload-control"><span class="manual-label type-ui-label">USER SCORE / 上传文件</span><input id="deliver-music-upload" type="file" accept="audio/*"><small class="type-helper" id="deliver-music-upload-note">上传后将作为 MUSIC 轨来源。</small></label></div></div>
+                  <div class="deliver-audio-controls" aria-label="配乐与混音控制"><label class="deliver-audio-range"><span><b>MUSIC INTENSITY / 音乐强度</b><output id="deliver-music-intensity-value">60%</output></span><input id="deliver-music-intensity" type="range" min="0" max="1" step="0.01" value="0.6"></label><label class="smart-ducking deliver-smart-ducking"><input type="checkbox" id="deliver-smart-ducking-toggle" checked><span><b>SMART DUCKING / 旁白闪避</b><small id="deliver-smart-ducking-copy">对白出现时自动降低配乐，结束后平滑恢复。</small></span><i class="mono" id="deliver-smart-ducking-value">−8 dB</i></label></div>
+                  <div class="audio-timeline" id="audio-timeline" aria-label="声音设计时间线"></div>
+                  <section class="audio-mixer" aria-label="Track Mixer 四轨混音"><header class="audio-mixer-head"><div><span class="deliver-label mono">TRACK MIXER / 四轨混音</span><strong>按轨道监听与开关</strong></div><button class="ghost type-control" type="button" data-audio-inspector-toggle aria-expanded="false">OPEN INSPECTOR</button></header><div class="audio-mixer-layout"><div class="deliver-audio-track-list audio-track-list" id="deliver-audio-track-list"></div><aside class="audio-track-inspector" data-audio-inspector hidden aria-label="音轨 Inspector"><header><div><span class="audio-inspector-track-label type-system-meta" data-audio-inspector-label>MUSIC</span><strong class="type-control" data-audio-inspector-name>选择音轨</strong></div><span class="type-status" data-audio-inspector-status>DESIGN READY</span></header><p class="type-helper" data-audio-inspector-copy>选择一条音轨查看增益、声像与闪避参数。</p><div class="audio-inspector-controls"><label><span class="type-ui-label">GAIN / 增益 <output data-audio-inspector-output="volume_db">-14 dB</output></span><input type="range" min="-24" max="6" step="0.5" value="-14" data-audio-inspector-field="volume_db"></label><label><span class="type-ui-label">PAN / 声像 <output data-audio-inspector-output="pan">0</output></span><input type="range" min="-1" max="1" step="0.01" value="0" data-audio-inspector-field="pan"></label><label class="audio-inspector-check"><input type="checkbox" checked data-audio-inspector-field="ducking"><span><b>VOICE DUCKING</b><small>语音出现时应用当前轨道闪避。</small></span></label></div><div class="audio-inspector-actions"><button class="ghost type-control" type="button" data-audio-inspector-preview>试听当前轨</button><button class="ghost type-control" type="button" data-audio-inspector-regenerate>重新规划</button></div></aside></div></section>
+                </section>
+              </div>
+            </section>
           </section>
 
           <section class="deliver-actions" id="deliver-actions" aria-label="放映室操作">
             <div class="deliver-primary-actions">
               <button class="cta cta--deliver-edit" id="btn-ai-edit" type="button">AI 剪辑成片 <span class="cta-arrow" aria-hidden="true">→</span></button>
-              <button class="cta cta--deliver-export hidden" id="btn-export-final" type="button">导出成片 <span class="cta-arrow" aria-hidden="true">→</span></button>
+              <button class="cta cta--deliver-approve" id="btn-approve-edit" type="button">批准最终成片 <span class="cta-arrow" aria-hidden="true">→</span></button>
+              <button class="cta cta--deliver-export hidden" id="btn-export-final" type="button">导出最终成片 <span class="cta-arrow" aria-hidden="true">→</span></button>
             </div>
             <div class="deliver-secondary-actions">
               <button class="ghost" id="btn-reedit" type="button">重新剪辑</button>
               <button class="ghost" id="btn-edit-subtitles" type="button">编辑字幕</button>
+              <button class="ghost" id="btn-sound-settings" type="button">声音设置</button>
               <button class="ghost more-export-trigger" id="btn-more-export" type="button" aria-expanded="false" aria-controls="more-export-menu">更多导出 <span aria-hidden="true">⌄</span></button>
               <div class="more-export-menu hidden" id="more-export-menu" role="menu">
                 <a role="menuitem" class="more-export-link" id="export-srt" download>字幕 SRT</a>
