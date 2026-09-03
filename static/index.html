@@ -104,35 +104,81 @@
         <span>AI FILM STUDIO</span>
         <span class="landing-hud-time">00:00:00:00</span>
       </div>
-      <div class="landing-marquee type-system-meta" aria-label="Agent production route">
-        <div class="marquee-track">
-          <span class="marquee-group">
-            <span>导演 DIRECTOR</span><i>→</i><span>编剧 WRITER</span><i>→</i><span>美术指导 ART DIRECTOR</span><i>→</i><span>分镜师 STORYBOARD</span><i>→</i><span>质检 QC GATE</span><i>→</i><span>生成调度 GENERATION</span><i>→</i><span>剪辑 EDITOR</span><i>→</i>
-          </span>
-        </div>
-      </div>
     </div>
 
-    <div class="landing-features">
-      <div class="feature-card reveal">
-        <div class="feature-meta"><span class="feature-no mono">01</span><span class="feature-node mono">PRODUCTION NODE</span></div>
-        <h3>开机</h3>
-        <p class="feature-en mono">GREENLIGHT</p>
-        <p class="feature-desc">写下一句原创科幻创意，选定时长与视觉风格，场记板随即合上。</p>
+    <section class="production-route" aria-labelledby="production-route-title">
+      <div class="production-route-head">
+        <div>
+          <p class="production-route-kicker mono type-system-meta">PRODUCTION ROUTE / 片场路径</p>
+          <h2 id="production-route-title">从灵感到交付</h2>
+        </div>
+        <p class="production-route-flow mono type-system-meta" aria-label="输入、处理、输出">INPUT <i aria-hidden="true">→</i> PROCESS <i aria-hidden="true">→</i> OUTPUT</p>
       </div>
-      <div class="feature-card reveal">
-        <div class="feature-meta"><span class="feature-no mono">02</span><span class="feature-node mono">PRODUCTION NODE</span></div>
-        <h3>集结</h3>
-        <p class="feature-en mono">CREW ASSEMBLY</p>
-        <p class="feature-desc">七位 Agent 实时协作：项目设定、剧本旁白、视觉规范与 6–10 个可渲染分镜。</p>
+
+      <div class="production-ruler" role="list" aria-label="三阶段生产路径">
+        <div class="production-ruler-line" aria-hidden="true"><i></i></div>
+        <div class="production-ruler-stage" role="listitem" data-stage="greenlight">
+          <span class="production-ruler-node mono">01</span>
+          <span class="production-ruler-label mono">GREENLIGHT</span>
+          <span class="production-ruler-kind mono">INPUT</span>
+        </div>
+        <div class="production-ruler-stage" role="listitem" data-stage="crew">
+          <span class="production-ruler-node mono">02</span>
+          <span class="production-ruler-label mono">CREW ASSEMBLY</span>
+          <span class="production-ruler-kind mono">PROCESS</span>
+        </div>
+        <div class="production-ruler-stage" role="listitem" data-stage="delivery">
+          <span class="production-ruler-node mono">03</span>
+          <span class="production-ruler-label mono">DELIVERY</span>
+          <span class="production-ruler-kind mono">OUTPUT</span>
+        </div>
       </div>
-      <div class="feature-card reveal">
-        <div class="feature-meta"><span class="feature-no mono">03</span><span class="feature-node mono">PRODUCTION NODE</span></div>
-        <h3>成片</h3>
-        <p class="feature-en mono">DELIVERY</p>
-        <p class="feature-desc">逐镜生成、完整性质检、FFmpeg 合片；项目 JSON 与制作档案随时导出。</p>
+
+      <div class="landing-features production-stage-list">
+        <article class="feature-card production-stage-card reveal" data-stage="greenlight">
+          <div class="feature-meta"><span class="feature-no mono">01</span><span class="feature-stage-kind mono">GREENLIGHT / INPUT</span></div>
+          <div class="production-stage-title"><span class="production-stage-index mono">01 / GREENLIGHT</span><h3>开机</h3></div>
+          <div class="production-stage-body production-input-specs">
+            <div><span class="type-system-meta">CREATIVE</span><strong>一句话创意</strong></div>
+            <div><span class="type-system-meta">RUNTIME</span><strong>30–80 秒</strong></div>
+            <div><span class="type-system-meta">LOOK</span><strong>视觉方向</strong></div>
+          </div>
+          <p class="feature-desc">写下原创科幻创意，确定时长与视觉方向，生成一份可拍摄的制作 brief。</p>
+          <span class="production-stage-tail mono">SLATE / IDEA RECEIVED</span>
+        </article>
+
+        <article class="feature-card production-stage-card reveal" data-stage="crew">
+          <div class="feature-meta"><span class="feature-no mono">02</span><span class="feature-stage-kind mono">CREW ASSEMBLY / PROCESS</span></div>
+          <div class="production-stage-title"><span class="production-stage-index mono">02 / CREW ASSEMBLY</span><h3>集结</h3></div>
+          <div class="production-stage-body production-crew-specs">
+            <ol class="agent-route-mini" aria-label="七位 AI Agent">
+              <li><span class="mono">01</span><b>DIRECTOR</b></li>
+              <li><span class="mono">02</span><b>WRITER</b></li>
+              <li><span class="mono">03</span><b>ART DIRECTOR</b></li>
+              <li><span class="mono">04</span><b>STORYBOARD</b></li>
+              <li><span class="mono">05</span><b>QC</b></li>
+              <li><span class="mono">06</span><b>GENERATION</b></li>
+              <li><span class="mono">07</span><b>EDITOR</b></li>
+            </ol>
+            <div class="production-output-tags" aria-label="剧组产出"><span>SCRIPT</span><span>VISUAL</span><span>SHOT LIST</span><span>QUALITY GATE</span></div>
+          </div>
+          <p class="feature-desc">七位 AI Agent 逐级接力，把 brief 变成剧本、视觉规范、分镜与生成任务。</p>
+          <span class="production-stage-tail mono">HANDOFF / CREW ONLINE</span>
+        </article>
+
+        <article class="feature-card production-stage-card reveal" data-stage="delivery">
+          <div class="feature-meta"><span class="feature-no mono">03</span><span class="feature-stage-kind mono">DELIVERY / OUTPUT</span></div>
+          <div class="production-stage-title"><span class="production-stage-index mono">03 / DELIVERY</span><h3>成片</h3></div>
+          <div class="production-stage-body delivery-output-stack">
+            <div><span>FINAL CUT</span><strong>Picture + Mix</strong></div>
+            <div><span>FINISH</span><strong>Music · Subtitle · Final Look</strong></div>
+            <div><span>EXPORT</span><strong>MP4 / JSON / SRT</strong></div>
+          </div>
+          <p class="feature-desc">完成成片、声音设计、字幕、Final Look 与交付导出，项目档案随时可取。</p>
+          <span class="production-stage-tail mono">MASTER / READY TO SCREEN</span>
+        </article>
       </div>
-    </div>
+    </section>
   </section>
 
   <!-- ═══════════ 创作页 · 制片台 ═══════════ -->

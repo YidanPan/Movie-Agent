@@ -123,3 +123,21 @@ def test_sound_console_timeline_is_media_synced_and_semantically_sized():
     assert "min-height: 176px" in CSS
     assert "min-height: 258px" in CSS
     assert "{ length: 48 }" in APP
+
+
+def test_homepage_production_route_uses_three_equal_semantic_stages():
+    assert 'class="production-route"' in INDEX
+    assert 'class="production-ruler"' in INDEX
+    assert "production-stage-list" in INDEX
+    assert 'class="agent-route-mini"' in INDEX
+    assert "delivery-output-stack" in INDEX
+    assert "INPUT" in INDEX and "PROCESS" in INDEX and "OUTPUT" in INDEX
+    assert "GREENLIGHT / INPUT" in INDEX
+    assert "CREW ASSEMBLY / PROCESS" in INDEX
+    assert "DELIVERY / OUTPUT" in INDEX
+    assert INDEX.count('class="feature-card production-stage-card reveal"') == 3
+    assert "marquee-group" not in INDEX
+    assert "grid-template-columns: repeat(3, minmax(0, 1fr));" in CSS
+    assert "grid-auto-rows: 1fr" in CSS
+    assert "min-height: 438px" in CSS
+    assert "production-ruler-line" in CSS

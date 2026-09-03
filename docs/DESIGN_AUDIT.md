@@ -113,3 +113,13 @@ Dark `Screening Room` 与 Light `Production Desk` 共用这套角色，但颜色
 时间线动效只响应真实媒体语义：播放/暂停驱动 waveform 呼吸，播放器的 `timeupdate` 驱动 playhead 与字幕高亮，Shot/SFX cue 可跳转，Smart Ducking 以绿色区间标出语音让位。`prefers-reduced-motion` 下关闭 waveform 连续动画和 Inspector 入场动画。声音页的排版采用 12–20px 的 Sans / Mono 层级，避免把中文说明压成 9–10px 的低对比 metadata。
 
 Inspector 的 `volume_db`、`pan` 与 `ducking` 通过 `/api/projects/{project_id}/audio/design` 持久化，并在后端限制到安全范围；Music Intensity 会同步更新 Music 轨增益，避免 UI 强度和混音合同脱节。这样声音设计既保持黑金片场气质，也更接近专业但易用的 AI Film Sound Console。
+
+## Production Route / INPUT → PROCESS → OUTPUT
+
+首页下半部分不再用七位 Agent 的纯文本箭头跑马灯，也不让三张阶段卡因为不同宽度形成视觉误导。现在以一条连续的 film ruler / production slate line 组织宏观流程：
+
+1. **01 GREENLIGHT / INPUT**：接收创意、时长和视觉方向，生成可拍摄的 brief。
+2. **02 CREW ASSEMBLY / PROCESS**：七位 Agent 收在同一阶段内按 Director → Writer → Art Director → Storyboard → QC → Generation → Editor 接力，产出 Script、Visual、Shot List 和 Quality Gate。
+3. **03 DELIVERY / OUTPUT**：把 Final Cut、Music、Subtitle、Final Look 和 Export 收束为交付结果。
+
+三张阶段卡使用相同的列宽、最小高度、内边距和标题基线，外部几何是统一的；内部则分别采用输入规格表、Agent 名单与交付栈，不再复制“标题 + 描述”的 SaaS 卡片模板。`REC / 24 FPS / AI FILM STUDIO / TIMECODE` 继续保留在 Hero HUD，作为整条路线的场记标尺。路线线条与阶段节点保持静态清晰，实时数据流只由 Crew Assembly 页面真实状态驱动。
