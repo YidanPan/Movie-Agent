@@ -28,6 +28,14 @@ Deliver 页是 Final Cut Screening Room：项目未剪辑时显示项目摘要�
 
 服务端渲染和媒体写入使用按项目隔离的锁：同一项目串行，不同项目可并行，不需要额外队列服务。`movie_agent/pipeline/` 提供 planning / rendering / editing / state 的渐进式边界；旧的 `MovieOrchestrator` 与 API 保持兼容。零构建前端继续由 `static/app.js` 提供入口，同时加载 `static/js/` ES Module registry 与 `static/css/` 语义模块，方便后续逐步抽离而不破坏 Spark 直接托管。Crew Radio 只从后端日志和 SSE 事件构造 Agent 名称、时间与状态，不再注入与当前项目无关的固定剧情文案。
 
+### P3 生产可靠性
+
+长任务失败现在会写入结构化的 `error_code`、`error_message`、`stage`、`retry_count`、`recoverable` 和时间戳；SSE 会发送同一份安全错误对象，并尽可能带回失败后的项目快照。错误消息会过滤常见 Token/密码字段，不会把凭据回显到浏览器或日志。Generation、Quality、AI Edit 等阶段可据此区分输入错误、媒体缺失、ComfyUI/Provider 暂时不可用和质检失败，支持有依据地重试。
+
+项目 JSON 仍采用临时文件替换，并在每次成功写入前保留 `project.json.bak`。主快照损坏时 `ProjectStore` 会自动读取最近一次有效备份；主文件和备份均损坏则明确返回恢复错误，不会静默创建空项目。新增 `/api/health` 能力检查（存储、FFmpeg、FFprobe、ModelScope 密钥存在性和 ComfyUI 工作流），`/api/health/ready` 作为部署 readiness probe；检查只返回能力状态，不返回密钥、服务器凭据或内部地址。
+
+媒体交付也遵循 fail-closed：Final Cut 播放器只解析当前、未过期的 `Final Master`，Shot 播放器拒绝 stale revision，Rough Cut 只在真实 Rough Cut 状态下提供。导出接口不再把 Rough Cut、Screening Preview 或 Working Proxy 提升为母版；没有有效 Final Master 时明确拒绝导出，避免低清或旧版本素材被误交付。
+
 ### 双主题工作状态
 
 顶栏的 `SCREENING / DESK` 切换对应两种制作状态，并不是简单的黑白反转：
@@ -187,6 +195,32 @@ service. The zero-build frontend keeps `static/app.js` as its compatibility
 entry point while loading the `static/js/` ES-module registry and `static/css/`
 semantic module boundaries. Crew Radio is derived from backend logs and SSE
 events, so it cannot display fixed story copy from another project.
+
+### P3 Production Hardening
+
+Long-running failures now persist structured `error_code`, `error_message`,
+`stage`, `retry_count`, `recoverable`, and timestamp metadata. SSE streams emit
+the same redacted error object and, when a project already exists, return the
+post-failure project snapshot so the UI can explain what happened without
+guessing. Common credential fields such as API keys, tokens, passwords, and
+secrets are redacted before they reach logs or the browser. Generation, Quality,
+AI Edit, and provider failures can therefore be retried with an explicit reason.
+
+`ProjectStore` still writes through a temporary file, and now keeps the last
+known-good `project.json.bak` before each replacement. A corrupt primary JSON
+automatically falls back to that snapshot; if both files are corrupt, the
+service returns an explicit recovery error instead of silently creating an
+empty project. `/api/health` exposes non-invasive capability checks for storage,
+FFmpeg, FFprobe, ModelScope configuration, and the verified ComfyUI workflow.
+`/api/health/ready` is a deployment readiness probe. These endpoints return
+booleans only and never expose tokens, credentials, or internal host details.
+
+Delivery media is fail-closed: Final Cut playback resolves only the current,
+non-stale `Final Master`, Shot playback rejects stale revisions, and Rough Cut
+playback requires a real Rough Cut state. The export endpoint never promotes a
+Rough Cut, Screening Preview, or Working Proxy to a delivery master; without a
+valid Final Master it rejects the request instead of exporting an old or
+low-resolution file.
 
 ### Theme system
 

@@ -955,14 +955,16 @@ class EditorAgent:
         if aspect not in {"16:9", "9:16", "1:1"}:
             raise ValueError("Aspect ratio must be 16:9, 9:16, or 1:1.")
         output_dir = self._output_dir(project)
-        rough_path = output_dir / "rough-cut.mp4"
         # Exports are always sourced from the final-master contract. A
         # screening preview or working proxy can never silently become a
         # delivery source.
         source = best_master_path(project)
-        if source is None:
-            final_path = Path(project.final_output_placeholder or "")
-            source = final_path if final_path.is_file() else (rough_path if rough_path.is_file() else None)
+        if source is not None:
+            allowed_root = (self.settings.outputs_dir / project.project_id).resolve()
+            try:
+                source.resolve().relative_to(allowed_root)
+            except ValueError:
+                source = None
         if source is None or not source.is_file():
             raise RuntimeError("The Final Cut has not been rendered to a real video file yet; cannot export.")
         look = normalise_final_look(project.final_look or {})

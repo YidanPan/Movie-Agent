@@ -29,6 +29,7 @@ from movie_agent.services.audio import (
 )
 from movie_agent.services.voice import ContinuousVoiceService, mark_voice_alignment_stale
 from movie_agent.services.final_look import ensure_final_look, normalise_final_look, reset_final_look
+from movie_agent.services.errors import clear_failure, error_info, record_failure
 from movie_agent.services.revisions import (
     ensure_project_revision_metadata,
     ensure_shot_metadata,
@@ -44,6 +45,13 @@ from movie_agent.services.subtitles import (
 )
 from movie_agent.pipeline.rendering import shot_render_context
 from movie_agent.pipeline.editing import edit_output_exists
+
+
+def _failure_stage(error: BaseException) -> str:
+    """Map a pipeline exception to the production department that owns it."""
+
+    text = str(error).lower()
+    return "quality" if any(token in text for token in ("quality", "consistency", "copyright", "drift")) else "generation"
 
 
 class MovieOrchestrator:
@@ -421,6 +429,7 @@ class MovieOrchestrator:
                 event_callback(event)
 
         project = self.store.load(project_id)
+        clear_failure(project)
         project.status = "generating_video_mock"
         project.logs.append("Generation Agent: Starting mock shot task queue submission.")
         emit({"type": "agent_start", "agent": "generation"})
@@ -448,6 +457,7 @@ class MovieOrchestrator:
         if self.settings.video_generation_mode != "comfyui":
             raise ValueError("Current mode is mock. Set VIDEO_GENERATION_MODE=comfyui in Spark's .env before rendering.")
         project = self.store.load(project_id)
+        clear_failure(project)
         self._require_dialogue_locked(project)
         ensure_continuity_lock(project)
         self.continuity_gate.review(
@@ -502,15 +512,30 @@ class MovieOrchestrator:
                     break
                 except Exception as error:
                     last_error = error
+                    # GenerationAgent records provider failures itself.  The
+                    # orchestrator also records quality-gate failures, while
+                    # retaining the same attempt counter when both layers
+                    # observe one provider exception.
+                    failure_stage = _failure_stage(error)
+                    record_failure(
+                        shot,
+                        error,
+                        stage=failure_stage,
+                        increment_retry=not bool(getattr(shot, "error_code", "")),
+                    )
+                    record_failure(project, error, stage=failure_stage)
+                    failure_message = error_info(error, stage=failure_stage)["error_message"]
                     project.logs.append(
-                        f"Generation Agent: Shot {shot.number} attempt {attempt}/{self.settings.comfy_max_retries} failed: {error}"
+                        f"Generation Agent: Shot {shot.number} attempt {attempt}/{self.settings.comfy_max_retries} failed: {failure_message}"
                     )
                     self.store.save(project)
             if last_error is not None:
                 project.status = "render_failed"
                 project.logs.append("Generation Agent: You can click the real generate button again to resume from incomplete shots.")
                 self.store.save(project)
-                raise RuntimeError(f"Shot {shot.number} failed after multiple attempts: {last_error}") from last_error
+                safe_message = error_info(last_error, stage="generation")["error_message"]
+                raise RuntimeError(f"Shot {shot.number} failed after multiple attempts: {safe_message}") from last_error
+            clear_failure(project)
 
         project.status = "ready_for_ai_edit"
         project.logs.append(f"Generation Agent: {len(project.storyboard)}/{len(project.storyboard)} SHOTS READY; stage advanced to DELIVER.")
@@ -529,6 +554,7 @@ class MovieOrchestrator:
         if self.settings.video_generation_mode != "comfyui":
             raise ValueError("Current mode is mock. Set VIDEO_GENERATION_MODE=comfyui in Spark's .env before generating shots.")
         project = self.store.load(project_id)
+        clear_failure(project)
         if not 1 <= shot_number <= len(project.storyboard):
             raise ValueError(f"Shot number must be between 1 and {len(project.storyboard)}.")
         render_context = shot_render_context(project, shot_number)
@@ -563,8 +589,17 @@ class MovieOrchestrator:
                 )
             )
         except Exception as error:
+            failure_stage = _failure_stage(error)
+            record_failure(
+                shot,
+                error,
+                stage=failure_stage,
+                increment_retry=not bool(getattr(shot, "error_code", "")),
+            )
+            record_failure(project, error, stage=failure_stage)
             project.status = "render_failed"
-            project.logs.append(f"Generation Agent: Shot {shot_number} single-shot generation failed: {error}")
+            safe_message = error_info(error, stage=failure_stage)["error_message"]
+            project.logs.append(f"Generation Agent: Shot {shot_number} single-shot generation failed: {safe_message}")
             self.store.save(project)
             raise
 
@@ -794,6 +829,7 @@ class MovieOrchestrator:
         track_params: dict[str, dict[str, Any]] | None = None,
     ) -> MovieProject:
         project = self.store.load(project_id)
+        clear_failure(project)
         self._require_dialogue_locked(project)
         if not self._shots_ready(project):
             raise ValueError("All shots must pass QC before AI Edit can start.")

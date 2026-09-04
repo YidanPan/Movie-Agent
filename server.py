@@ -13,7 +13,9 @@ from __future__ import annotations
 import asyncio
 import json
 import mimetypes
+import os
 import re
+import shutil
 import threading
 from collections.abc import Callable
 from pathlib import Path
@@ -26,8 +28,9 @@ from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from movie_agent.config import Settings
 from movie_agent.orchestrator import MovieOrchestrator
+from movie_agent.services.errors import error_info, record_failure
 from movie_agent.services.subtitles import render_srt, render_vtt, script_subtitle_track
-from movie_agent.services.media_quality import best_screening_path, quality_snapshot
+from movie_agent.services.media_quality import best_master_path, best_screening_path, quality_snapshot
 
 settings = Settings.from_env()
 orchestrator = MovieOrchestrator(settings)
@@ -47,6 +50,60 @@ def project_lock(project_id: str) -> threading.Lock:
         return project_locks.setdefault(key, threading.Lock())
 
 app = FastAPI(title="Movie-Agent · AI Film Studio")
+
+
+def _directory_ready(path: Path) -> bool:
+    """Check whether a directory exists or can be created by the service."""
+
+    candidate = Path(path)
+    if candidate.exists():
+        return candidate.is_dir() and os.access(candidate, os.W_OK)
+    parent = candidate
+    while not parent.exists() and parent != parent.parent:
+        parent = parent.parent
+    return parent.is_dir() and os.access(parent, os.W_OK)
+
+
+def _binary_ready(binary: str) -> bool:
+    """Resolve a configured executable without running arbitrary commands."""
+
+    value = str(binary or "").strip()
+    if not value:
+        return False
+    return bool(shutil.which(value) or (Path(value).is_file() and os.access(value, os.X_OK)))
+
+
+def runtime_checks() -> dict[str, dict[str, Any]]:
+    """Return non-invasive readiness checks for the current runtime.
+
+    This deliberately reports capability booleans only.  It never performs a
+    network request and never includes API keys, host credentials, or paths in
+    the response, making it safe to expose through the public health endpoint.
+    """
+
+    video_mode = str(settings.video_generation_mode or "mock").lower()
+    provider = str(settings.model_provider or "mock").lower()
+    workflow = settings.workflows_dir / settings.comfy_workflow_template
+    checks = {
+        "projects_storage": {"ok": _directory_ready(settings.projects_dir), "required": True},
+        "outputs_storage": {"ok": _directory_ready(settings.outputs_dir), "required": True},
+        "ffmpeg": {"ok": _binary_ready(settings.ffmpeg_bin), "required": True},
+        "ffprobe": {"ok": _binary_ready(settings.ffprobe_bin), "required": True},
+        "model_provider": {
+            "ok": provider != "modelscope" or bool(str(settings.modelscope_api_key or "").strip()),
+            "required": provider == "modelscope",
+        },
+        "comfyui_workflow": {
+            "ok": video_mode != "comfyui" or workflow.is_file(),
+            "required": video_mode == "comfyui",
+        },
+    }
+    return checks
+
+
+def runtime_ready(checks: dict[str, dict[str, Any]] | None = None) -> bool:
+    checks = checks or runtime_checks()
+    return all(bool(item.get("ok")) for item in checks.values() if item.get("required", True))
 
 
 @app.middleware("http")
@@ -190,6 +247,13 @@ def invalid_payload(error: ValidationError) -> JSONResponse:
     )
 
 
+def structured_error_response(error: BaseException, *, status_code: int, stage: str) -> JSONResponse:
+    """Return a redacted, machine-readable error for synchronous API calls."""
+
+    info = error_info(error, stage=stage)
+    return JSONResponse({"error": info["error_message"], **info}, status_code=status_code)
+
+
 def serialized_project(project) -> dict[str, Any]:
     """Expose persisted data plus a fresh, read-only media quality view."""
 
@@ -207,6 +271,9 @@ def serialized_project(project) -> dict[str, Any]:
 def run_with_sse(
     request: Request,
     work: Callable[[Callable[[dict], None]], None],
+    *,
+    project_id: str | None = None,
+    stage: str = "pipeline",
 ) -> StreamingResponse:
     """Run a blocking orchestrator call on a worker thread and stream its events."""
     queue: asyncio.Queue = asyncio.Queue()
@@ -219,7 +286,44 @@ def run_with_sse(
         try:
             work(emit)
         except Exception as error:  # noqa: BLE001 - surface every failure to the stream
-            emit({"type": "error", "message": str(error)})
+            info = error_info(error, stage=stage)
+            snapshot = None
+            if project_id:
+                try:
+                    project = orchestrator.store.load(project_id)
+                    # Orchestrator stages may already have recorded a more
+                    # specific failure (for example a per-shot retry). Keep
+                    # that metadata and avoid incrementing it twice here.
+                    existing = getattr(project, "last_error", {}) or {}
+                    if existing.get("error_code") and existing.get("error_message"):
+                        info = {
+                            **info,
+                            **{
+                                key: existing[key]
+                                for key in (
+                                    "error_code",
+                                    "error_message",
+                                    "stage",
+                                    "retry_count",
+                                    "recoverable",
+                                    "created_at",
+                                )
+                                if key in existing
+                            },
+                        }
+                    else:
+                        info = record_failure(project, error, stage=stage)
+                    project.logs.append(
+                        f"{stage.replace('_', ' ').title()}: {info['error_code']} · {info['error_message']}"
+                    )
+                    orchestrator.store.save(project)
+                    snapshot = serialized_project(project)
+                except Exception:  # noqa: BLE001 - the stream must still close safely
+                    snapshot = None
+            payload = {"type": "error", **info}
+            if snapshot is not None:
+                payload["project"] = snapshot
+            emit(payload)
 
     threading.Thread(target=worker, daemon=True).start()
 
@@ -245,11 +349,28 @@ def run_with_sse(
 
 @app.get("/api/health")
 def health() -> dict:
+    checks = runtime_checks()
     return {
         "status": "ok",
+        "ready": runtime_ready(checks),
+        "checks": checks,
         "text_mode": "modelscope" if orchestrator.using_creative_llm else "mock",
         "video_mode": settings.video_generation_mode,
     }
+
+
+@app.get("/api/health/ready")
+def health_ready() -> JSONResponse:
+    """Kubernetes-style readiness probe for Spark and hosted deployments."""
+
+    checks = runtime_checks()
+    ready = runtime_ready(checks)
+    payload = {
+        "status": "ready" if ready else "not_ready",
+        "ready": ready,
+        "checks": checks,
+    }
+    return JSONResponse(payload, status_code=200 if payload["ready"] else 503)
 
 
 @app.get("/api/projects")
@@ -269,6 +390,8 @@ def get_project(project_id: str) -> dict:
         return project_not_found(project_id)  # type: ignore[return-value]
     except ValueError as error:
         return invalid_project_id(error)  # type: ignore[return-value]
+    except RuntimeError as error:
+        return structured_error_response(error, status_code=503, stage="storage")  # type: ignore[return-value]
 
 
 @app.post("/api/projects/stream")
@@ -370,7 +493,7 @@ async def create_rough_cut_stream(project_id: str, request: Request) -> Streamin
             )
             emit({"type": "done", "project": serialized_project(project)})
 
-    return run_with_sse(request, work)
+    return run_with_sse(request, work, project_id=project_id, stage="ai_edit")
 
 
 @app.patch("/api/projects/{project_id}/audio/design")
@@ -424,7 +547,7 @@ async def update_final_look(project_id: str, request: Request):
     except ValueError as error:
         return JSONResponse({"error": str(error)}, status_code=400)
     except RuntimeError as error:
-        return JSONResponse({"error": str(error)}, status_code=409)
+        return structured_error_response(error, status_code=409, stage="final_look")
     return serialized_project(project)
 
 
@@ -452,7 +575,7 @@ def generate_voice_track(project_id: str):
     except ValueError as error:
         return JSONResponse({"error": str(error)}, status_code=400)
     except RuntimeError as error:
-        return JSONResponse({"error": str(error)}, status_code=409)
+        return structured_error_response(error, status_code=409, stage="voice")
     return serialized_project(project)
 
 
@@ -513,7 +636,7 @@ async def approve_edit(project_id: str, request: Request):
     except ValueError as error:
         return JSONResponse({"error": str(error)}, status_code=400)
     except RuntimeError as error:
-        return JSONResponse({"error": str(error)}, status_code=502)
+        return structured_error_response(error, status_code=502, stage="final_cut")
     return serialized_project(project)
 
 
@@ -538,7 +661,7 @@ async def normalize_media_resolution(project_id: str, request: Request):
     except ValueError as error:
         return JSONResponse({"error": str(error)}, status_code=400)
     except RuntimeError as error:
-        return JSONResponse({"error": str(error)}, status_code=409)
+        return structured_error_response(error, status_code=409, stage="media")
     return serialized_project(project)
 
 
@@ -576,7 +699,7 @@ async def render_project_stream(project_id: str, request: Request) -> StreamingR
             project = orchestrator.render_project(project_id, progress_callback=on_progress)
             emit({"type": "done", "project": serialized_project(project)})
 
-    return run_with_sse(request, work)
+    return run_with_sse(request, work, project_id=project_id, stage="generation")
 
 
 @app.post("/api/projects/{project_id}/shots/{shot_number}/regenerate")
@@ -625,7 +748,7 @@ def render_single_shot(project_id: str, shot_number: int):
     except ValueError as error:
         return JSONResponse({"error": str(error)}, status_code=400)
     except Exception as error:  # noqa: BLE001 - surface generation failures to the inspector
-        return JSONResponse({"error": str(error)}, status_code=502)
+        return structured_error_response(error, status_code=502, stage="generation")
     return serialized_project(project)
 
 
@@ -637,6 +760,8 @@ def export_json(project_id: str):
         return project_not_found(project_id)
     except ValueError as error:
         return invalid_project_id(error)
+    except RuntimeError as error:
+        return structured_error_response(error, status_code=503, stage="storage")
     return FileResponse(paths[0], filename=f"{project_id}-project.json", media_type="application/json")
 
 
@@ -648,6 +773,8 @@ def export_markdown(project_id: str):
         return project_not_found(project_id)
     except ValueError as error:
         return invalid_project_id(error)
+    except RuntimeError as error:
+        return structured_error_response(error, status_code=503, stage="storage")
     return FileResponse(
         paths[1], filename=f"{project_id}-movie-plan.md", media_type="text/markdown"
     )
@@ -660,6 +787,23 @@ def _load_project_or_http(project_id: str):
         raise HTTPException(status_code=404, detail=f"Project {project_id} not found.") from error
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
+    except RuntimeError as error:
+        info = error_info(error, stage="storage")
+        raise HTTPException(status_code=503, detail=info["error_message"]) from error
+
+
+def _guard_project_media(project_id: str, path: Path, detail: str) -> Path:
+    """Keep browser media reads inside the project's output sandbox."""
+
+    resolved = Path(path).resolve()
+    allowed_root = (settings.outputs_dir / project_id).resolve()
+    try:
+        resolved.relative_to(allowed_root)
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=detail) from error
+    if not resolved.is_file():
+        raise HTTPException(status_code=404, detail=detail)
+    return resolved
 
 
 @app.get("/api/projects/{project_id}/subtitles.srt")
@@ -683,47 +827,62 @@ def subtitles_vtt(project_id: str):
 
 
 def _resolve_final_video(project_id: str) -> Path:
-    try:
-        project = orchestrator.store.load(project_id)
-    except FileNotFoundError as error:
-        raise HTTPException(status_code=404, detail=f"Project {project_id} not found.") from error
-    except ValueError as error:
-        raise HTTPException(status_code=400, detail=str(error)) from error
-    path = Path(project.final_output_placeholder or "")
-    if not path.is_file():
-        raise HTTPException(status_code=404, detail="Final cut has not been generated yet.")
-    return path
+    project = _load_project_or_http(project_id)
+    if not str(getattr(project, "status", "")).startswith("completed"):
+        raise HTTPException(status_code=404, detail="Final cut has not been approved yet.")
+    # Serve only the current, non-stale Final Master contract.  A legacy
+    # placeholder is accepted by ``best_master_path`` only when no master
+    # record exists; stale pointers are never exposed as a finished film.
+    path = best_master_path(project)
+    if path is None:
+        raise HTTPException(status_code=404, detail="Final Master has not been generated yet.")
+    return _guard_project_media(project_id, path, "Final Master has not been generated yet.")
 
 
 def _resolve_rough_cut(project_id: str) -> Path:
     project = _load_project_or_http(project_id)
+    if str(getattr(project, "status", "")) not in {"editing_rough_cut", "rough_cut_ready"}:
+        raise HTTPException(status_code=404, detail="Rough Cut is not available for this project state.")
+    if isinstance(getattr(project, "edit_plan", None), dict) and project.edit_plan.get("stale"):
+        raise HTTPException(status_code=404, detail="The current Rough Cut is stale and must be regenerated.")
     path = Path(project.rough_cut_placeholder or "")
-    if not path.is_file():
-        raise HTTPException(status_code=404, detail="Rough Cut has not been rendered to a real video file yet.")
-    return path
+    return _guard_project_media(project_id, path, "Rough Cut has not been rendered to a real video file yet.")
 
 
 def _resolve_screening_preview(project_id: str) -> Path:
     project = _load_project_or_http(project_id)
     path = best_screening_path(project)
-    if not path or not path.is_file():
+    if not path:
         raise HTTPException(status_code=404, detail="Screening Preview has not been rendered yet.")
-    return path
+    return _guard_project_media(project_id, path, "Screening Preview has not been rendered yet.")
 
 
 def _resolve_shot_video(project_id: str, shot_number: int) -> Path:
-    try:
-        project = orchestrator.store.load(project_id)
-    except FileNotFoundError as error:
-        raise HTTPException(status_code=404, detail=f"Project {project_id} not found.") from error
-    except ValueError as error:
-        raise HTTPException(status_code=400, detail=str(error)) from error
+    project = _load_project_or_http(project_id)
     if not 1 <= shot_number <= len(project.storyboard):
         raise HTTPException(status_code=400, detail="Shot number out of range.")
-    path = Path(project.storyboard[shot_number - 1].output_placeholder)
-    if not path.is_file():
+    shot = project.storyboard[shot_number - 1]
+    if bool(getattr(shot, "stale", False)) or not str(getattr(shot, "status", "")).startswith(("generated", "approved")):
+        raise HTTPException(status_code=404, detail="This shot revision is not ready for playback.")
+    assets = getattr(shot, "media_assets", {}) or {}
+    has_current_record = False
+    for key in ("final_master", "source"):
+        record = assets.get(key) if isinstance(assets, dict) else None
+        if not isinstance(record, dict):
+            continue
+        has_current_record = True
+        if record.get("stale"):
+            continue
+        path = Path(str(record.get("path") or ""))
+        if path.is_file():
+            return _guard_project_media(project_id, path, "This shot video has not been generated yet.")
+    # Legacy projects may have no media manifest.  Once a manifest exists,
+    # however, an invalid/stale record must not silently fall back to an old
+    # output placeholder.
+    path = Path(str(getattr(shot, "output_placeholder", "") or ""))
+    if has_current_record or not path.is_file():
         raise HTTPException(status_code=404, detail="This shot video has not been generated yet.")
-    return path
+    return _guard_project_media(project_id, path, "This shot video has not been generated yet.")
 
 
 @app.get("/api/projects/{project_id}/final-video")
@@ -767,7 +926,7 @@ async def export_video(project_id: str, request: Request):
     except ValueError as error:
         return JSONResponse({"error": str(error)}, status_code=400)
     except RuntimeError as error:
-        return JSONResponse({"error": str(error)}, status_code=409)
+        return structured_error_response(error, status_code=409, stage="export")
     media_types = {"mp4": "video/mp4", "mov": "video/quicktime", "webm": "video/webm"}
     return FileResponse(path, filename=path.name, media_type=media_types[payload.container])
 

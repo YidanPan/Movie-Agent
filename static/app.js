@@ -1063,6 +1063,12 @@ function hydrateCrewRadio(project) {
   });
 }
 
+function eventErrorMessage(event) {
+  if (!event) return "服务暂时不可用";
+  const code = event.error_code ? `[${event.error_code}] ` : "";
+  return `${code}${event.error_message || event.message || "服务暂时不可用"}`;
+}
+
 function syncHistoricalCrew(project) {
   state.workingAgent = null;
   state.crewDetails = {};
@@ -3544,10 +3550,11 @@ function handleCreateEvent(event) {
       : `项目 ${state.project.project_id} 已完成并保存。`);
     setTimeout(() => els.actWorkspace.scrollIntoView({ behavior: "smooth", block: "start" }), 350);
   } else if (event.type === "error") {
+    const failure = eventErrorMessage(event);
     els.crewMeta.textContent = "INTERRUPTED · RETRY AVAILABLE";
     failWorkingAgent();
-    appendCrewStatus("system", "FAILED", `Crew run interrupted · ${event.message || "retry available"}`);
-    setIdeaError("创作暂时中断，请检查创意后重试。", `制作未完成：${event.message || "服务暂时不可用"}`);
+    appendCrewStatus("system", "FAILED", `Crew run interrupted · ${failure}`);
+    setIdeaError("创作暂时中断，请检查创意后重试。", `制作未完成：${failure}`);
   }
 }
 
@@ -3651,17 +3658,18 @@ function handleRenderEvent(event) {
     els.btnRender.textContent = "提交 Spark 真实生成";
     toast(`${event.project.storyboard?.length || 0}/${event.project.storyboard?.length || 0} SHOTS READY，当前阶段已推进到 DELIVER；请启动 AI Edit 粗剪。`);
   } else if (event.type === "error") {
+    const failure = eventErrorMessage(event);
     els.renderRec.classList.remove("live");
     stopProjectorHum();
     setBrowserActivity("idle", state.project);
     state.rendering = false;
     els.btnRender.disabled = false;
     els.btnRender.textContent = "提交 Spark 真实生成";
-    els.monitorDesc.textContent = `生成中断：${event.message}`;
+    els.monitorDesc.textContent = `生成中断：${failure}`;
     rememberCrewEvent("generation", { status: "failed" });
-    appendCrewStatus("generation", "FAILED", event.message || "render queue interrupted");
+    appendCrewStatus("generation", "FAILED", failure);
     syncCrewBoard(state.project, { silent: true });
-    toast(`渲染失败：${event.message}`, true);
+    toast(`渲染失败：${failure}`, true);
     if (state.project) updatePipelineForProject(state.project);
   }
 }
@@ -3718,12 +3726,13 @@ function handleEditEvent(event) {
     toast("Rough Cut 已完成：镜头、声音与字幕轨已汇合，请先预览。");
     els.editConsole?.scrollIntoView({ behavior: REDUCED_MOTION ? "auto" : "smooth", block: "center" });
   } else if (event.type === "error") {
+    const failure = eventErrorMessage(event);
     state.editing = false;
     rememberCrewEvent("editor", { status: "failed" });
-    appendCrewStatus("editor", "FAILED", event.message || "AI Edit interrupted");
+    appendCrewStatus("editor", "FAILED", failure);
     setBrowserActivity("idle", state.project);
-    if (els.editStatus) els.editStatus.textContent = `AI Edit 中断：${event.message || "服务暂时不可用"}`;
-    toast(`AI Edit 失败：${event.message || "服务暂时不可用"}`, true);
+    if (els.editStatus) els.editStatus.textContent = `AI Edit 中断：${failure}`;
+    toast(`AI Edit 失败：${failure}`, true);
     if (state.project) renderWorkspace(state.project);
   }
 }

@@ -60,6 +60,12 @@ class Shot:
     source_duration: float | None = None
     stale: bool = False
     asset_history: list[dict[str, Any]] = field(default_factory=list)
+    error_code: str = ""
+    error_message: str = ""
+    retry_count: int = 0
+    recoverable: bool = True
+    last_error_at: str = ""
+    last_error: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.source_duration_seconds <= 0:
@@ -128,6 +134,12 @@ class MovieProject:
     schema_version: int = 2
     created_at: str = ""
     updated_at: str = ""
+    error_code: str = ""
+    error_message: str = ""
+    retry_count: int = 0
+    recoverable: bool = True
+    last_error_at: str = ""
+    last_error: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
@@ -186,6 +198,12 @@ class MovieProject:
             schema_version=max(1, int(data.get("schema_version") or 1)),
             created_at=str(data.get("created_at") or ""),
             updated_at=str(data.get("updated_at") or ""),
+            error_code=str(data.get("error_code") or ""),
+            error_message=str(data.get("error_message") or ""),
+            retry_count=max(0, int(data.get("retry_count") or 0)),
+            recoverable=bool(data.get("recoverable", True)),
+            last_error_at=str(data.get("last_error_at") or ""),
+            last_error=data.get("last_error") or {},
         )
         # Older project JSON files predate the sound department. Migrate them
         # in memory so the next save exposes the same audio contract.

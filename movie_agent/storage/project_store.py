@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+import shutil
 from datetime import datetime, timezone
 from threading import RLock
 from pathlib import Path
@@ -33,16 +35,50 @@ class ProjectStore:
             project.updated_at = now
             project.schema_version = max(2, int(getattr(project, "schema_version", 2) or 2))
             target = target_dir / "project.json"
+            backup = target_dir / "project.json.bak"
             temporary = target.with_suffix(".json.tmp")
-            temporary.write_text(json.dumps(project.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
+            # Keep the last known-good snapshot before replacing the primary.
+            # The backup is deliberately local to the project directory and
+            # is ignored by Git alongside project JSON/media.
+            if target.is_file():
+                try:
+                    existing_payload = json.loads(target.read_text(encoding="utf-8"))
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    # Never replace a known-good backup with a corrupt
+                    # primary if a recovery save follows a failed read.
+                    pass
+                else:
+                    if isinstance(existing_payload, dict):
+                        shutil.copy2(target, backup)
+            with temporary.open("w", encoding="utf-8", newline="\n") as handle:
+                handle.write(json.dumps(project.to_dict(), ensure_ascii=False, indent=2))
+                handle.flush()
+                os.fsync(handle.fileno())
             temporary.replace(target)
         return target
 
     def load(self, project_id: str) -> MovieProject:
-        target = self._project_dir(project_id) / "project.json"
+        project_dir = self._project_dir(project_id)
+        target = project_dir / "project.json"
         if not target.exists():
             raise FileNotFoundError(f"找不到项目 {project_id}。")
-        return MovieProject.from_dict(json.loads(target.read_text(encoding="utf-8")))
+        try:
+            payload = json.loads(target.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError) as primary_error:
+            backup = project_dir / "project.json.bak"
+            if not backup.is_file():
+                raise RuntimeError(
+                    f"项目 {project_id} 的 project.json 已损坏，且没有可恢复的备份。"
+                ) from primary_error
+            try:
+                payload = json.loads(backup.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, UnicodeDecodeError) as backup_error:
+                raise RuntimeError(
+                    f"项目 {project_id} 的 project.json 与备份均已损坏，无法恢复。"
+                ) from backup_error
+        if not isinstance(payload, dict):
+            raise RuntimeError(f"项目 {project_id} 的快照格式无效。")
+        return MovieProject.from_dict(payload)
 
     def list_project_ids(self) -> list[str]:
         """Return saved projects newest first without loading every project file."""

@@ -11,6 +11,7 @@ from movie_agent.models import Shot
 from movie_agent.services.comfyui import ComfyUIClient, ComfyUIError, WorkflowOverrides, load_verified_workflow
 from movie_agent.services.media_quality import asset_record
 from movie_agent.services.continuity import derive_shot_seed
+from movie_agent.services.errors import clear_failure, error_info, record_failure
 from movie_agent.services.revisions import ensure_shot_metadata, hash_shot_prompt, utc_now
 
 
@@ -81,6 +82,7 @@ class GenerationAgent:
         ensure_shot_metadata(shot, provider="mock", model="mock-rule-engine")
         if shot.status == "approved_mock" and not shot.stale:
             return f"Generation Agent: Shot {shot.number} already has an approved mock result; reusing current revision {shot.revision}."
+        clear_failure(shot)
         shot.status = "generating_mock"
         shot.stale = False
         shot.qc_status = "PENDING"
@@ -99,18 +101,31 @@ class GenerationAgent:
     ) -> str:
         """Submit one planned shot and copy its MP4 into the project output folder."""
         if shot.generation_mode != "T2V":
-            raise ComfyUIError(
+            error = ComfyUIError(
                 f"Shot {shot.number} is marked as {shot.generation_mode}, but the current MiniMax-H3 workflow only supports T2V."
             )
+            record_failure(shot, error, stage="generation")
+            shot.status = "generation_failed"
+            shot.qc_status = "FAILED"
+            raise error
         existing_output = Path(shot.output_placeholder)
         if shot.status == "approved_comfyui" and not shot.stale and existing_output.is_file():
             return f"Generation Agent: Shot {shot.number} already has an approved result; skipping duplicate generation."
         template_path = self.settings.workflows_dir / self.settings.comfy_workflow_template
         if not template_path.is_file():
-            raise ComfyUIError(f"Verified workflow not found: {template_path}.")
+            error = ComfyUIError(f"Verified workflow not found: {template_path}.")
+            record_failure(shot, error, stage="generation")
+            shot.status = "generation_failed"
+            shot.qc_status = "FAILED"
+            raise error
         if not self.client.is_available():
-            raise ComfyUIError("ComfyUI service is unavailable; please check the local Spark service.")
+            error = ComfyUIError("ComfyUI service is unavailable; please check the local Spark service.")
+            record_failure(shot, error, stage="generation")
+            shot.status = "generation_failed"
+            shot.qc_status = "FAILED"
+            raise error
 
+        clear_failure(shot)
         shot.status = "generating_comfyui"
         shot.stale = False
         shot.qc_status = "PENDING"
@@ -154,8 +169,11 @@ class GenerationAgent:
             destination = destination_dir / f"shot-{shot.number:02d}.mp4"
             shutil.copy2(source, destination)
         except (ComfyUIError, OSError) as error:
+            record_failure(shot, error, stage="generation")
             shot.status = "generation_failed"
-            raise ComfyUIError(f"Shot {shot.number} generation failed: {error}") from error
+            shot.qc_status = "FAILED"
+            safe_message = error_info(error, stage="generation")["error_message"]
+            raise ComfyUIError(f"Shot {shot.number} generation failed: {safe_message}") from error
         shot.output_placeholder = str(destination)
         # The model output is the immutable source.  It must not be labelled a
         # Final Master until normalization/edit approval has produced one.
