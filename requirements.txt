@@ -3,3 +3,6 @@ pydantic>=2.0,<3.0
 python-dotenv>=1.0,<2.0
 fastapi>=0.110,<1.0
 uvicorn>=0.29,<1.0
+# Optional but reproducible continuous English voice provider.  The app keeps
+# a truthful pending state when this package or network-backed TTS is absent.
+edge-tts>=7.0,<8.0

@@ -1,7 +1,8 @@
 """Media quality tiers for fast previews and safe final delivery.
 
-The editor keeps three intentionally different contracts:
+The editor keeps four intentionally different contracts:
 
+* ``source`` is the immutable model output for each shot.
 * ``working_proxy`` is disposable and optimized for interaction.
 * ``screening_preview`` is the viewer-facing copy (720p/1080p when the source
   can support it).
@@ -24,9 +25,28 @@ TARGETS = {
     "1080p": (1920, 1080),
 }
 
+# Delivery dimensions are explicit rather than derived from a portrait target
+# height.  Deriving 9:16 from a 1080px height previously produced 608×1080,
+# which silently exported a low-resolution portrait master.
+EXPORT_DIMENSIONS = {
+    ("720p", "16:9"): (1280, 720),
+    ("720p", "9:16"): (720, 1280),
+    ("720p", "1:1"): (720, 720),
+    ("1080p", "16:9"): (1920, 1080),
+    ("1080p", "9:16"): (1080, 1920),
+    ("1080p", "1:1"): (1080, 1080),
+}
+
 
 def target_dimensions(resolution: str = "1080p") -> tuple[int, int]:
     return TARGETS.get(str(resolution).lower().strip(), TARGETS["1080p"])
+
+
+def export_dimensions(resolution: str = "1080p", aspect: str = "16:9") -> tuple[int, int]:
+    """Return the exact output dimensions for a resolution/aspect pair."""
+
+    key = (str(resolution).lower().strip(), str(aspect).strip())
+    return EXPORT_DIMENSIONS.get(key, EXPORT_DIMENSIONS[("1080p", "16:9")])
 
 
 def probe_media(path: Path, ffprobe_bin: str = "ffprobe") -> dict[str, Any]:
@@ -40,6 +60,9 @@ def probe_media(path: Path, ffprobe_bin: str = "ffprobe") -> dict[str, Any]:
         "duration_seconds": None,
         "fps": None,
         "codec": None,
+        "pix_fmt": None,
+        "sample_rate": None,
+        "has_audio": False,
     }
     if not path.is_file():
         return result
@@ -47,10 +70,8 @@ def probe_media(path: Path, ffprobe_bin: str = "ffprobe") -> dict[str, Any]:
         ffprobe_bin,
         "-v",
         "error",
-        "-select_streams",
-        "v:0",
         "-show_entries",
-        "stream=width,height,r_frame_rate,codec_name:format=duration",
+        "stream=width,height,r_frame_rate,codec_name,pix_fmt,sample_rate,codec_type:format=duration",
         "-of",
         "json",
         str(path),
@@ -61,13 +82,27 @@ def probe_media(path: Path, ffprobe_bin: str = "ffprobe") -> dict[str, Any]:
     except (OSError, ValueError, TypeError):
         return result
     streams = payload.get("streams") if isinstance(payload, dict) else None
-    stream = streams[0] if isinstance(streams, list) and streams and isinstance(streams[0], dict) else {}
+    stream = next(
+        (item for item in streams if isinstance(item, dict) and item.get("codec_type") == "video"),
+        {},
+    ) if isinstance(streams, list) else {}
+    audio_stream = next(
+        (item for item in streams if isinstance(item, dict) and item.get("codec_type") == "audio"),
+        {},
+    ) if isinstance(streams, list) else {}
     for key in ("width", "height"):
         try:
             result[key] = int(stream[key]) if stream.get(key) is not None else None
         except (TypeError, ValueError):
             result[key] = None
     result["codec"] = str(stream.get("codec_name") or "").upper() or None
+    result["pix_fmt"] = str(stream.get("pix_fmt") or "") or None
+    try:
+        result["sample_rate"] = int(audio_stream["sample_rate"]) if audio_stream.get("sample_rate") is not None else None
+    except (TypeError, ValueError):
+        result["sample_rate"] = None
+    stream_types = [item.get("codec_type") for item in streams if isinstance(item, dict)] if isinstance(streams, list) else []
+    result["has_audio"] = "audio" in stream_types
     rate = str(stream.get("r_frame_rate") or "")
     try:
         numerator, denominator = rate.split("/", 1)
@@ -88,10 +123,15 @@ def quality_label(metadata: dict[str, Any], target_resolution: str = "1080p") ->
     width, height = metadata.get("width"), metadata.get("height")
     if not isinstance(width, int) or not isinstance(height, int):
         return "QUALITY UNKNOWN"
-    target_width, target_height = target_dimensions(target_resolution)
-    if width >= target_width and height >= target_height:
-        return target_resolution.upper()
-    if width >= 1280 and height >= 720:
+    # Check all supported orientations so a valid 1080p portrait/square
+    # master is not mislabeled as LOW RES merely because its width is smaller
+    # than the landscape width.
+    target = str(target_resolution).lower().strip()
+    target_sizes = [size for (resolution, _), size in EXPORT_DIMENSIONS.items() if resolution == target]
+    if any(width >= target_width and height >= target_height for target_width, target_height in target_sizes):
+        return target.upper()
+    preview_sizes = [size for (resolution, _), size in EXPORT_DIMENSIONS.items() if resolution == "720p"]
+    if any(width >= preview_width and height >= preview_height for preview_width, preview_height in preview_sizes):
         return "720P"
     return "LOW RES SOURCE"
 
@@ -159,12 +199,19 @@ def quality_snapshot(project: Any, ffprobe_bin: str = "ffprobe") -> dict[str, An
     low_res_source = False
     for shot in shots:
         records = getattr(shot, "media_assets", {}) or {}
-        record = records.get("final_master") if isinstance(records, dict) else None
-        if isinstance(record, dict) and record.get("is_low_res"):
-            low_res_source = True
+        if isinstance(records, dict):
+            for key in ("source", "final_master"):
+                record = records.get(key)
+                if isinstance(record, dict) and record.get("is_low_res"):
+                    low_res_source = True
     snapshot: dict[str, Any] = {
         "target_resolution": target,
         "target_fps": int(getattr(project, "target_fps", 24) or 24),
+        "source_shots": [
+            (getattr(shot, "media_assets", {}) or {}).get("source")
+            for shot in shots
+            if isinstance((getattr(shot, "media_assets", {}) or {}).get("source"), dict)
+        ],
         "working_proxy": assets.get("working_proxy"),
         "screening_preview": assets.get("screening_preview"),
         "final_master": assets.get("final_master"),

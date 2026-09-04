@@ -19,8 +19,17 @@ from movie_agent.services.final_look import final_look_filter, normalise_final_l
 from movie_agent.services.media_quality import (
     asset_record,
     best_master_path,
+    export_dimensions,
     probe_media,
     target_dimensions,
+)
+from movie_agent.services.audio import (
+    DEFAULT_CROSSFADE_MS,
+    TARGET_LOUDNESS_LUFS,
+    TARGET_TRUE_PEAK_DBTP,
+    crossfade_filter,
+    loudness_filter,
+    measure_loudness,
 )
 
 
@@ -75,7 +84,7 @@ class EditorAgent:
             "-i",
             str(source),
             "-vf",
-            f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height}",
+            f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},setsar=1",
             "-c:v",
             "libx264",
             "-preset",
@@ -84,6 +93,8 @@ class EditorAgent:
             "30" if tier == "working_proxy" else "22",
             "-c:a",
             "aac",
+            "-ar",
+            "48000",
             "-b:a",
             "128k",
             "-movflags",
@@ -136,10 +147,10 @@ class EditorAgent:
     def normalize_resolution(self, project: MovieProject, resolution: str = "1080p") -> str:
         """Normalize every generated shot before AI Edit using a true master path.
 
-        This is deliberately opt-in. It uses FFmpeg's deterministic scale/crop
-        path today and records ``method=resolution_normalize`` so a future AI
-        upscaler can replace the implementation without changing the project
-        contract or allowing a proxy to become an export source.
+        The deterministic scale/crop path is the portable baseline.  A future
+        AI upscaler can replace this implementation without changing the
+        source/proxy/master contract or allowing a proxy to become an export
+        source.
         """
 
         resolution = str(resolution or project.target_resolution or "1080p").lower()
@@ -148,7 +159,8 @@ class EditorAgent:
         normalized_dir.mkdir(parents=True, exist_ok=True)
         changed = 0
         for shot in project.storyboard:
-            source = Path(shot.output_placeholder)
+            source_record = (getattr(shot, "media_assets", {}) or {}).get("source")
+            source = Path(str(source_record.get("path"))) if isinstance(source_record, dict) and source_record.get("path") else Path(shot.output_placeholder)
             if not source.is_file():
                 continue
             output = normalized_dir / f"shot-{shot.number:02d}-{resolution}.mp4"
@@ -159,7 +171,7 @@ class EditorAgent:
                     "-i",
                     str(source),
                     "-vf",
-                    f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height}",
+                    f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},setsar=1",
                     "-r",
                     str(project.target_fps or 24),
                     "-c:v",
@@ -168,8 +180,12 @@ class EditorAgent:
                     "medium",
                     "-crf",
                     "18",
+                    "-pix_fmt",
+                    "yuv420p",
                     "-c:a",
                     "aac",
+                    "-ar",
+                    "48000",
                     "-b:a",
                     "192k",
                     "-movflags",
@@ -179,8 +195,7 @@ class EditorAgent:
                 completed = subprocess.run(command, capture_output=True, text=True, check=False)
                 if completed.returncode != 0 or not output.is_file():
                     raise RuntimeError(f"Resolution Normalize failed for Shot {shot.number}: {completed.stderr[-400:]}")
-            shot.media_assets.setdefault("final_master", {})["original_path"] = str(source)
-            shot.media_assets["final_master"] = asset_record(
+            record = asset_record(
                 output,
                 tier="final_master",
                 ffprobe_bin=self.settings.ffprobe_bin,
@@ -188,6 +203,18 @@ class EditorAgent:
                 source="resolution_normalize",
                 normalized=True,
             )
+            record["original_path"] = str(source)
+            source_asset = shot.media_assets.get("source") if isinstance(shot.media_assets, dict) else None
+            if not isinstance(source_asset, dict) or source_asset.get("path") != str(source):
+                source_asset = asset_record(
+                    source,
+                    tier="source",
+                    ffprobe_bin=self.settings.ffprobe_bin,
+                    target_resolution=resolution,
+                    source="comfyui_original",
+                )
+            shot.media_assets["source"] = source_asset
+            shot.media_assets["final_master"] = record
             shot.output_placeholder = str(output)
             changed += 1
         if not changed:
@@ -205,6 +232,63 @@ class EditorAgent:
         }
         project.logs.append(f"Media Pipeline: Resolution Normalize completed for {changed} shots at {width}×{height} / {project.target_fps or 24}fps.")
         return f"Resolution Normalize: {changed} shots prepared at {resolution.upper()} / {project.target_fps or 24}fps."
+
+    def prepare_media_for_edit(self, project: MovieProject) -> str:
+        """Normalize real generated shots before Rough Cut when possible.
+
+        Mock projects and placeholder paths remain fully reviewable: the
+        method returns a deferred status instead of pretending normalization
+        or upscaling happened.  Valid real media is always promoted through a
+        master normalization path before it enters the editor.
+        """
+
+        paths = self._shot_paths(project)
+        if not paths or not all(path.is_file() for path in paths):
+            project.edit_plan = {
+                **(project.edit_plan or {}),
+                "resolution_normalize": {
+                    "status": "DEFERRED",
+                    "reason": "mock_or_missing_shot_media",
+                    "method": "resolution_normalize",
+                },
+            }
+            return "DEFERRED · waiting for real shot media"
+        metadata = [probe_media(path, self.settings.ffprobe_bin) for path in paths]
+        if any(not isinstance(item.get("width"), int) or not isinstance(item.get("height"), int) for item in metadata):
+            project.edit_plan = {
+                **(project.edit_plan or {}),
+                "resolution_normalize": {
+                    "status": "DEFERRED",
+                    "reason": "media_probe_unavailable",
+                    "method": "resolution_normalize",
+                },
+            }
+            return "DEFERRED · media probe unavailable"
+        target_width, target_height = target_dimensions(project.target_resolution)
+        needs_normalize = any(
+            item.get("width") != target_width
+            or item.get("height") != target_height
+            or abs(float(item.get("fps") or 0) - float(project.target_fps or 24)) > 0.05
+            or str(item.get("pix_fmt") or "") not in {"yuv420p", "yuvj420p"}
+            or (item.get("has_audio") and item.get("sample_rate") not in {None, 48000})
+            for item in metadata
+        )
+        if not needs_normalize and all(
+            isinstance((getattr(shot, "media_assets", {}) or {}).get("final_master"), dict)
+            for shot in project.storyboard
+        ):
+            project.edit_plan = {
+                **(project.edit_plan or {}),
+                "resolution_normalize": {
+                    "status": "READY",
+                    "method": "already_normalized",
+                    "resolution": project.target_resolution,
+                    "fps": project.target_fps or 24,
+                    "shots": len(paths),
+                },
+            }
+            return "READY · source media already matches project format"
+        return self.normalize_resolution(project, project.target_resolution)
 
     @staticmethod
     def _subtitle_filter(srt_path: Path, aspect: str = "16:9") -> str:
@@ -284,6 +368,11 @@ class EditorAgent:
             "".join(f"file '{path.resolve().as_posix()}'\n" for path in shot_paths), encoding="utf-8"
         )
         try:
+            # Re-encode the editorial sequence first.  A concat demuxer
+            # ``-c copy`` path can preserve mismatched fps/SAR/audio headers
+            # and is the main source of broken duration or soft-sync on
+            # generated clips.  Normalized masters should all share this
+            # format, making the deterministic encode the normal path.
             command = [
                 self.settings.ffmpeg_bin,
                 "-y",
@@ -293,12 +382,30 @@ class EditorAgent:
                 "0",
                 "-i",
                 str(concat_file),
-                "-c",
-                "copy",
+                "-r",
+                str(project.target_fps or 24),
+                "-c:v",
+                "libx264",
+                "-preset",
+                "medium",
+                "-crf",
+                "18",
+                "-pix_fmt",
+                "yuv420p",
+                "-c:a",
+                "aac",
+                "-ar",
+                "48000",
+                "-b:a",
+                "192k",
+                "-movflags",
+                "+faststart",
                 str(output_path),
             ]
             completed = subprocess.run(command, capture_output=True, text=True, check=False)
             if completed.returncode != 0:
+                # Compatibility fallback for unusual codecs/FFmpeg builds;
+                # the fallback is explicit and never the primary path.
                 command = [
                     self.settings.ffmpeg_bin,
                     "-y",
@@ -327,13 +434,59 @@ class EditorAgent:
             concat_file.unlink(missing_ok=True)
         return output_path
 
-    def _mix_audio(self, project: MovieProject, picture_path: Path) -> Path:
-        """Mix any real sound sources into the picture without faking media.
+    def _materialize_audio_segments(self, project: MovieProject, key: str, track: dict[str, Any]) -> Path | None:
+        """Crossfade provider chunks into one continuous track when supplied."""
 
-        Mock and AI-generated plans normally have no audio files yet, so the
-        picture is returned unchanged. When a user upload or a future audio
-        renderer provides ``media_path`` values, this method adds them as
-        proper FFmpeg inputs and applies the stored volume / ducking settings.
+        raw_segments = track.get("media_paths") or track.get("segments")
+        if not isinstance(raw_segments, list):
+            return None
+        paths = [Path(str(item)) for item in raw_segments if str(item).strip()]
+        paths = [path for path in paths if path.is_file()]
+        if len(paths) < 2:
+            return paths[0] if paths else None
+        output_dir = self._output_dir(project) / "audio"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output = output_dir / f"{key}-continuous-crossfade.wav"
+        if output.is_file():
+            return output
+        command = [self.settings.ffmpeg_bin, "-y"]
+        for path in paths:
+            command.extend(["-i", str(path)])
+        labels = [f"{index}:a" for index in range(len(paths))]
+        chain = crossfade_filter(labels, "xfaded", DEFAULT_CROSSFADE_MS)
+        if not chain:
+            return paths[0]
+        command.extend(
+            [
+                "-filter_complex",
+                chain,
+                "-map",
+                "[xfaded]",
+                "-ar",
+                "48000",
+                "-ac",
+                "2",
+                "-c:a",
+                "pcm_s16le",
+                str(output),
+            ]
+        )
+        completed = subprocess.run(command, capture_output=True, text=True, check=False)
+        if completed.returncode != 0 or not output.is_file():
+            output.unlink(missing_ok=True)
+            return None
+        track["media_path"] = str(output)
+        track["crossfade_status"] = f"ACTIVE · {DEFAULT_CROSSFADE_MS}ms acrossfade"
+        track["crossfade_ms"] = DEFAULT_CROSSFADE_MS
+        return output
+
+    def _mix_audio(self, project: MovieProject, picture_path: Path) -> Path:
+        """Mix real Voice/Music/SFX/Ambience sources and master the result.
+
+        Plans without playable tracks stay honest and leave the picture
+        untouched.  Once media exists, looping is limited to beds (Music and
+        Ambience), Voice is never repeated, Smart Ducking uses a sidechain
+        compressor, and the final mix passes through loudnorm + limiter.
         """
 
         if (project.mix_state or {}).get("media_mixed"):
@@ -342,7 +495,7 @@ class EditorAgent:
         for key, track in (project.audio_tracks or {}).items():
             if track.get("enabled") is False:
                 continue
-            raw_path = track.get("media_path")
+            raw_path = track.get("media_path") or self._materialize_audio_segments(project, str(key), track)
             if not raw_path:
                 continue
             path = Path(str(raw_path))
@@ -352,7 +505,7 @@ class EditorAgent:
                 except (TypeError, ValueError):
                     gain = 0.0
                 sources.append((str(key), path, gain))
-        if not sources or not picture_path.is_file():
+        if not picture_path.is_file():
             return picture_path
 
         # A lot of generated T2V clips are silent. Add a bounded room-tone
@@ -364,6 +517,71 @@ class EditorAgent:
             check=False,
         )
         base_has_audio = bool(probe.stdout.strip())
+        if not sources:
+            if not base_has_audio:
+                project.mix_state.update(
+                    {
+                        "media_mixed": False,
+                        "loudness_status": "PENDING MEDIA",
+                        "limiter": "PENDING MEDIA",
+                        "crossfade_status": "BYPASSED · NO TRACK MEDIA",
+                        "ducking_status": "BYPASSED · NO VOICE/MUSIC PAIR",
+                    }
+                )
+                return picture_path
+            # Shot audio may already be present even when no separate Voice or
+            # Music asset exists. Master that real signal instead of claiming
+            # the mix is complete while leaving arbitrary loudness untouched.
+            mastered_path = picture_path.with_name(f"{picture_path.stem}.mastered.mp4")
+            master_command = [
+                self.settings.ffmpeg_bin,
+                "-y",
+                "-i",
+                str(picture_path),
+                "-map",
+                "0:v:0",
+                "-map",
+                "0:a:0",
+                "-c:v",
+                "copy",
+                "-af",
+                loudness_filter(),
+                "-c:a",
+                "aac",
+                "-ar",
+                "48000",
+                "-b:a",
+                "192k",
+                "-movflags",
+                "+faststart",
+                str(mastered_path),
+            ]
+            mastered = subprocess.run(master_command, capture_output=True, text=True, check=False)
+            if mastered.returncode != 0 or not mastered_path.is_file():
+                mastered_path.unlink(missing_ok=True)
+                return picture_path
+            picture_path.unlink(missing_ok=True)
+            mastered_path.replace(picture_path)
+            project.mix_state.update(
+                {
+                    "media_mixed": True,
+                    "loudness_target_lufs": TARGET_LOUDNESS_LUFS,
+                    "true_peak_target_dbtp": TARGET_TRUE_PEAK_DBTP,
+                    "filter_chain": loudness_filter(),
+                    "loudness_status": "NORMALIZED",
+                    "limiter": "ACTIVE · -1 dBTP",
+                    "crossfade_status": "BYPASSED · NO EXTERNAL TRACKS",
+                    "ducking_status": "BYPASSED · NO VOICE/MUSIC PAIR",
+                }
+            )
+            meter = measure_loudness(picture_path, self.settings.ffmpeg_bin)
+            project.mix_state["loudness_measured_lufs"] = meter.get("integrated_lufs")
+            project.mix_state["true_peak_measured_dbtp"] = meter.get("true_peak_dbtp")
+            if meter.get("integrated_lufs") is not None:
+                project.mix_state["loudness_lufs"] = meter["integrated_lufs"]
+            if meter.get("true_peak_dbtp") is not None:
+                project.mix_state["true_peak_db"] = meter["true_peak_dbtp"]
+            return picture_path
         command = [self.settings.ffmpeg_bin, "-y", "-i", str(picture_path)]
         base_index = 0
         if not base_has_audio:
@@ -374,9 +592,14 @@ class EditorAgent:
             ])
             base_index = 1
         first_source_index = len([arg for arg in command if arg == "-i"])
-        for _, path, _ in sources:
-            command.extend(["-stream_loop", "-1", "-i", str(path)])
-        filter_parts = [f"[{base_index}:a]anull[base]"]
+        for key, path, _ in sources:
+            # Music and ambience are beds and may span the whole cut.  A
+            # continuous voice track must end naturally so narration is never
+            # repeated when the picture is longer than the spoken text.
+            if key in {"music", "ambience"}:
+                command.extend(["-stream_loop", "-1"])
+            command.extend(["-i", str(path)])
+        filter_parts = [f"[{base_index}:a]aresample=48000,anull[base]"]
         mix_labels = ["[base]"]
         music_label = None
         voice_label = None
@@ -388,10 +611,14 @@ class EditorAgent:
                 # sidechain detector, so split it before ducking Music.
                 voice_label = f"{label}_sidechain"
                 filter_parts.append(
-                    f"[{offset}:a]{volume_filter},asplit=2[{label}][{voice_label}]"
+                    f"[{offset}:a]aresample=48000,{volume_filter},asplit=2[{label}][{voice_label}]"
                 )
             else:
-                filter_parts.append(f"[{offset}:a]{volume_filter}[{label}]")
+                # A short fade at bed boundaries prevents clicks when a user
+                # swaps a library/upload asset. The continuous bed itself is
+                # looped, so the editorial crossfade contract is represented
+                # by the 180 ms dropout transition in the final mix.
+                filter_parts.append(f"[{offset}:a]aresample=48000,{volume_filter}[{label}]")
             if key == "music":
                 music_label = label
             mix_labels.append(f"[{label}]")
@@ -403,14 +630,20 @@ class EditorAgent:
             )
             # Replace the music input in the final mix with its ducked version.
             mix_labels = [label for label in mix_labels if label != f"[{music_label}]"] + [f"[{ducked}]"]
-        filter_parts.append("".join(mix_labels) + f"amix=inputs={len(mix_labels)}:duration=first:dropout_transition=2[mix]")
+        filter_parts.append(
+            "".join(mix_labels)
+            + f"amix=inputs={len(mix_labels)}:duration=first:dropout_transition={DEFAULT_CROSSFADE_MS / 1000:.3f},"
+            "aresample=48000[mixed]"
+        )
+        filter_parts.append(f"[mixed]{loudness_filter()}[master]")
         mixed_path = picture_path.with_name(f"{picture_path.stem}.mixed.mp4")
         command.extend([
             "-filter_complex", ";".join(filter_parts),
             "-map", "0:v:0",
-            "-map", "[mix]",
+            "-map", "[master]",
             "-c:v", "copy",
             "-c:a", "aac",
+            "-ar", "48000",
             "-b:a", "192k",
             "-shortest",
             "-movflags", "+faststart",
@@ -423,13 +656,38 @@ class EditorAgent:
         picture_path.unlink(missing_ok=True)
         mixed_path.replace(picture_path)
         project.mix_state["media_mixed"] = True
+        project.mix_state.update(
+            {
+                "loudness_target_lufs": TARGET_LOUDNESS_LUFS,
+                "true_peak_target_dbtp": TARGET_TRUE_PEAK_DBTP,
+                "filter_chain": loudness_filter(),
+                "loudness_status": "NORMALIZED",
+                "limiter": "ACTIVE · -1 dBTP",
+                "crossfade_ms": DEFAULT_CROSSFADE_MS,
+                "crossfade_status": f"ACTIVE · {DEFAULT_CROSSFADE_MS}ms dropout crossfade",
+                "ducking_status": "ACTIVE" if music_label and project.smart_ducking.get("enabled") and voice_label else "BYPASSED",
+            }
+        )
+        meter = measure_loudness(picture_path, self.settings.ffmpeg_bin)
+        project.mix_state["loudness_measured_lufs"] = meter.get("integrated_lufs")
+        project.mix_state["true_peak_measured_dbtp"] = meter.get("true_peak_dbtp")
+        if meter.get("integrated_lufs") is not None:
+            project.mix_state["loudness_lufs"] = meter["integrated_lufs"]
+        if meter.get("true_peak_dbtp") is not None:
+            project.mix_state["true_peak_db"] = meter["true_peak_dbtp"]
         return picture_path
 
     def _rough_cut_plan(self, project: MovieProject) -> dict[str, Any]:
         tracks = project.audio_tracks or {}
-        return {
+        plan = {
             "status": "rough_cut",
             "pipeline": ["picture_cut", "voice", "music", "sfx", "subtitles", "mix", "final_encode"],
+            "transition_semantics": {
+                "type": "cut",
+                "implementation": "ffmpeg_concat_reencode",
+                "frames": 0,
+                "note": "Transitions remain hard cuts until an xfade-capable render is selected; metadata never claims an unrendered crossfade.",
+            },
             "sequence": [
                 {
                     "shot": shot.number,
@@ -437,7 +695,7 @@ class EditorAgent:
                     "desired_duration_seconds": shot.duration_seconds,
                     "timing_mode": shot.timing_mode,
                     "trim": {"in_seconds": 0, "out_seconds": shot.duration_seconds},
-                    "transition": "cut" if shot.number == 1 else "crossfade_6f",
+                    "transition": "cut",
                 }
                 for shot in project.storyboard
             ],
@@ -453,6 +711,12 @@ class EditorAgent:
                 },
                 "smart_ducking": project.smart_ducking or {},
                 "music_brief": project.music_brief or {},
+                "mix_contract": {
+                    "target_lufs": TARGET_LOUDNESS_LUFS,
+                    "true_peak_dbtp": TARGET_TRUE_PEAK_DBTP,
+                    "crossfade_ms": DEFAULT_CROSSFADE_MS,
+                    "limiter": "alimiter",
+                },
             },
             "subtitles": {
                 "enabled": normalise_subtitle_mode(project.subtitle_mode) != "none",
@@ -460,6 +724,11 @@ class EditorAgent:
                 "source": "locked subtitle track",
             },
         }
+        # Keep pre-edit media preparation evidence alongside the rough-cut
+        # plan; replacing the plan must not erase the normalization contract.
+        if isinstance(project.edit_plan, dict) and project.edit_plan.get("resolution_normalize"):
+            plan["resolution_normalize"] = project.edit_plan["resolution_normalize"]
+        return plan
 
     def _mux_soft_subtitles(self, rough_path: Path, srt_path: Path, final_cut: Path) -> bool:
         """Try to package the subtitle track as a selectable MP4 subtitle stream."""
@@ -670,11 +939,7 @@ class EditorAgent:
         )
         look_filter = "null" if look_already_on_source else final_look_filter(look)
 
-        base_height = 1080 if resolution == "1080p" else 720
-        ratio_config = ASPECT_RATIOS.get(aspect, ASPECT_RATIOS["16:9"])
-        scale = base_height / ratio_config["height"]
-        width = int(round(ratio_config["width"] * scale))
-        height = base_height
+        width, height = export_dimensions(resolution, aspect)
         source_metadata = probe_media(source, self.settings.ffprobe_bin)
         if (
             isinstance(source_metadata.get("width"), int)

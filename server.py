@@ -164,6 +164,11 @@ def serialized_project(project) -> dict[str, Any]:
     """Expose persisted data plus a fresh, read-only media quality view."""
 
     payload = project.to_dict()
+    # Audio providers persist an absolute media path for the editor, while
+    # browsers should always use the guarded project-scoped preview endpoint.
+    for key, track in (payload.get("audio_tracks") or {}).items():
+        if isinstance(track, dict) and track.get("media_path") and Path(str(track["media_path"])).is_file():
+            track.setdefault("preview_url", f"/api/projects/{project.project_id}/audio/tracks/{key}")
     payload["video_quality"] = quality_snapshot(project, settings.ffprobe_bin)
     payload["screening_preview_url"] = f"/api/projects/{project.project_id}/screening-preview"
     return payload
@@ -397,6 +402,22 @@ def regenerate_audio_track(project_id: str, track_key: str):
         return project_not_found(project_id)
     except ValueError as error:
         return JSONResponse({"error": str(error)}, status_code=400)
+    return serialized_project(project)
+
+
+@app.post("/api/projects/{project_id}/audio/tracks/voice/generate")
+def generate_voice_track(project_id: str):
+    """Generate one continuous English voice asset from the locked script."""
+
+    try:
+        with render_lock:
+            project = orchestrator.generate_voice_track(project_id)
+    except FileNotFoundError:
+        return project_not_found(project_id)
+    except ValueError as error:
+        return JSONResponse({"error": str(error)}, status_code=400)
+    except RuntimeError as error:
+        return JSONResponse({"error": str(error)}, status_code=409)
     return serialized_project(project)
 
 

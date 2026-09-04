@@ -4,10 +4,20 @@ import unittest
 
 from movie_agent.config import Settings
 from movie_agent.orchestrator import MovieOrchestrator
-from movie_agent.services.audio import normalise_music_mode
+from movie_agent.services.audio import (
+    DEFAULT_CROSSFADE_MS,
+    crossfade_filter,
+    loudness_filter,
+    normalise_music_mode,
+)
 
 
 class AudioDesignTests(unittest.TestCase):
+    def test_real_mix_contract_has_loudnorm_limiter_and_bounded_crossfade(self) -> None:
+        self.assertIn("loudnorm=I=-14.0:TP=-1.0", loudness_filter())
+        self.assertIn("alimiter", loudness_filter())
+        self.assertIn("acrossfade=d=0.180", crossfade_filter(["0:a", "1:a"], "xfaded", DEFAULT_CROSSFADE_MS) or "")
+
     def test_music_modes_normalise_to_stable_values(self) -> None:
         self.assertEqual(normalise_music_mode("AI 自动配乐"), "ai")
         self.assertEqual(normalise_music_mode("素材库音乐"), "library")

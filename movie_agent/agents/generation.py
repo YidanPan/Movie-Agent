@@ -134,7 +134,7 @@ class GenerationAgent:
             prompt_id = self.client.submit(workflow)
             result = self.client.wait_for_completion(prompt_id)
             source = self._resolve_video(result)
-            destination_dir = self.settings.outputs_dir / project_id / "shots"
+            destination_dir = self.settings.outputs_dir / project_id / "shots" / "source"
             destination_dir.mkdir(parents=True, exist_ok=True)
             destination = destination_dir / f"shot-{shot.number:02d}.mp4"
             shutil.copy2(source, destination)
@@ -142,13 +142,16 @@ class GenerationAgent:
             shot.status = "generation_failed"
             raise ComfyUIError(f"Shot {shot.number} generation failed: {error}") from error
         shot.output_placeholder = str(destination)
-        shot.media_assets["final_master"] = asset_record(
+        # The model output is the immutable source.  It must not be labelled a
+        # Final Master until normalization/edit approval has produced one.
+        shot.media_assets["source"] = asset_record(
             destination,
-            tier="final_master",
+            tier="source",
             ffprobe_bin=self.settings.ffprobe_bin,
             target_resolution=target_resolution,
             source="comfyui_original",
         )
+        shot.media_assets.pop("final_master", None)
         shot.status = "generated_comfyui"
         return f"Generation Agent: Shot {shot.number} completed (ComfyUI task {prompt_id})."
 

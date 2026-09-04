@@ -27,6 +27,7 @@ from movie_agent.services.audio import (
     mark_audio_stage,
     regenerate_track,
 )
+from movie_agent.services.voice import ContinuousVoiceService, mark_voice_alignment_stale
 from movie_agent.services.final_look import ensure_final_look, normalise_final_look, reset_final_look
 from movie_agent.services.subtitles import (
     align_script_to_shots,
@@ -50,6 +51,7 @@ class MovieOrchestrator:
         self.generation_agent = GenerationAgent(settings)
         self.reviewer = ReviewerAgent(settings)
         self.editor = EditorAgent(settings)
+        self.voice_service = ContinuousVoiceService(settings)
         self.quality_gate = PlanningQualityGate()
         self.continuity_gate = ContinuityQualityGate()
         self.semantic_copyright_reviewer = SemanticCopyrightReviewer(creative_llm)
@@ -601,6 +603,7 @@ class MovieOrchestrator:
         )
         script["dialogue_revision"] = int(script.get("dialogue_revision", 1)) + 1
         project.script = align_script_to_shots(script, project.storyboard)
+        mark_voice_alignment_stale(project, "dialogue_revision_changed")
         self._invalidate_edit_outputs(project)
         ensure_audio_design(project)
         project.logs.append("Script Supervisor: Saved dialogue book and subtitle track draft; not yet locked.")
@@ -684,6 +687,7 @@ class MovieOrchestrator:
         project.duration_seconds = sum(int(item.duration_seconds) for item in project.storyboard)
         project.brief["target_duration"] = f"{project.duration_seconds} seconds"
         project.script = align_script_to_shots(project.script, project.storyboard)
+        mark_voice_alignment_stale(project, "shot_timeline_changed")
         ensure_audio_design(project)
         self._invalidate_edit_outputs(project)
         project.status = "ready_for_ai_edit" if all(
@@ -728,6 +732,8 @@ class MovieOrchestrator:
             if key in project.audio_tracks:
                 project.audio_tracks[key]["enabled"] = bool(enabled)
         apply_audio_track_params(project, track_params)
+        media_status = self.editor.prepare_media_for_edit(project)
+        project.logs.append(f"Media Pipeline: {media_status}.")
         project.mix_state["media_mixed"] = False
         project.mix_state["stage_status"] = {stage: "queued" for stage in EDIT_AUDIO_STAGES}
         project.mix_state["active_stage"] = "picture_cut"
@@ -746,6 +752,16 @@ class MovieOrchestrator:
         project.logs.append("Editor Agent: Shot order, Trim, and transitions complete.")
         if progress_callback:
             progress_callback("Voice: Wiring locked narration and Dialogue Book.")
+        voice_result = self.voice_service.synthesize(project)
+        if voice_result.media_path:
+            project.logs.append(
+                f"Voice Agent: Continuous English voice ready ({voice_result.duration_seconds:.2f}s measured; subtitle timing aligned)."
+            )
+        else:
+            project.logs.append(
+                f"Voice Agent: Continuous English voice pending provider ({voice_result.error or 'no media renderer configured'})."
+            )
+        self.store.save(project)
         mark_audio_stage(project, "voice", "done")
         mark_audio_stage(project, "music", "working")
         self.store.save(project)
@@ -769,7 +785,9 @@ class MovieOrchestrator:
         mark_audio_stage(project, "subtitles", "done")
         mark_audio_stage(project, "mix", "working")
         self.store.save(project)
-        project.logs.append("Editor Agent: Subtitle Track wired; awaiting final output mode.")
+        project.logs.append(
+            "Editor Agent: Subtitle Track wired to the locked English Dialogue Book; awaiting final output mode."
+        )
         if progress_callback:
             progress_callback("Mix: Smart Ducking and four-track mixing in progress.")
         mark_audio_stage(project, "mix", "done")
@@ -798,6 +816,22 @@ class MovieOrchestrator:
         self.editor.normalize_resolution(project, resolution)
         if project.status not in {"ready_for_ai_edit", "ready_for_comfyui_render"}:
             project.status = "ready_for_ai_edit"
+        self.store.save(project)
+        return project
+
+    def generate_voice_track(self, project_id: str) -> MovieProject:
+        """Render the locked English voice track without starting a full edit."""
+
+        project = self.store.load(project_id)
+        self._require_dialogue_locked(project)
+        result = self.voice_service.synthesize(project)
+        project.logs.append(
+            f"Voice Agent: Continuous track {result.status.lower()}"
+            + (f" · {result.duration_seconds:.2f}s measured" if result.duration_seconds else "")
+            + "."
+        )
+        project.mix_state.setdefault("voice", {})["status"] = result.status
+        project.mix_state["voice_duration_seconds"] = result.duration_seconds
         self.store.save(project)
         return project
 

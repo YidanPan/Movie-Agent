@@ -442,6 +442,76 @@ def align_script_to_shots(script: dict[str, Any], storyboard: Iterable[Any]) -> 
     return result
 
 
+def align_script_to_audio(
+    script: dict[str, Any],
+    audio_duration_seconds: float,
+    *,
+    minimum_cue_seconds: float = 0.18,
+) -> dict[str, Any]:
+    """Re-time locked dialogue and subtitles to measured voice media.
+
+    Without word-level timestamps, the most reliable deterministic fallback is
+    a proportional sentence/cue allocation weighted by spoken word count.  It
+    keeps the two editable tracks in lockstep, guarantees monotonic timings,
+    and records the method so a provider with word timestamps can replace it
+    later without changing the project contract.
+    """
+
+    duration = max(0.1, float(audio_duration_seconds or 0))
+    source_entries = _raw_entries((script or {}).get("dialogue_book") or (script or {}).get("subtitle_track"))
+    cue_count = max(1, len(source_entries))
+    result = ensure_dialogue_assets(
+        script,
+        duration_seconds=max(1, int(round(duration))),
+        shot_count=cue_count,
+    )
+
+    def retime(entries: Any) -> list[dict[str, Any]]:
+        items = [deepcopy(entry) for entry in _raw_entries(entries) if isinstance(entry, dict)]
+        if not items:
+            return []
+        weights = []
+        for entry in items:
+            text = _entry_text(entry)
+            weights.append(max(1.0, float(len(re.findall(r"\b[\w’'-]+\b", text))) if text else 0.35))
+        total_weight = sum(weights) or float(len(items))
+        # Keep a tiny positive cue duration even for many short lines, then
+        # normalize the final cue so the media edge is covered exactly.
+        minimum = min(max(0.0, minimum_cue_seconds), duration / max(1, len(items)))
+        raw_durations = [max(minimum, duration * weight / total_weight) for weight in weights]
+        scale = duration / (sum(raw_durations) or duration)
+        cursor = 0.0
+        retimed: list[dict[str, Any]] = []
+        for index, entry in enumerate(items):
+            if index == len(items) - 1:
+                end = duration
+            else:
+                end = min(duration, cursor + raw_durations[index] * scale)
+            entry["start_seconds"] = round(cursor, 3)
+            entry["end_seconds"] = round(max(cursor, end), 3)
+            entry["text"] = _entry_text(entry) or "(silence)"
+            entry.setdefault("line_id", f"L{index + 1:02d}")
+            entry.setdefault("speaker", _DEFAULT_SPEAKER)
+            entry.setdefault("kind", "narration")
+            retimed.append(entry)
+            cursor = end
+        return retimed
+
+    dialogue = retime(result.get("dialogue_book"))
+    subtitle = retime(result.get("subtitle_track"))
+    if not subtitle:
+        subtitle = deepcopy(dialogue)
+    result["dialogue_book"] = dialogue
+    result["subtitle_track"] = subtitle
+    result["voice_alignment"] = {
+        "status": "MEASURED",
+        "media_duration_seconds": round(duration, 3),
+        "method": "proportional_duration",
+        "word_level_timestamps": False,
+    }
+    return result
+
+
 def _render_entries(entries: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
     """Return export cues with guaranteed one- or two-line text blocks."""
 

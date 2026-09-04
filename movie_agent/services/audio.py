@@ -1,15 +1,18 @@
-"""Deterministic sound-design planning shared by AI Edit and Deliver.
+"""Sound-design planning and deterministic FFmpeg mix contracts.
 
-The first implementation deliberately produces a reviewable, portable audio
-plan rather than pretending that a mock project contains finished music files.
-The plan is the contract a future music/SFX renderer can consume: one Music
-Brief, an emotional arc, four named tracks, and Smart Ducking voice cues.
+The planner stays portable when a project has no generated audio, while the
+editor consumes the same four-track contract to perform real Smart Ducking,
+crossfade/dropout handling, loudness normalization, and limiting whenever
+media paths are available.
 """
 
 from __future__ import annotations
 
 import re
+import json
+import subprocess
 from copy import deepcopy
+from pathlib import Path
 from typing import Any
 
 from movie_agent.services.subtitles import script_subtitle_track
@@ -19,6 +22,92 @@ MUSIC_MODES = {"ai", "library", "upload"}
 TRACK_ORDER = ("voice", "music", "sfx", "ambience")
 EDIT_AUDIO_STAGES = ("picture_cut", "voice", "music", "sfx", "subtitles", "mix", "final_encode")
 DEFAULT_MUSIC_INTENSITY = 0.6
+TARGET_LOUDNESS_LUFS = -14.0
+TARGET_TRUE_PEAK_DBTP = -1.0
+DEFAULT_CROSSFADE_MS = 180
+
+
+def loudness_filter() -> str:
+    """Return the delivery loudness chain used by every real audio mix."""
+
+    # -1 dBTP expressed as a linear limiter ceiling.  Keeping this in one
+    # helper makes the target auditable in project.json and easy to replace
+    # with a two-pass loudnorm implementation later.
+    return (
+        f"loudnorm=I={TARGET_LOUDNESS_LUFS}:TP={TARGET_TRUE_PEAK_DBTP}:LRA=7:linear=true:print_format=summary,"
+        "alimiter=limit=0.89125:level_in=1"
+    )
+
+
+def crossfade_filter(input_labels: list[str], output_label: str, duration_ms: int = DEFAULT_CROSSFADE_MS) -> str | None:
+    """Build an FFmpeg ``acrossfade`` chain for segmented audio media.
+
+    The function returns ``None`` for a single clip because no crossfade is
+    needed.  Track renderers can use the same helper for scene chunks while
+    the default one-file Music/Ambience beds remain continuous via looping.
+    """
+
+    labels = [str(label).strip("[]") for label in input_labels if str(label).strip("[]")]
+    if len(labels) < 2:
+        return None
+    duration = max(0.1, min(0.3, float(duration_ms) / 1000.0))
+    current = labels[0]
+    for index, label in enumerate(labels[1:], start=1):
+        next_label = output_label if index == len(labels) - 1 else f"{output_label}_{index}"
+        # c1/c2 triangular fades are deterministic, short, and avoid a hard
+        # click at provider chunk boundaries.
+        yield_filter = f"[{current}][{label}]acrossfade=d={duration:.3f}:c1=tri:c2=tri[{next_label}]"
+        if index == 1:
+            chain = yield_filter
+        else:
+            chain += ";" + yield_filter
+        current = next_label
+    return chain
+
+
+def measure_loudness(path: Path, ffmpeg_bin: str = "ffmpeg") -> dict[str, float | None]:
+    """Read FFmpeg loudnorm measurements without making probing mandatory."""
+
+    result: dict[str, float | None] = {
+        "integrated_lufs": None,
+        "true_peak_dbtp": None,
+    }
+    if not path.is_file():
+        return result
+    command = [
+        ffmpeg_bin,
+        "-hide_banner",
+        "-i",
+        str(path),
+        "-af",
+        f"loudnorm=I={TARGET_LOUDNESS_LUFS}:TP={TARGET_TRUE_PEAK_DBTP}:LRA=7:print_format=json",
+        "-f",
+        "null",
+        "-",
+    ]
+    try:
+        completed = subprocess.run(command, capture_output=True, text=True, check=False)
+    except OSError:
+        return result
+    output = completed.stderr or ""
+    # FFmpeg prints a compact JSON object after the filter summary.  Parse the
+    # object first; the regex fallback accommodates older FFmpeg builds.
+    start = output.rfind("{\n")
+    if start >= 0:
+        try:
+            payload = json.loads(output[start:])
+            result["integrated_lufs"] = float(payload.get("output_i"))
+            result["true_peak_dbtp"] = float(payload.get("output_tp"))
+            return result
+        except (json.JSONDecodeError, TypeError, ValueError):
+            pass
+    match = re.search(r"output_i\"\s*:\s*\"?(-?\d+(?:\.\d+)?)", output)
+    if match:
+        result["integrated_lufs"] = float(match.group(1))
+    match = re.search(r"output_tp\"\s*:\s*\"?(-?\d+(?:\.\d+)?)", output)
+    if match:
+        result["true_peak_dbtp"] = float(match.group(1))
+    return result
 
 
 def normalise_music_mode(value: Any) -> str:
@@ -193,6 +282,7 @@ def build_audio_tracks(
             "can_regenerate": False,
             "pan": 0,
             "ducking": False,
+            "crossfade_ms": DEFAULT_CROSSFADE_MS,
         },
         "music": {
             "key": "music",
@@ -206,6 +296,7 @@ def build_audio_tracks(
             "can_regenerate": True,
             "pan": 0,
             "ducking": True,
+            "crossfade_ms": DEFAULT_CROSSFADE_MS,
         },
         "sfx": {
             "key": "sfx",
@@ -219,6 +310,7 @@ def build_audio_tracks(
             "can_regenerate": True,
             "pan": 0,
             "ducking": False,
+            "crossfade_ms": DEFAULT_CROSSFADE_MS,
         },
         "ambience": {
             "key": "ambience",
@@ -232,6 +324,7 @@ def build_audio_tracks(
             "can_regenerate": True,
             "pan": 0,
             "ducking": False,
+            "crossfade_ms": DEFAULT_CROSSFADE_MS,
         },
     }
 
@@ -312,6 +405,11 @@ def ensure_audio_design(
         for setting in ("pan", "ducking"):
             if setting in previous:
                 track[setting] = previous[setting]
+        for setting in ("alignment", "duration_seconds", "duration_source", "provider_error"):
+            if setting in previous:
+                track[setting] = deepcopy(previous[setting])
+        if key == "voice" and str(previous.get("status") or "").startswith("STALE"):
+            track["status"] = previous["status"]
         if previous.get("preview_url") and not (key == "music" and mode != "upload"):
             track["preview_url"] = previous["preview_url"]
         if previous.get("media_path") and not (key == "music" and mode != "upload"):
@@ -325,8 +423,22 @@ def ensure_audio_design(
         "status": previous_mix.get("status", "DESIGN READY"),
         "pipeline": list(previous_mix.get("pipeline") or EDIT_AUDIO_STAGES),
         "active_stage": previous_mix.get("active_stage"),
-        "loudness_lufs": previous_mix.get("loudness_lufs", -14),
-        "true_peak_db": previous_mix.get("true_peak_db", -1),
+        # Keep targets separate from measured output.  The previous API used
+        # ``loudness_lufs`` / ``true_peak_db`` as if the target were a meter
+        # reading; the explicit fields prevent the UI from claiming a mix is
+        # normalized before a real audio file has passed FFmpeg.
+        "loudness_lufs": previous_mix.get("loudness_lufs", TARGET_LOUDNESS_LUFS),
+        "true_peak_db": previous_mix.get("true_peak_db", TARGET_TRUE_PEAK_DBTP),
+        "loudness_target_lufs": previous_mix.get("loudness_target_lufs", TARGET_LOUDNESS_LUFS),
+        "true_peak_target_dbtp": previous_mix.get("true_peak_target_dbtp", TARGET_TRUE_PEAK_DBTP),
+        "loudness_measured_lufs": previous_mix.get("loudness_measured_lufs"),
+        "true_peak_measured_dbtp": previous_mix.get("true_peak_measured_dbtp"),
+        "loudness_status": previous_mix.get("loudness_status", "PENDING MEDIA"),
+        "limiter": previous_mix.get("limiter", "PENDING MEDIA"),
+        "crossfade_ms": int(previous_mix.get("crossfade_ms", DEFAULT_CROSSFADE_MS) or DEFAULT_CROSSFADE_MS),
+        "crossfade_status": previous_mix.get("crossfade_status", "PENDING MEDIA"),
+        "ducking_status": previous_mix.get("ducking_status", "PENDING MEDIA"),
+        "filter_chain": previous_mix.get("filter_chain", loudness_filter()),
         "ducking": "ON" if enabled else "OFF",
         "media_mixed": bool(previous_mix.get("media_mixed", False)),
         "stage_status": {stage: str(previous_stage_status.get(stage, "queued")) for stage in EDIT_AUDIO_STAGES},
