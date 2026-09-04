@@ -133,7 +133,6 @@ const els = {
   deliverFinal: $("#deliver-final"),
   finalNotGenerated: $("#final-not-generated"),
   finalPlayerState: $("#final-player-state"),
-  deliverVideoMeta: $("#deliver-video-meta"),
   deliverMetaDuration: $("#deliver-meta-duration"),
   deliverMetaResolution: $("#deliver-meta-resolution"),
   deliverMetaAspect: $("#deliver-meta-aspect"),
@@ -171,10 +170,16 @@ const els = {
   finalLookStatus: $("#final-look-status"),
   finalLookPresetName: $("#final-look-preset-name"),
   finalLookDescription: $("#final-look-description"),
-  finalLookScope: $("#final-look-scope"),
   finalLookApply: $("#btn-apply-final-look"),
   finalLookReset: $("#btn-reset-final-look"),
   finalLookOverlay: $("#final-look-overlay"),
+  techSummaryToggle: $("#tech-summary-toggle"),
+  techSummaryDetails: $("#tech-summary-details"),
+  soundSummaryToggle: $("#sound-summary-toggle"),
+  soundSummaryBody: $("#sound-summary-body"),
+  soundSummaryStatus: $("#sound-summary-status"),
+  soundSummary: $("#sound-summary"),
+  btnSoundSettings: $("#btn-sound-settings"),
   exportSheet: $("#export-sheet"),
   btnExportClose: $("#btn-export-close"),
   btnExportRun: $("#btn-export-run"),
@@ -1582,6 +1587,33 @@ function renderDeliverSummary(project) {
   }
 }
 
+function renderTechSummary(project) {
+  const total = deliverRuntime(project);
+  if (els.deliverMetaDuration) els.deliverMetaDuration.textContent = total ? compactDuration(total) : "·";
+  if (els.deliverMetaAspect) els.deliverMetaAspect.textContent = "16:9";
+  if (els.deliverMetaCodec) els.deliverMetaCodec.textContent = state.hasFinalVideo ? "H.264 / AAC" : "·";
+  if (els.deliverMetaResolution) els.deliverMetaResolution.textContent = state.hasFinalVideo ? "读取中…" : "·";
+  if (els.deliverMetaSubtitles) els.deliverMetaSubtitles.textContent = subtitleModeLabel(project?.subtitle_mode || project?.script?.subtitle_mode || "burned");
+  if (els.deliverMetaVoiceover) els.deliverMetaVoiceover.textContent = project?.script?.dialogue_locked ? "LOCKED TRACK" : "LOCK REQUIRED";
+  if (els.deliverMetaAudio) els.deliverMetaAudio.textContent = project?.script?.dialogue_locked ? "VOICE · MUSIC · SFX · ATMOS" : "LOCK REQUIRED";
+}
+
+function renderSoundSummary(project) {
+  if (!els.soundSummaryStatus) return;
+  const tracks = audioTracksFor(project);
+  const duckingOn = project?.smart_ducking?.enabled !== false;
+  const tags = AUDIO_TRACK_ORDER.map((key) => {
+    const track = tracks[key];
+    const ready = track.status === "READY" || track.enabled;
+    const label = AUDIO_TRACK_LABELS[key].en;
+    const statusText = track.status === "READY" ? "READY" : track.enabled ? "ON" : "OFF";
+    const cls = ready ? "is-ready" : "is-pending";
+    return `<span class="sound-summary-tag ${cls}">${label} · ${statusText}</span>`;
+  });
+  tags.push(`<span class="sound-summary-tag ${duckingOn ? "is-ready" : "is-pending"}">DUCKING · ${duckingOn ? "ON" : "OFF"}</span>`);
+  els.soundSummaryStatus.innerHTML = tags.join("");
+}
+
 /* ── 声音设计 / Music Brief / 四轨混音 ─────────────────────── */
 
 const AUDIO_TRACK_ORDER = ["voice", "music", "sfx", "ambience"];
@@ -2240,7 +2272,6 @@ function renderFinalLook(project) {
     if (input) input.value = String(value);
     if (output) output.textContent = Math.round(value * 100) + "%";
   });
-  if (els.finalLookScope) els.finalLookScope.textContent = "WHOLE FILM / 全片";
   if (els.finalLookStatus) {
     els.finalLookStatus.textContent = !state.hasFinalVideo
       ? "MEDIA MISSING"
@@ -2549,20 +2580,21 @@ async function renderScreening(project) {
   if (els.finalNotGenerated) els.finalNotGenerated.classList.add("hidden");
   if (els.screen) els.screen.classList.toggle("has-video", state.hasFinalVideo);
   if (els.finalPlayerState) els.finalPlayerState.textContent = state.hasFinalVideo ? "READY TO SCREEN" : "MEDIA MISSING";
-  if (els.deliverMetaDuration) els.deliverMetaDuration.textContent = deliverRuntime(project) ? compactDuration(deliverRuntime(project)) : "·";
-  if (els.deliverMetaResolution) els.deliverMetaResolution.textContent = state.hasFinalVideo ? "读取中…" : "·";
-  if (els.deliverMetaAspect) els.deliverMetaAspect.textContent = "16:9";
-  if (els.deliverMetaCodec) els.deliverMetaCodec.textContent = state.hasFinalVideo ? "H.264 / AAC" : "·";
-  if (els.deliverMetaSubtitles) els.deliverMetaSubtitles.textContent = subtitleModeLabel(project?.subtitle_mode || project?.script?.subtitle_mode || "burned");
-  if (els.deliverMetaVoiceover) els.deliverMetaVoiceover.textContent = project?.script?.dialogue_locked ? "LOCKED TRACK" : "LOCK REQUIRED";
-  if (els.deliverMetaAudio) els.deliverMetaAudio.textContent = project?.script?.dialogue_locked ? "VOICE · MUSIC · SFX · ATMOS" : "LOCK REQUIRED";
+  renderTechSummary(project);
+  renderSoundSummary(project);
   if (els.btnAiEdit) {
     const canStartAiEdit = showSummary && !["rough", "editing"].includes(resolvedState.key);
     els.btnAiEdit.classList.toggle("hidden", !canStartAiEdit);
     els.btnAiEdit.disabled = state.editing || !((project?.storyboard || []).length && (project.storyboard || []).every((shot) => String(shot.status || "").startsWith("approved")));
     els.btnAiEdit.innerHTML = state.editing ? "AI Edit 粗剪中…" : 'AI 剪辑成片 <span class="cta-arrow" aria-hidden="true">→</span>';
   }
-  if (els.btnExportFinal) els.btnExportFinal.classList.toggle("hidden", !state.hasFinalVideo);
+  if (els.btnApproveEdit) {
+    const showApprove = status === "rough_cut_ready" && !state.editing;
+    els.btnApproveEdit.classList.toggle("hidden", !showApprove);
+    els.btnApproveEdit.disabled = state.editing;
+    if (!state.editing) els.btnApproveEdit.innerHTML = '批准最终成片 <span class="cta-arrow" aria-hidden="true">→</span>';
+  }
+  if (els.btnExportFinal) els.btnExportFinal.classList.toggle("hidden", !showFinal);
   if (els.btnReedit) els.btnReedit.classList.toggle("hidden", !state.hasFinalVideo);
   if (els.btnEditSubtitles) els.btnEditSubtitles.classList.toggle("hidden", !project);
   if (els.editStatus && !state.editing) {
@@ -4567,6 +4599,23 @@ function init() {
   els.btnReedit?.addEventListener("click", startAiEdit);
   els.btnEditSubtitles?.addEventListener("click", openSubtitleEditor);
   els.btnApproveEdit?.addEventListener("click", approveAiEdit);
+  els.techSummaryToggle?.addEventListener("click", () => {
+    const details = els.techSummaryDetails;
+    if (!details) return;
+    const isHidden = details.classList.toggle("hidden");
+    els.techSummaryToggle.setAttribute("aria-expanded", String(!isHidden));
+  });
+  els.soundSummaryToggle?.addEventListener("click", () => {
+    const body = els.soundSummaryBody;
+    if (!body) return;
+    const isHidden = body.classList.toggle("hidden");
+    els.soundSummaryToggle.setAttribute("aria-expanded", String(!isHidden));
+  });
+  els.btnSoundSettings?.addEventListener("click", () => {
+    els.soundSummaryBody?.classList.remove("hidden");
+    els.soundSummaryToggle?.setAttribute("aria-expanded", "true");
+    els.soundSummary?.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
   els.btnExportFinal?.addEventListener("click", openExportSheet);
   els.btnExportClose?.addEventListener("click", closeExportSheet);
   els.btnExportRun?.addEventListener("click", exportFinalCut);

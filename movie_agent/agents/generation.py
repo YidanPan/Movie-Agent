@@ -12,6 +12,22 @@ from movie_agent.models import Shot
 from movie_agent.services.comfyui import ComfyUIClient, ComfyUIError, WorkflowOverrides, load_verified_workflow
 
 
+def build_continuity_prompt(shot: Shot, visual_bible: dict[str, str], previous_shot: Shot | None = None) -> str:
+    """Build a layered prompt with visual bible prefix + delta-only shot description.
+
+    The visual bible lock cards (character_lock, scene_lock, cinematography_lock)
+    provide persistent context for visual continuity. The shot's prompt field
+    should contain only the delta: what changes from the previous shot.
+    """
+    character = visual_bible.get("character_lock", "")
+    scene = visual_bible.get("scene_lock", "")
+    cinema = visual_bible.get("cinematography_lock", "")
+    delta = shot.prompt
+
+    parts = [part for part in (character, scene, cinema, delta) if part]
+    return ". ".join(parts) if parts else delta
+
+
 class GenerationAgent:
     def __init__(self, settings: Settings, client: ComfyUIClient | None = None) -> None:
         self.settings = settings
@@ -20,29 +36,30 @@ class GenerationAgent:
     def generate_mock(self, shot: Shot) -> str:
         shot.status = "generating_mock"
         shot.attempts += 1
-        return f"生成 Agent：镜头 {shot.number} 已进入 mock 生成队列。"
+        return f"Generation Agent: Shot {shot.number} entered the mock generation queue."
 
-    def generate(self, project_id: str, shot: Shot) -> str:
+    def generate(self, project_id: str, shot: Shot, *, visual_bible: dict[str, str] | None = None, previous_shot: Shot | None = None) -> str:
         """Submit one planned shot and copy its MP4 into the project output folder."""
         if shot.generation_mode != "T2V":
             raise ComfyUIError(
-                f"镜头 {shot.number} 标记为 {shot.generation_mode}，但当前 MiniMax-H3 工作流仅支持 T2V。"
+                f"Shot {shot.number} is marked as {shot.generation_mode}, but the current MiniMax-H3 workflow only supports T2V."
             )
         existing_output = Path(shot.output_placeholder)
         if shot.status == "approved_comfyui" and existing_output.is_file():
-            return f"生成 Agent：镜头 {shot.number} 已有通过质检的结果，跳过重复生成。"
+            return f"Generation Agent: Shot {shot.number} already has an approved result; skipping duplicate generation."
         template_path = self.settings.workflows_dir / self.settings.comfy_workflow_template
         if not template_path.is_file():
-            raise ComfyUIError(f"未找到已验证工作流：{template_path}。")
+            raise ComfyUIError(f"Verified workflow not found: {template_path}.")
         if not self.client.is_available():
-            raise ComfyUIError("ComfyUI 服务不可用，请检查 Spark 本机服务。")
+            raise ComfyUIError("ComfyUI service is unavailable; please check the local Spark service.")
 
         shot.status = "generating_comfyui"
         shot.attempts += 1
         seed = secrets.randbelow(2**63 - 1)
+        continuity_prompt = build_continuity_prompt(shot, visual_bible or {}, previous_shot)
         workflow = load_verified_workflow(
             template_path,
-            WorkflowOverrides(prompt=shot.prompt, seed=seed, duration_seconds=shot.duration_seconds),
+            WorkflowOverrides(prompt=continuity_prompt, seed=seed, duration_seconds=shot.duration_seconds),
         )
         try:
             prompt_id = self.client.submit(workflow)
@@ -54,15 +71,15 @@ class GenerationAgent:
             shutil.copy2(source, destination)
         except (ComfyUIError, OSError) as error:
             shot.status = "generation_failed"
-            raise ComfyUIError(f"镜头 {shot.number} 生成失败：{error}") from error
+            raise ComfyUIError(f"Shot {shot.number} generation failed: {error}") from error
         shot.output_placeholder = str(destination)
         shot.status = "generated_comfyui"
-        return f"生成 Agent：镜头 {shot.number} 已完成（ComfyUI 任务 {prompt_id}）。"
+        return f"Generation Agent: Shot {shot.number} completed (ComfyUI task {prompt_id})."
 
     def _resolve_video(self, result: dict[str, Any]) -> Path:
         outputs = result.get("outputs")
         if not isinstance(outputs, dict):
-            raise ComfyUIError("ComfyUI 任务未返回输出节点。")
+            raise ComfyUIError("ComfyUI task returned no output nodes.")
         for node_output in outputs.values():
             if not isinstance(node_output, dict):
                 continue
@@ -82,4 +99,4 @@ class GenerationAgent:
                     candidate = self.settings.comfy_output_dir / subfolder / filename
                     if candidate.is_file():
                         return candidate
-        raise ComfyUIError("ComfyUI 已完成，但未找到可读取的 MP4 输出文件。")
+        raise ComfyUIError("ComfyUI completed, but no readable MP4 output file was found.")

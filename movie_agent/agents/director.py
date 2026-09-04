@@ -10,20 +10,21 @@ class DirectorAgent:
     def plan(self, idea: str, duration_seconds: int, visual_style: str) -> dict[str, str]:
         if self.llm:
             result = self.llm.complete_json(
-                "你是科幻短片总导演。坚持原创、单人物单空间单事件、避免既有影视 IP。",
+                "You are the chief director of an original sci-fi short film. "
+                "Insist on originality, single character / single space / single event, avoid existing film/TV IP.",
                 (
-                    f"创意：{idea}\n目标时长：{duration_seconds} 秒\n视觉风格：{visual_style}\n"
-                    "返回键：主题、叙事尺度、视觉风格、导演意图、合规约束。"
+                    f"Idea: {idea}\nTarget duration: {duration_seconds} seconds\nVisual style: {visual_style}\n"
+                    "Return keys: theme, narrative_scale, visual_style, director_intent, compliance_constraints."
                 ),
             )
-            result["原始创意"] = idea
-            result["目标时长"] = f"{duration_seconds} 秒"
+            result["original_idea"] = idea
+            result["target_duration"] = f"{duration_seconds} seconds"
             return {key: str(value) for key, value in result.items()}
         return {
-            "原始创意": idea,
-            "主题": "人在智能系统包围下重新确认自身选择的意义",
-            "叙事尺度": "一个人 + 一个空间 + 一件小事",
-            "视觉风格": visual_style,
-            "目标时长": f"{duration_seconds} 秒",
-            "合规约束": "仅使用原创或已授权素材；不复刻现有影视 IP、角色、台词或肖像。",
+            "original_idea": idea,
+            "theme": "A person reconfirms the meaning of their own choice within an intelligent system",
+            "narrative_scale": "One character + one space + one small event",
+            "visual_style": visual_style,
+            "target_duration": f"{duration_seconds} seconds",
+            "compliance_constraints": "Use only original or licensed material; do not replicate existing film/TV IP, characters, lines, or likenesses.",
         }

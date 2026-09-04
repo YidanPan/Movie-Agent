@@ -17,6 +17,13 @@ from movie_agent.services.subtitles import (
 from movie_agent.services.final_look import final_look_filter, normalise_final_look
 
 
+ASPECT_RATIOS = {
+    "16:9": {"width": 1920, "height": 1080, "subtitle_margin_v": 60},
+    "9:16": {"width": 1080, "height": 1920, "subtitle_margin_v": 120},
+    "1:1":  {"width": 1080, "height": 1080, "subtitle_margin_v": 80},
+}
+
+
 class EditorAgent:
     """Keep rough-cut planning separate from final approval.
 
@@ -31,12 +38,24 @@ class EditorAgent:
     @staticmethod
     def _require_locked_dialogue(project: MovieProject) -> None:
         if not bool((project.script or {}).get("dialogue_locked")):
-            raise RuntimeError("请先在编剧阶段审阅并锁定台词本 / 字幕稿，再进入 AI Edit。")
+            raise RuntimeError("Please review and lock the dialogue book / subtitle track in the writing stage before entering AI Edit.")
 
     def _output_dir(self, project: MovieProject) -> Path:
         output_dir = self.settings.outputs_dir / project.project_id
         output_dir.mkdir(parents=True, exist_ok=True)
         return output_dir
+
+    @staticmethod
+    def _subtitle_filter(srt_path: Path, aspect: str = "16:9") -> str:
+        """Build an FFmpeg subtitles filter with aspect-ratio-aware positioning."""
+
+        config = ASPECT_RATIOS.get(aspect, ASPECT_RATIOS["16:9"])
+        margin_v = config["subtitle_margin_v"]
+        filter_path = srt_path.resolve().as_posix().replace(":", "\\:")
+        return (
+            f"subtitles='{filter_path}':force_style="
+            f"'FontSize=22,MarginV={margin_v},Alignment=2'"
+        )
 
     def write_subtitle_exports(self, project: MovieProject) -> tuple[Path, Path]:
         """Write canonical SRT/VTT sidecars from the locked subtitle track."""
@@ -57,7 +76,7 @@ class EditorAgent:
 
         shot_paths = self._shot_paths(project)
         if not shot_paths or not all(path.is_file() for path in shot_paths):
-            raise RuntimeError("不能合成：存在未成功生成的镜头文件。")
+            raise RuntimeError("Cannot concat: some shots have not been generated successfully.")
         output_dir = self._output_dir(project)
         concat_file = output_dir / "concat.txt"
         concat_file.write_text(
@@ -102,7 +121,7 @@ class EditorAgent:
                 ]
                 completed = subprocess.run(command, capture_output=True, text=True, check=False)
             if completed.returncode != 0:
-                raise RuntimeError(f"FFmpeg 合成失败：{completed.stderr[-500:]}")
+                raise RuntimeError(f"FFmpeg concat failed: {completed.stderr[-500:]}")
         finally:
             concat_file.unlink(missing_ok=True)
         return output_path
@@ -257,7 +276,7 @@ class EditorAgent:
             "-c:s",
             "mov_text",
             "-metadata:s:s:0",
-            "language=chi",
+            "language=eng",
             "-movflags",
             "+faststart",
             str(final_cut),
@@ -278,9 +297,9 @@ class EditorAgent:
             self._concat_media(project, rough_path)
             self._mix_audio(project, rough_path)
             project.rough_cut_placeholder = str(rough_path)
-            return "剪辑 Agent：已完成 Rough Cut，Picture Cut、Voice、Music、SFX、Subtitles 与 Mix 已就绪。"
+            return "Editor Agent: Rough Cut complete. Picture Cut, Voice, Music, SFX, Subtitles, and Mix are ready."
         project.rough_cut_placeholder = f"outputs/{project.project_id}/rough-cut.mp4"
-        return "剪辑 Agent：已模拟完成 Rough Cut，四轨声音设计与字幕计划已就绪，等待真实镜头媒体后可预览。"
+        return "Editor Agent: Rough Cut simulated. Four-track audio design and subtitle plan are ready; preview available once real shot media exist."
 
     def assemble_mock(self, project: MovieProject) -> str:
         """Create the mock final-delivery placeholder after explicit approval."""
@@ -291,7 +310,7 @@ class EditorAgent:
         self.write_subtitle_exports(project)
         project.final_output_placeholder = f"outputs/{project.project_id}/final-cut.mp4"
         project.edit_plan = {**(project.edit_plan or {}), "status": "final_approved", "approved": True}
-        return f"剪辑 Agent：已批准交付 mock 成片（字幕模式：{project.subtitle_mode}；四轨混音已确认）。"
+        return f"Editor Agent: Mock final cut approved (subtitle mode: {project.subtitle_mode}; four-track mix confirmed)."
 
     def assemble(self, project: MovieProject, subtitle_mode: str | None = None) -> str:
         """Render the final master from locked dialogue and the selected subtitle mode."""
@@ -311,16 +330,13 @@ class EditorAgent:
             # Burn-in is best-effort because font packages differ between the
             # local machine and Spark. A clean concat fallback still leaves
             # the canonical SRT sidecar available for review.
-            # The subtitles filter accepts a POSIX-style path; on Windows the
-            # drive-colon is escaped while slashes remain forward slashes.
-            subtitle_filter_path = srt_path.resolve().as_posix().replace(":", "\\:")
             command = [
                 self.settings.ffmpeg_bin,
                 "-y",
                 "-i",
                 str(rough_path),
                 "-vf",
-                f"subtitles='{subtitle_filter_path}'",
+                self._subtitle_filter(srt_path),
                 "-c:v",
                 "libx264",
                 "-c:a",
@@ -343,7 +359,7 @@ class EditorAgent:
             self._concat_media(project, final_cut)
         project.final_output_placeholder = str(final_cut)
         project.edit_plan = {**(project.edit_plan or {}), "status": "final_approved", "approved": True}
-        return f"剪辑 Agent：已用 FFmpeg 合成 {len(project.storyboard)} 个镜头（字幕模式：{project.subtitle_mode}）。"
+        return f"Editor Agent: Assembled {len(project.storyboard)} shots with FFmpeg (subtitle mode: {project.subtitle_mode})."
 
     def apply_final_look(self, project: MovieProject, look: dict[str, Any], source_path: Path) -> Path | None:
         """Render an applied whole-film look when a real Final Cut exists."""
@@ -411,23 +427,23 @@ class EditorAgent:
 
         self._require_locked_dialogue(project)
         if not str(project.status).startswith("completed"):
-            raise RuntimeError("请先完成并批准最终成片，再导出交付版本。")
+            raise RuntimeError("Please complete and approve the final cut before exporting a delivery variant.")
         container = str(container).lower().strip()
         resolution = str(resolution).lower().strip()
         aspect = str(aspect).strip()
         subtitle_mode = normalise_subtitle_mode(subtitle_mode)
         if container not in {"mp4", "mov", "webm"}:
-            raise ValueError("文件格式仅支持 MP4、MOV 或 WebM。")
+            raise ValueError("Container format must be MP4, MOV, or WebM.")
         if resolution not in {"720p", "1080p"}:
-            raise ValueError("分辨率仅支持 720P 或 1080P。")
+            raise ValueError("Resolution must be 720p or 1080p.")
         if aspect not in {"16:9", "9:16", "1:1"}:
-            raise ValueError("画幅仅支持 16:9、9:16 或 1:1。")
+            raise ValueError("Aspect ratio must be 16:9, 9:16, or 1:1.")
         output_dir = self._output_dir(project)
         rough_path = output_dir / "rough-cut.mp4"
         final_path = Path(project.final_output_placeholder or "")
         source = rough_path if rough_path.is_file() else final_path
         if not source.is_file():
-            raise RuntimeError("FINAL CUT 尚未生成真实视频文件，暂时无法导出。")
+            raise RuntimeError("The Final Cut has not been rendered to a real video file yet; cannot export.")
         look = normalise_final_look(project.final_look or {})
         look_media = Path(str(look.get("media_path") or ""))
         look_already_on_source = bool(
@@ -437,10 +453,11 @@ class EditorAgent:
         )
         look_filter = "null" if look_already_on_source else final_look_filter(look)
 
-        height = 1080 if resolution == "1080p" else 720
-        width = 1920 if aspect == "16:9" else 1080 if aspect == "9:16" else height
-        if aspect == "1:1":
-            width = height
+        base_height = 1080 if resolution == "1080p" else 720
+        ratio_config = ASPECT_RATIOS.get(aspect, ASPECT_RATIOS["16:9"])
+        scale = base_height / ratio_config["height"]
+        width = int(round(ratio_config["width"] * scale))
+        height = base_height
         scale_filter = f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height}"
         srt_path, _ = self.write_subtitle_exports(project)
         output_path = output_dir / f"final-{resolution}-{aspect.replace(':', 'x')}-{subtitle_mode}.{container}"
@@ -455,21 +472,20 @@ class EditorAgent:
         if look_filter != "null":
             video_filters.append(look_filter)
         if subtitle_mode == "burned":
-            subtitle_filter_path = srt_path.resolve().as_posix().replace(":", "\\:")
-            video_filters.append(f"subtitles='{subtitle_filter_path}'")
+            video_filters.append(self._subtitle_filter(srt_path, aspect))
         command.extend(["-vf", ",".join(video_filters)])
 
         if container in {"mp4", "mov"}:
             command.extend(["-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k"])
             if subtitle_mode == "soft":
-                command.extend(["-c:s", "mov_text", "-metadata:s:s:0", "language=chi"])
+                command.extend(["-c:s", "mov_text", "-metadata:s:s:0", "language=eng"])
             command.extend(["-movflags", "+faststart"])
         else:
             command.extend(["-c:v", "libvpx-vp9", "-crf", "32", "-b:v", "0", "-c:a", "libopus"])
             if subtitle_mode == "soft":
-                command.extend(["-c:s", "webvtt", "-metadata:s:s:0", "language=chi"])
+                command.extend(["-c:s", "webvtt", "-metadata:s:s:0", "language=eng"])
         command.append(str(output_path))
         completed = subprocess.run(command, capture_output=True, text=True, check=False)
         if completed.returncode != 0 or not output_path.is_file():
-            raise RuntimeError(f"导出失败：{completed.stderr[-700:]}")
+            raise RuntimeError(f"Export failed: {completed.stderr[-700:]}")
         return output_path

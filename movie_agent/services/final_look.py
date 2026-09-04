@@ -14,9 +14,9 @@ from typing import Any
 
 FINAL_LOOK_PRESETS: dict[str, dict[str, Any]] = {
     "original": {
-        "label": "原片",
+        "label": "Original",
         "english": "ORIGINAL",
-        "description": "保留原始曝光、色彩与镜头质感。",
+        "description": "Preserve original exposure, colour, and lens character.",
         "css": "original",
         "contrast": 0.0,
         "saturation": 0.0,
@@ -24,9 +24,9 @@ FINAL_LOOK_PRESETS: dict[str, dict[str, Any]] = {
         "balance": (0.0, 0.0, 0.0),
     },
     "film_narrative": {
-        "label": "胶片叙事",
+        "label": "Film Narrative",
         "english": "FILM NARRATIVE",
-        "description": "暖肤色、柔和反差和轻微乳剂颗粒，适合人物叙事。",
+        "description": "Warm skin tones, soft contrast, and light emulsion grain — suited to character-driven stories.",
         "css": "film",
         "contrast": 0.08,
         "saturation": -0.16,
@@ -34,9 +34,9 @@ FINAL_LOOK_PRESETS: dict[str, dict[str, Any]] = {
         "balance": (0.08, 0.02, -0.05),
     },
     "cool_gray_future": {
-        "label": "冷灰未来",
+        "label": "Cool Gray Future",
         "english": "COOL GRAY FUTURE",
-        "description": "压低暖色、抬高蓝灰阴影，保持克制的未来感。",
+        "description": "Suppressed warm tones, lifted blue-grey shadows, restrained futuristic feel.",
         "css": "cool",
         "contrast": 0.11,
         "saturation": -0.28,
@@ -44,9 +44,9 @@ FINAL_LOOK_PRESETS: dict[str, dict[str, Any]] = {
         "balance": (-0.04, 0.0, 0.09),
     },
     "dream_surreal": {
-        "label": "梦境超现实",
+        "label": "Dream Surreal",
         "english": "DREAM SURREAL",
-        "description": "高光轻柔、色彩稍微漂浮，让现实边界变得不确定。",
+        "description": "Soft highlights, gently drifting colour, blurring the edge of reality.",
         "css": "dream",
         "contrast": -0.05,
         "saturation": 0.2,
@@ -54,9 +54,9 @@ FINAL_LOOK_PRESETS: dict[str, dict[str, Any]] = {
         "balance": (0.04, 0.04, 0.08),
     },
     "documentary_desaturated": {
-        "label": "纪实去饱和",
+        "label": "Documentary Desat",
         "english": "DOCUMENTARY DESAT",
-        "description": "低饱和、高信息密度，保留现场观察感。",
+        "description": "Low saturation, high information density, observational realism.",
         "css": "documentary",
         "contrast": 0.1,
         "saturation": -0.52,
@@ -64,9 +64,9 @@ FINAL_LOOK_PRESETS: dict[str, dict[str, Any]] = {
         "balance": (0.0, 0.0, 0.0),
     },
     "cyber_night": {
-        "label": "赛博夜色",
+        "label": "Cyber Night",
         "english": "CYBER NIGHT",
-        "description": "深黑底色与冷蓝高光，强化夜景和电子空间。",
+        "description": "Deep blacks with cool blue highlights, reinforcing night and digital spaces.",
         "css": "cyber",
         "contrast": 0.18,
         "saturation": 0.24,

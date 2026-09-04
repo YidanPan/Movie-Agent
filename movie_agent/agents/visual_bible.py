@@ -10,14 +10,20 @@ class VisualBibleAgent:
     def create(self, visual_style: str, brief: dict[str, str], script: dict[str, str]) -> dict[str, str]:
         if self.llm:
             result = self.llm.complete_json(
-                "你是电影美术指导。为原创科幻短片制定可复用的一致性规范。",
-                f"视觉风格：{visual_style}\n导演设定：{brief}\n剧本：{script.get('story', '')}\n"
-                "返回键：角色卡、场景卡、风格卡、声音卡。",
+                "You are a film art director. Create reusable consistency specifications for an original sci-fi short film. "
+                "The lock cards enforce visual continuity across all shots: every generation prompt must respect these constraints.",
+                f"Visual style: {visual_style}\nDirector brief: {brief}\nStory: {script.get('story', '')}\n"
+                "Return keys: character_card, scene_card, style_card, sound_card, "
+                "character_lock, scene_lock, cinematography_lock, reference_seed.",
             )
             return {key: str(value) for key, value in result.items()}
         return {
-            "角色卡": "单一主角；中性、克制的服装；所有镜头保持同一发型、服饰轮廓和情绪状态。",
-            "场景卡": "单一封闭近未来空间；少量可重复识别的控制台、窗面与冷色光源。",
-            "风格卡": f"{visual_style}；低饱和、有限色板、慢镜头运动、以特写和空镜推进叙事。",
-            "声音卡": "环境底噪、设备低鸣、克制配乐；避免模仿可识别人物音色。",
+            "character_card": "Single protagonist; neutral, restrained clothing; same hairstyle, silhouette, and emotional register across all shots.",
+            "scene_card": "Single enclosed near-future space; a few recognisable consoles, window panels, and cool-toned light sources.",
+            "style_card": f"{visual_style}; desaturated, limited palette, slow camera movement, close-ups and insert shots drive the narrative.",
+            "sound_card": "Ambient room tone, low equipment hum, restrained score; avoid imitating recognisable character voices.",
+            "character_lock": "Male, early 30s, short dark hair with slight wave, clean-shaven, lean build. Wears a dark charcoal utility jacket over a muted grey crew-neck shirt, black slim trousers, matte black boots. Distinguishing feature: small scar above left eyebrow. Same appearance in every shot.",
+            "scene_lock": "Single enclosed near-future control room. Concrete-grey walls with recessed LED strip lighting (cool 5600K). A curved console with dim amber indicator lights runs along one wall. Large window panel showing a dark cityscape. Props: a handheld scanner, a coffee mug. No other characters present.",
+            "cinematography_lock": "Shot on anamorphic-style 35mm equivalent. Shallow depth of field (f/2.0-2.8). Lens preference: 40mm and 65mm primes. Camera movement: slow dolly, subtle push-ins, no handheld shake. Framing: favour centre-weighted compositions with leading lines from console edges. Colour grade: desaturated teal shadows, warm amber highlights, crushed blacks. No lens flares.",
+            "reference_seed": "42",
         }

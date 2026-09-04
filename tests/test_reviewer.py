@@ -21,7 +21,7 @@ class StubVisionLLM:
             "character_consistency": 92,
             "scene_consistency": 88,
             "copyright_risk": "low",
-            "review_note": "角色与场景规范一致。",
+            "review_note": "Character and scene are consistent with specifications.",
         }
 
 
@@ -45,7 +45,7 @@ class GeneratedShotReviewerTests(unittest.TestCase):
             reviewer = ReviewerAgent(settings)
             shot = generated_shot()
             with patch.object(reviewer, "_video_duration", return_value=9.0):
-                with self.assertRaisesRegex(RuntimeError, "时长异常"):
+                with self.assertRaisesRegex(RuntimeError, "duration anomaly"):
                     reviewer.review_generated(shot)
 
         self.assertEqual(shot.status, "generated_comfyui")
@@ -69,9 +69,9 @@ class GeneratedShotReviewerTests(unittest.TestCase):
                 log = reviewer.review_generated(
                     shot,
                     project_id="film-test",
-                    visual_bible={"角色卡": "原创角色", "场景卡": "原创场景", "风格卡": "原创风格"},
+                    visual_bible={"character_card": "原创角色", "scene_card": "原创场景", "style_card": "原创风格"},
                 )
 
             self.assertEqual(shot.status, "approved_comfyui")
-            self.assertIn("角色 92/100", log)
+            self.assertIn("character 92/100", log)
             self.assertTrue((quality_dir / "review.json").is_file())

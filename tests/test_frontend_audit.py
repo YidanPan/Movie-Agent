@@ -45,7 +45,7 @@ def test_readability_pass_covers_production_surfaces_and_structured_values():
     assert "crew-readable-dl" in APP
     assert ".visual-spec-copy" in CSS
     assert ".crew-radio .radio-msg" in CSS
-    assert ".deliver-video-meta strong" in CSS
+    assert ".deliver-ready-line strong" in CSS
     assert "width: min(1180px, calc(100vw - 64px))" in CSS
     assert "#26211b" in CSS.lower()
     assert "#5d4930" in CSS.lower()

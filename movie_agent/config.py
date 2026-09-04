@@ -27,6 +27,8 @@ class Settings:
     modelscope_api_base: str = "https://api-inference.modelscope.cn/v1"
     modelscope_model: str = "Qwen/Qwen3-30B-A3B-Instruct-2507"
     video_generation_mode: str = "mock"
+    film_language: str = "en"
+    tts_voice: str = "en-US-GuyNeural"
     comfy_workflow_template: str = "minimax_h3_t2v_api.json"
     comfy_output_dir: Path = Path("./comfy-output")
     outputs_dir: Path = Path("./outputs")
@@ -53,6 +55,8 @@ class Settings:
             modelscope_api_base=os.getenv("MODELSCOPE_API_BASE", "https://api-inference.modelscope.cn/v1"),
             modelscope_model=os.getenv("MODELSCOPE_MODEL", "Qwen/Qwen3-30B-A3B-Instruct-2507"),
             video_generation_mode=os.getenv("VIDEO_GENERATION_MODE", "mock").lower(),
+            film_language=os.getenv("FILM_LANGUAGE", "en").lower(),
+            tts_voice=os.getenv("TTS_VOICE", "en-US-GuyNeural"),
             comfy_workflow_template=os.getenv("COMFY_WORKFLOW_TEMPLATE", "minimax_h3_t2v_api.json"),
             comfy_output_dir=Path(os.getenv("COMFY_OUTPUT_DIR", "./comfy-output")),
             outputs_dir=Path(os.getenv("OUTPUTS_DIR", "./outputs")),

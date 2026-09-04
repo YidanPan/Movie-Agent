@@ -10,11 +10,11 @@ def shot(*, prompt: str = "original near-future astronaut checks a silent weathe
 
 class PlanningQualityGateTests(unittest.TestCase):
     def test_rejects_copyrighted_reference(self) -> None:
-        with self.assertRaisesRegex(ValueError, "影视 IP"):
+        with self.assertRaisesRegex(ValueError, "existing film/TV IP"):
             PlanningQualityGate().review(
                 duration_seconds=36,
                 script={"story": "模仿 Star Wars", "narration": "测试"},
-                visual_bible={"角色卡": "角色", "场景卡": "场景", "风格卡": "风格"},
+                visual_bible={"character_card": "角色", "scene_card": "场景", "style_card": "风格"},
                 storyboard=[shot() for _ in range(6)],
             )
 
@@ -39,7 +39,7 @@ class SemanticCopyrightReviewerTests(unittest.TestCase):
             )
         )
 
-        with self.assertRaisesRegex(ValueError, "语义版权审核未通过"):
+        with self.assertRaisesRegex(ValueError, "Copyright review failed"):
             reviewer.review(
                 idea="一座漂浮城市等待风暴",
                 script={"story": "原创故事", "narration": "原创旁白"},
@@ -59,4 +59,4 @@ class SemanticCopyrightReviewerTests(unittest.TestCase):
             storyboard=[shot()],
         )
 
-        self.assertIn("未发现", report[0])
+        self.assertIn("No substantial similarity", report[0])

@@ -1,10 +1,11 @@
-"""AI 片场前端服务：FastAPI + SSE，复用 MovieOrchestrator 的完整能力。
+"""Movie Agent frontend: FastAPI + SSE, reusing the full MovieOrchestrator pipeline.
 
-本地或 Spark 上运行：
+Run locally or on Spark:
     python server.py
-然后访问 http://127.0.0.1:9071（端口跟随 PORT 环境变量）。
+Then visit http://127.0.0.1:9071 (port follows the PORT env variable).
 
-创空间仍以 app.py（Gradio）作为保底入口；本服务提供完整的三幕式体验。
+The Gradio app.py remains a fallback entry point; this server delivers the
+complete three-act experience.
 """
 
 from __future__ import annotations
@@ -33,7 +34,7 @@ orchestrator = MovieOrchestrator(settings)
 STATIC_DIR = Path(__file__).parent / "static"
 render_lock = threading.Lock()
 
-app = FastAPI(title="Movie-Agent · AI 片场")
+app = FastAPI(title="Movie-Agent · AI Film Studio")
 
 
 @app.middleware("http")
@@ -56,7 +57,7 @@ class CreateProjectPayload(BaseModel):
     def strip_required_text(cls, value: str) -> str:
         cleaned = value.strip()
         if not cleaned:
-            raise ValueError("不能为空。")
+            raise ValueError("Must not be empty.")
         return cleaned
 
 
@@ -78,7 +79,7 @@ class UpdateShotPayload(BaseModel):
             return None
         cleaned = value.strip()
         if not cleaned:
-            raise ValueError("不能保存空文本。")
+            raise ValueError("Cannot save empty text.")
         return cleaned
 
 
@@ -136,7 +137,7 @@ def sse_chunk(payload: dict) -> str:
 
 
 def project_not_found(project_id: str) -> JSONResponse:
-    return JSONResponse({"error": f"找不到项目 {project_id}。"}, status_code=404)
+    return JSONResponse({"error": f"Project {project_id} not found."}, status_code=404)
 
 
 def invalid_project_id(error: ValueError) -> JSONResponse:
@@ -145,9 +146,9 @@ def invalid_project_id(error: ValueError) -> JSONResponse:
 
 def invalid_payload(error: ValidationError) -> JSONResponse:
     first = error.errors()[0]
-    field = "、".join(str(part) for part in first.get("loc", ()))
+    field = ", ".join(str(part) for part in first.get("loc", ()))
     return JSONResponse(
-        {"error": f"提交内容不正确：{field} {first.get('msg', '无效')}"}, status_code=400
+        {"error": f"Invalid submission: {field} {first.get('msg', 'invalid')}"}, status_code=400
     )
 
 
@@ -225,7 +226,7 @@ async def create_project_stream(request: Request) -> StreamingResponse:
     except (ValidationError, ValueError) as error:
         if isinstance(error, ValidationError):
             return invalid_payload(error)  # type: ignore[return-value]
-        return JSONResponse({"error": "请求必须是合法 JSON。"}, status_code=400)  # type: ignore[return-value]
+        return JSONResponse({"error": "Request must be valid JSON."}, status_code=400)  # type: ignore[return-value]
 
     def work(emit: Callable[[dict], None]) -> None:
         project = orchestrator.create_project(
@@ -243,7 +244,7 @@ async def update_script(project_id: str, request: Request):
     except (ValidationError, ValueError) as error:
         if isinstance(error, ValidationError):
             return invalid_payload(error)
-        return JSONResponse({"error": "请求必须是合法 JSON。"}, status_code=400)
+        return JSONResponse({"error": "Request must be valid JSON."}, status_code=400)
     try:
         project = orchestrator.update_dialogue(
             project_id,
@@ -324,7 +325,7 @@ async def update_audio_design(project_id: str, request: Request):
     except (ValidationError, ValueError) as error:
         if isinstance(error, ValidationError):
             return invalid_payload(error)
-        return JSONResponse({"error": "请求必须是合法 JSON。"}, status_code=400)
+        return JSONResponse({"error": "Request must be valid JSON."}, status_code=400)
     try:
         project = orchestrator.set_audio_design(
             project_id,
@@ -349,7 +350,7 @@ async def update_final_look(project_id: str, request: Request):
     except (ValidationError, ValueError) as error:
         if isinstance(error, ValidationError):
             return invalid_payload(error)
-        return JSONResponse({"error": "请求必须是合法 JSON。"}, status_code=400)
+        return JSONResponse({"error": "Request must be valid JSON."}, status_code=400)
     try:
         with render_lock:
             project = orchestrator.set_final_look(
@@ -401,9 +402,9 @@ async def upload_music(project_id: str, request: Request):
         filename = filename[-120:]
     body = await request.body()
     if not body:
-        return JSONResponse({"error": "上传文件为空。"}, status_code=400)
+        return JSONResponse({"error": "Upload file is empty."}, status_code=400)
     if len(body) > 120 * 1024 * 1024:
-        return JSONResponse({"error": "音频文件不能超过 120MB。"}, status_code=413)
+        return JSONResponse({"error": "Audio file must not exceed 120 MB."}, status_code=413)
     audio_dir = settings.outputs_dir / project_id / "audio"
     audio_dir.mkdir(parents=True, exist_ok=True)
     target = audio_dir / filename
@@ -417,7 +418,7 @@ async def upload_music(project_id: str, request: Request):
     project.audio_tracks.setdefault("music", {})["preview_url"] = f"/api/projects/{project_id}/audio/tracks/music"
     project.audio_tracks["music"]["media_path"] = str(target)
     project.audio_tracks["music"]["status"] = "FILE READY"
-    project.logs.append(f"声音设计 Agent：已接收用户上传配乐 {filename}。")
+    project.logs.append(f"Sound Design Agent: Received uploaded score {filename}.")
     orchestrator.store.save(project)
     return project.to_dict()
 
@@ -429,7 +430,7 @@ async def approve_edit(project_id: str, request: Request):
     except (ValidationError, ValueError) as error:
         if isinstance(error, ValidationError):
             return invalid_payload(error)
-        return JSONResponse({"error": "请求必须是合法 JSON。"}, status_code=400)
+        return JSONResponse({"error": "Request must be valid JSON."}, status_code=400)
     try:
         project = orchestrator.approve_edit(project_id, payload.subtitle_mode)
     except FileNotFoundError:
@@ -445,7 +446,7 @@ async def approve_edit(project_id: str, request: Request):
 async def render_project_stream(project_id: str, request: Request) -> StreamingResponse:
     if settings.video_generation_mode != "comfyui":
         return JSONResponse(
-            {"error": "当前为 mock 模式。请在 Spark 的 .env 设置 VIDEO_GENERATION_MODE=comfyui 后再渲染。"},
+            {"error": "Currently in mock mode. Set VIDEO_GENERATION_MODE=comfyui in Spark's .env to enable rendering."},
             status_code=400,
         )
     try:
@@ -496,11 +497,11 @@ async def update_shot(project_id: str, shot_number: int, request: Request):
     except (ValidationError, ValueError) as error:
         if isinstance(error, ValidationError):
             return invalid_payload(error)
-        return JSONResponse({"error": "请求必须是合法 JSON。"}, status_code=400)
+        return JSONResponse({"error": "Request must be valid JSON."}, status_code=400)
     try:
         project = orchestrator.store.load(project_id)
         if not 1 <= shot_number <= len(project.storyboard):
-            raise ValueError(f"镜头号必须在 1–{len(project.storyboard)} 之间。")
+            raise ValueError(f"Shot number must be between 1 and {len(project.storyboard)}.")
         shot = project.storyboard[shot_number - 1]
         updates = {
             key: value
@@ -509,7 +510,7 @@ async def update_shot(project_id: str, shot_number: int, request: Request):
         }
         for key, value in updates.items():
             setattr(shot, key, value)
-        project.logs.append(f"场记：已保存镜头 {shot_number} 的 Inspector 编辑。")
+        project.logs.append(f"Script Supervisor: Saved Inspector edits for shot {shot_number}.")
         orchestrator.store.save(project)
     except FileNotFoundError:
         return project_not_found(project_id)
@@ -522,7 +523,7 @@ async def update_shot(project_id: str, shot_number: int, request: Request):
 def render_single_shot(project_id: str, shot_number: int):
     if settings.video_generation_mode != "comfyui":
         return JSONResponse(
-            {"error": "当前为 mock 模式。请在 Spark 的 .env 设置 VIDEO_GENERATION_MODE=comfyui 后再生成镜头。"},
+            {"error": "Currently in mock mode. Set VIDEO_GENERATION_MODE=comfyui in Spark's .env to enable shot generation."},
             status_code=400,
         )
     try:
@@ -565,7 +566,7 @@ def _load_project_or_http(project_id: str):
     try:
         return orchestrator.store.load(project_id)
     except FileNotFoundError as error:
-        raise HTTPException(status_code=404, detail=f"找不到项目 {project_id}。") from error
+        raise HTTPException(status_code=404, detail=f"Project {project_id} not found.") from error
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
@@ -594,12 +595,12 @@ def _resolve_final_video(project_id: str) -> Path:
     try:
         project = orchestrator.store.load(project_id)
     except FileNotFoundError as error:
-        raise HTTPException(status_code=404, detail=f"找不到项目 {project_id}。") from error
+        raise HTTPException(status_code=404, detail=f"Project {project_id} not found.") from error
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     path = Path(project.final_output_placeholder or "")
     if not path.is_file():
-        raise HTTPException(status_code=404, detail="成片尚未生成。")
+        raise HTTPException(status_code=404, detail="Final cut has not been generated yet.")
     return path
 
 
@@ -607,7 +608,7 @@ def _resolve_rough_cut(project_id: str) -> Path:
     project = _load_project_or_http(project_id)
     path = Path(project.rough_cut_placeholder or "")
     if not path.is_file():
-        raise HTTPException(status_code=404, detail="Rough Cut 尚未生成真实视频文件。")
+        raise HTTPException(status_code=404, detail="Rough Cut has not been rendered to a real video file yet.")
     return path
 
 
@@ -615,14 +616,14 @@ def _resolve_shot_video(project_id: str, shot_number: int) -> Path:
     try:
         project = orchestrator.store.load(project_id)
     except FileNotFoundError as error:
-        raise HTTPException(status_code=404, detail=f"找不到项目 {project_id}。") from error
+        raise HTTPException(status_code=404, detail=f"Project {project_id} not found.") from error
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     if not 1 <= shot_number <= len(project.storyboard):
-        raise HTTPException(status_code=400, detail="镜头号超出范围。")
+        raise HTTPException(status_code=400, detail="Shot number out of range.")
     path = Path(project.storyboard[shot_number - 1].output_placeholder)
     if not path.is_file():
-        raise HTTPException(status_code=404, detail="该镜头视频尚未生成。")
+        raise HTTPException(status_code=404, detail="This shot video has not been generated yet.")
     return path
 
 
@@ -646,7 +647,7 @@ async def export_video(project_id: str, request: Request):
     except (ValidationError, ValueError) as error:
         if isinstance(error, ValidationError):
             return invalid_payload(error)
-        return JSONResponse({"error": "请求必须是合法 JSON。"}, status_code=400)
+        return JSONResponse({"error": "Request must be valid JSON."}, status_code=400)
     try:
         project = orchestrator.store.load(project_id)
         with render_lock:
@@ -691,11 +692,11 @@ def audio_track_preview(project_id: str, track_key: str):
     track = (project.audio_tracks or {}).get(str(track_key).lower()) or {}
     raw_path = track.get("media_path")
     if not raw_path:
-        raise HTTPException(status_code=404, detail="该音轨尚未生成可试听的音频文件。")
+        raise HTTPException(status_code=404, detail="This track has no playable audio file yet.")
     path = Path(raw_path).resolve()
     allowed_root = (settings.outputs_dir / project_id).resolve()
     if allowed_root not in path.parents or not path.is_file():
-        raise HTTPException(status_code=404, detail="该音轨试听文件不存在。")
+        raise HTTPException(status_code=404, detail="Audio preview file not found.")
     media_type = mimetypes.guess_type(path.name)[0] or "audio/mpeg"
     return FileResponse(path, media_type=media_type, filename=path.name)
 
