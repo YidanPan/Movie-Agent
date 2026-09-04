@@ -8,6 +8,20 @@ from typing import Any
 from movie_agent.models import Shot
 
 
+def _english_style(style: str) -> str:
+    """Keep generation prompts English even when the UI preset is Chinese."""
+
+    aliases = {
+        "写实近未来": "grounded near-future realism",
+        "胶片科幻": "analog film science fiction",
+        "极简冷色": "minimal cool-toned cinema",
+        "梦境超现实": "dreamlike surreal cinema",
+        "冷灰未来": "cool gray future",
+        "赛博夜色": "restrained cyber night",
+    }
+    return aliases.get(str(style).strip(), str(style).strip() or "cinematic realism")
+
+
 def build_storyboard(
     idea: str,
     duration: int,
@@ -20,6 +34,7 @@ def build_storyboard(
     base_duration, remainder = divmod(duration, shot_count)
     framings = ["wide shot", "medium close-up", "close-up", "over-the-shoulder", "low-angle medium", "insert shot"]
     shots: list[Shot] = []
+    english_style = _english_style(style)
     for index in range(shot_count):
         shot_duration = base_duration + (1 if index < remainder else 0)
         beat = _beat_for_index(story_beats, index, shot_count)
@@ -33,8 +48,8 @@ def build_storyboard(
             else "let the anomaly gradually emerge" if index < shot_count - 2
             else "complete the emotional turn and lingering resonance"
         )
-        image = f"{style} film cinematography, same protagonist and same core space, {phase}."
-        action = f"The protagonist completes a restrained, clear action in narrative beat {index + 1}."
+        image = f"{english_style} film cinematography, same protagonist and same core space, {phase}."
+        action = f"The protagonist carries the previous beat forward, completing a restrained action in narrative beat {index + 1}."
         sound = "Low-frequency ambience, spatial reverb, and restrained musical progression; no copyrighted material."
         delta = f"Delta from previous shot: {ending_state}" if index > 0 and ending_state else "Opening shot establishing the world."
         prompt = (

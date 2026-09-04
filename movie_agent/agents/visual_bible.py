@@ -11,7 +11,8 @@ class VisualBibleAgent:
         if self.llm:
             result = self.llm.complete_json(
                 "You are a film art director. Create reusable consistency specifications for an original sci-fi short film. "
-                "The lock cards enforce visual continuity across all shots: every generation prompt must respect these constraints.",
+                "The lock cards enforce visual continuity across all shots: every generation prompt must respect these constraints. "
+                "Return all cards and on-screen text guidance in English.",
                 f"Visual style: {visual_style}\nDirector brief: {brief}\nStory: {script.get('story', '')}\n"
                 "Return keys: character_card, scene_card, style_card, sound_card, "
                 "character_lock, scene_lock, cinematography_lock, reference_seed.",

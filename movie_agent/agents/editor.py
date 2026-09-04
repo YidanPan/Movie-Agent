@@ -71,12 +71,52 @@ class EditorAgent:
     def _shot_paths(self, project: MovieProject) -> list[Path]:
         return [Path(shot.output_placeholder) for shot in project.storyboard]
 
+    def _materialized_shot_paths(self, project: MovieProject) -> list[Path]:
+        """Apply reversible editorial timing operations before concatenation."""
+
+        paths: list[Path] = []
+        timing_dir = self._output_dir(project) / "timing"
+        for shot in project.storyboard:
+            source = Path(shot.output_placeholder)
+            native = int(shot.source_duration_seconds or shot.duration_seconds)
+            desired = max(1, int(shot.duration_seconds))
+            mode = str(shot.timing_mode or "native")
+            if mode == "native" and desired == native:
+                paths.append(source)
+                continue
+            timing_dir.mkdir(parents=True, exist_ok=True)
+            target = timing_dir / f"shot-{shot.number:02d}-{mode}-{desired}s.mp4"
+            if target.is_file():
+                paths.append(target)
+                continue
+            filters: list[str] = []
+            if mode == "slow_motion":
+                factor = max(1.0, desired / max(0.1, native))
+                filters.append(f"setpts={factor:.5f}*PTS")
+            elif mode in {"extend", "hold_last_frame"} and desired > native:
+                filters.append(f"tpad=stop_mode=clone:stop_duration={desired - native}")
+            command = [self.settings.ffmpeg_bin, "-y", "-i", str(source)]
+            if filters:
+                command.extend(["-vf", ",".join(filters)])
+            command.extend([
+                "-t", str(desired),
+                "-c:v", "libx264", "-preset", "medium", "-crf", "18",
+                "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart",
+                str(target),
+            ])
+            completed = subprocess.run(command, capture_output=True, text=True, check=False)
+            if completed.returncode != 0 or not target.is_file():
+                raise RuntimeError(f"FFmpeg timing operation failed for Shot {shot.number}: {completed.stderr[-400:]}")
+            paths.append(target)
+        return paths
+
     def _concat_media(self, project: MovieProject, output_path: Path) -> Path:
         """Concat verified shot files into a temporary or deliverable MP4."""
 
         shot_paths = self._shot_paths(project)
         if not shot_paths or not all(path.is_file() for path in shot_paths):
             raise RuntimeError("Cannot concat: some shots have not been generated successfully.")
+        shot_paths = self._materialized_shot_paths(project)
         output_dir = self._output_dir(project)
         concat_file = output_dir / "concat.txt"
         concat_file.write_text(
@@ -232,6 +272,9 @@ class EditorAgent:
             "sequence": [
                 {
                     "shot": shot.number,
+                    "source_duration_seconds": shot.source_duration_seconds or shot.duration_seconds,
+                    "desired_duration_seconds": shot.duration_seconds,
+                    "timing_mode": shot.timing_mode,
                     "trim": {"in_seconds": 0, "out_seconds": shot.duration_seconds},
                     "transition": "cut" if shot.number == 1 else "crossfade_6f",
                 }

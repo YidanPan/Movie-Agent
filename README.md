@@ -10,9 +10,13 @@
 
 `MovieOrchestrator` 负责共享状态和任务顺序；导演、编剧、分镜、视觉设定、生成、质检和剪辑均为独立 Agent。流程支持实时事件推送、项目断点保存和单镜头重试：
 
-`创意输入 → 导演定调 → 编剧成稿 + 台词本/字幕轨 → 分镜拆解 → 视觉设定 → 逐镜生成 → 关键帧质检 → 6/6 SHOTS READY → Picture Cut → Voice → Music → SFX → Subtitles → Mix → Final Encode`
+`创意输入 → 导演定调 → Scene Beats → English Screenplay + Dialogue/Narration Lock → Visual Bible / Continuity Lock → Storyboard → 逐镜生成 → Continuity QC → 6/6 SHOTS READY → Picture Cut → Continuous Voice → Music → SFX → Subtitles → Mix → Final Encode`
 
 编剧 Agent 会在剧本完成时同步生成按镜头拆分的 `dialogue_book` 与 `subtitle_track`。用户可在“剧本与旁白”页逐镜编辑并锁定；锁定前不会启动 AI Edit，后续配音、字幕和剪辑只读取这版内容。字幕默认开启，项目可导出 SRT/VTT，并在最终批准时选择无字幕、软字幕（MP4 可选字幕轨 + SRT/VTT）或烧录字幕。
+
+整片语言由 `FILM_LANGUAGE` 控制，默认值为 `en`。影片中的对白、旁白、字幕、片名卡、片尾、屏幕文字和所有生成 Prompt 均以 English 为准；界面仍可保持中文/双语。Storyboard 先生成 Scene Beats，每个镜头保存 `Narrative Purpose / Starting State / Main Action / Character Reaction / Ending State / Transition Hook`，并只提交相对上一镜的 `Shot Delta`。Visual Bible 会生成可复用的 `Character Lock / Scene Lock / Cinematography Lock / reference_seed`，Continuity QC 会标记 `STYLE_DRIFT / CHARACTER_DRIFT / SCENE_DRIFT`，明显失控的镜头不会进入 Final Cut。
+
+时间线编辑不会覆盖原始生成长度：每个 Shot 同时保存 `source_duration_seconds` 与当前 `desired_duration`，支持 `TRIM / EXTEND / HOLD LAST FRAME / SLOW MOTION / REGENERATE`。编辑后的字幕和 Music Emotional Arc 会重新按时间线对齐；真实 FFmpeg 合成会在拼接前执行对应的时长操作。
 
 Deliver 页是 Final Cut Screening Room：项目未剪辑时显示项目摘要与 `N/N SHOTS READY`，AI Edit 进行时展示镜头合成、旁白、字幕、BGM、SFX 和 FFmpeg 编码进度；批准真实成片后才显示播放器、时长/分辨率/画幅/编码/音频元数据与可跳转 Shot Timeline。播放器右侧的 `FINAL LOOK / COLOR FINISH` 是导出前的全片最终润色台：提供原片、胶片叙事、冷灰未来、梦境超现实、纪实去饱和、赛博夜色六种预设，支持强度、颗粒、暗角和高光柔化，点击预设即可在播放器中即时试听；默认锁定 `WHOLE FILM`，点击应用后才写入交付配置。`导出成片` 支持 MP4/MOV/WebM、720P/1080P、16:9/9:16/1:1 和三种字幕模式，默认 MP4 + H.264 + 1080P + 16:9；JSON、制作手册 Markdown 和 SRT/VTT 收纳在 `更多导出`。
 
@@ -133,7 +137,7 @@ Movie-Agent is a multi-agent film production workspace for the ModelScope “AI 
 
 ### Workflow
 
-`Idea → Director → Writer + Dialogue Book → Storyboard → Visual Bible → Shot Generation → Keyframe QA → SHOTS READY → Picture Cut → Voice → Music → SFX → Subtitles → Mix → Final Encode`
+`Idea → Director → Scene Beats → English Screenplay → Dialogue/Narration Lock → Visual Bible / Continuity Lock → Storyboard → Shot Generation → Continuity QC → SHOTS READY → Picture Cut → Continuous Voice → Music → SFX → Subtitles → Mix → Final Encode`
 
 `MovieOrchestrator` coordinates shared project state and event delivery. Director, writer, storyboard, visual bible, generation, reviewer, and editor are independent modules. Projects are persisted as JSON and can resume from completed shots.
 
@@ -144,6 +148,10 @@ Movie-Agent is a multi-agent film production workspace for the ModelScope “AI 
 - **Spark ComfyUI mode** submits the verified MiniMax-H3 T2V workflow one shot at a time. When every shot passes QA, AI Edit creates a Rough Cut; final FFmpeg assembly happens only after approval.
 
 The writer emits one editable `dialogue_book` and timed `subtitle_track` cue per shot. Users can revise and lock these assets in the screenplay tab. Voiceover, subtitle exports, and AI Edit read the locked revision only. Subtitles are enabled by default, with `none`, `soft` (selectable MP4 track plus SRT/VTT sidecars), and `burned` delivery modes.
+
+`FILM_LANGUAGE` defaults to `en`: all in-film dialogue, narration, subtitles, title cards, credits, monitor text, and generation prompts are English while the UI may remain bilingual. Story Beats are created before the storyboard; every shot carries narrative purpose, start/end state, main action, character reaction, and a transition hook. The Visual Bible becomes a reusable `Character Lock / Scene Lock / Cinematography Lock / reference_seed` contract, and Continuity QC reports `STYLE_DRIFT`, `CHARACTER_DRIFT`, or `SCENE_DRIFT` before a shot can enter Final Cut.
+
+Editorial timing is separate from native generation timing. Each shot stores `source_duration_seconds` plus the current `desired_duration`, with `TRIM`, `EXTEND`, `HOLD LAST FRAME`, `SLOW MOTION`, and `REGENERATE` operations. FFmpeg applies the timing operation before concatenation, then subtitle cues and the Music Emotional Arc are realigned to the edited timeline. Voice is planned as one continuous English track with a locked voice profile instead of unrelated per-shot TTS clips.
 
 Deliver also includes a dedicated `FINAL LOOK / COLOR FINISH` inspector after Final Cut preview and before export. It offers six whole-film presets — Original, Film Narrative, Cool Gray Future, Dream Surreal, Documentary Desat, and Cyber Night — plus intensity, grain, vignette, and highlight-softening controls. Clicking a preset immediately auditions a browser preview; only an explicit Apply action persists the look. Real media is rendered by FFmpeg into a revisioned master, while mock mode stores the reproducible export plan without inventing a video file. Whole-film scope is the default; current-shot/current-scene scope is reserved for a future advanced mode.
 

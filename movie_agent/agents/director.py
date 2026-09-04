@@ -11,7 +11,8 @@ class DirectorAgent:
         if self.llm:
             result = self.llm.complete_json(
                 "You are the chief director of an original sci-fi short film. "
-                "Insist on originality, single character / single space / single event, avoid existing film/TV IP.",
+                "Insist on originality, single character / single space / single event, avoid existing film/TV IP. "
+                "The production language is English: return all creative fields in English.",
                 (
                     f"Idea: {idea}\nTarget duration: {duration_seconds} seconds\nVisual style: {visual_style}\n"
                     "Return keys: theme, narrative_scale, visual_style, director_intent, compliance_constraints."

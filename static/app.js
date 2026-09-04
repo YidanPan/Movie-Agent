@@ -1085,8 +1085,48 @@ function renderTimeline(project) {
     segment.style.flexGrow = String(Math.max(1, shot.duration_seconds || 1));
     segment.title = `镜头 ${shot.number} · ${shot.duration_seconds} 秒 · ${shotStatusInfo(shot.status)}`;
     segment.setAttribute("aria-label", segment.title);
-    segment.innerHTML = `<span>${String(shot.number).padStart(2, "0")}</span>`;
+    segment.innerHTML = `<span>${String(shot.number).padStart(2, "0")}</span><i class="timeline-resize-handle" title="拖动调整镜头时长" aria-label="拖动调整镜头时长"></i>`;
     segment.addEventListener("click", () => openDrawer(project, shot.number));
+    const handle = segment.querySelector(".timeline-resize-handle");
+    handle?.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const startX = event.clientX;
+      const startDuration = Number(shot.duration_seconds || 1);
+      const startTotal = Math.max(1, total);
+      handle.setPointerCapture?.(event.pointerId);
+      const move = (moveEvent) => {
+        const width = Math.max(240, els.editTimeline.getBoundingClientRect().width);
+        const delta = Math.round((moveEvent.clientX - startX) / (width / startTotal));
+        const next = Math.max(1, Math.min(80, startDuration + delta));
+        segment.style.flexGrow = String(next);
+        segment.dataset.previewDuration = String(next);
+        segment.title = `镜头 ${shot.number} · ${next} 秒 · 拖动中`;
+      };
+      const up = async () => {
+        handle.removeEventListener("pointermove", move);
+        handle.removeEventListener("pointerup", up);
+        const next = Number(segment.dataset.previewDuration || startDuration);
+        if (next === startDuration) return;
+        try {
+          const response = await fetch(`/api/projects/${project.project_id}/shots/${shot.number}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ desired_duration: next, timing_mode: next < startDuration ? "trim" : "extend" }),
+          });
+          const payload = await response.json();
+          if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+          state.project = payload;
+          renderWorkspace(payload, { tab: "storyboard" });
+          toast(`镜头 ${shot.number} 已调整为 ${next}s，字幕与配乐已重新对齐。`);
+        } catch (error) {
+          renderTimeline(project);
+          toast(`调整镜头时长失败：${error.message}`, true);
+        }
+      };
+      handle.addEventListener("pointermove", move);
+      handle.addEventListener("pointerup", up, { once: true });
+    });
     els.editTimeline.appendChild(segment);
   }
   syncInspectorSelection();
@@ -2888,6 +2928,15 @@ function buildShotInspectorMarkup(project, shot) {
         <div><dt class="type-system-meta">GENERATION</dt><dd class="type-system-meta">${esc(shot.generation_mode || "T2V")}</dd></div>
         <div><dt class="type-system-meta">TAKES</dt><dd class="type-system-meta">${esc(shot.attempts || 0)}<small class="type-system-meta">×</small></dd></div>
       </dl>
+
+      <section class="inspector-timing-editor" aria-label="Editorial timing controls">
+        <header class="inspector-section-head type-system-meta"><span>EDITORIAL TIMING / 剪辑时长</span><span class="type-helper">NATIVE ${esc(shot.source_duration_seconds || shot.duration_seconds)}s</span></header>
+        <div class="inspector-timing-grid">
+          <label><span class="inspector-label type-ui-label">DESIRED DURATION / 目标时长</span><input type="number" min="1" max="80" step="1" value="${esc(shot.duration_seconds)}" data-shot-field="desired_duration" /></label>
+          <label><span class="inspector-label type-ui-label">EDIT OPERATION / 操作</span><select data-shot-field="timing_mode"><option value="native"${shot.timing_mode === "native" ? " selected" : ""}>Native / 原始</option><option value="trim"${shot.timing_mode === "trim" ? " selected" : ""}>Trim / 裁切</option><option value="extend"${shot.timing_mode === "extend" ? " selected" : ""}>Extend / 延长</option><option value="hold_last_frame"${shot.timing_mode === "hold_last_frame" ? " selected" : ""}>Hold Last Frame / 定格</option><option value="slow_motion"${shot.timing_mode === "slow_motion" ? " selected" : ""}>Slow Motion / 慢放</option></select></label>
+        </div>
+        <p class="type-helper">先改目标时长，再保存；原始生成长度保持不变，字幕与配乐会自动重新对齐。</p>
+      </section>
 
       <section class="inspector-copy-section">
         <div class="inspector-copy-block inspector-copy-block--wide"><span class="inspector-label type-ui-label">IMAGE / 画面</span><p class="type-helper">${esc(shot.image_description || "·")}</p></div>

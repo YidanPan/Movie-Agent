@@ -18,7 +18,8 @@ from movie_agent.config import Settings
 from movie_agent.models import MovieProject
 from movie_agent.storage.project_store import ProjectStore
 from movie_agent.services.llm import build_creative_llm
-from movie_agent.services.quality import PlanningQualityGate, SemanticCopyrightReviewer
+from movie_agent.services.quality import ContinuityQualityGate, PlanningQualityGate, SemanticCopyrightReviewer
+from movie_agent.services.continuity import build_continuity_lock, ensure_continuity_lock
 from movie_agent.services.audio import (
     EDIT_AUDIO_STAGES,
     apply_audio_track_params,
@@ -50,6 +51,7 @@ class MovieOrchestrator:
         self.reviewer = ReviewerAgent(settings)
         self.editor = EditorAgent(settings)
         self.quality_gate = PlanningQualityGate()
+        self.continuity_gate = ContinuityQualityGate()
         self.semantic_copyright_reviewer = SemanticCopyrightReviewer(creative_llm)
 
     def create_project(
@@ -145,6 +147,7 @@ class MovieOrchestrator:
             duration_seconds=duration,
             shot_count=planned_shot_count,
         )
+        script["film_language"] = self.settings.film_language
         emit({"type": "agent_done", "agent": "writer", "script": script})
         emit(
             {
@@ -209,6 +212,7 @@ class MovieOrchestrator:
             }
         )
         visual_bible = self.visual_bible_agent.create(visual_style, brief, script)
+        continuity_lock = build_continuity_lock(visual_bible, self.settings.film_language)
         emit({"type": "agent_done", "agent": "visual_bible", "visual_bible": visual_bible})
         emit(
             {
@@ -298,6 +302,12 @@ class MovieOrchestrator:
                 storyboard=storyboard,
             )
         )
+        continuity_report = self.continuity_gate.review(
+            visual_bible=visual_bible,
+            storyboard=storyboard,
+            continuity_lock=continuity_lock,
+        )
+        quality_report.extend(continuity_report)
         emit({"type": "agent_done", "agent": "quality", "quality_report": quality_report})
         emit(
             {
@@ -323,6 +333,15 @@ class MovieOrchestrator:
             quality_report=quality_report,
             logs=logs + quality_report,
             story_beats=story_beats,
+            film_language=self.settings.film_language,
+            continuity_lock=continuity_lock,
+            voice_profile={
+                "voice_id": self.settings.tts_voice,
+                "accent": self.settings.tts_voice.rsplit("-", 1)[0] if "-" in self.settings.tts_voice else "en-US",
+                "speaking_rate": 1.0,
+                "voice_style": "restrained cinematic narration",
+                "strategy": "continuous_voice_track",
+            },
         )
         # Prepare the sound department as soon as the shot rhythm exists. The
         # brief is reviewable before AI Edit, while actual media remains a
@@ -385,6 +404,12 @@ class MovieOrchestrator:
             raise ValueError("Current mode is mock. Set VIDEO_GENERATION_MODE=comfyui in Spark's .env before rendering.")
         project = self.store.load(project_id)
         self._require_dialogue_locked(project)
+        ensure_continuity_lock(project)
+        self.continuity_gate.review(
+            visual_bible=project.visual_bible,
+            storyboard=project.storyboard,
+            continuity_lock=project.continuity_lock,
+        )
         unsupported_modes = sorted(
             {shot.generation_mode for shot in project.storyboard if shot.generation_mode != "T2V"}
         )
@@ -460,6 +485,7 @@ class MovieOrchestrator:
         if not 1 <= shot_number <= len(project.storyboard):
             raise ValueError(f"Shot number must be between 1 and {len(project.storyboard)}.")
         shot = project.storyboard[shot_number - 1]
+        ensure_continuity_lock(project)
         if shot.generation_mode != "T2V":
             raise ValueError(
                 f"Shot {shot.number} is marked as {shot.generation_mode}, but the current MiniMax-H3 workflow only supports T2V."
@@ -587,6 +613,53 @@ class MovieOrchestrator:
         project = self.store.load(project_id)
         project.subtitle_mode = normalise_subtitle_mode(mode)
         project.script["subtitle_mode"] = project.subtitle_mode
+        self.store.save(project)
+        return project
+
+    def update_shot_timing(
+        self,
+        project_id: str,
+        shot_number: int,
+        *,
+        desired_duration: float | None = None,
+        timing_mode: str | None = None,
+    ) -> MovieProject:
+        """Edit the editorial timeline without changing native shot renders.
+
+        ``source_duration_seconds`` remains the ComfyUI generation target;
+        ``duration_seconds`` is the current cut length. The distinction makes
+        trim/extend/hold/slow-motion reversible and keeps the continuity lock
+        intact.
+        """
+
+        project = self.store.load(project_id)
+        if not 1 <= shot_number <= len(project.storyboard):
+            raise ValueError(f"Shot number must be between 1 and {len(project.storyboard)}.")
+        shot = project.storyboard[shot_number - 1]
+        mode = str(timing_mode or shot.timing_mode or "native").strip().lower()
+        aliases = {"hold": "hold_last_frame", "slow": "slow_motion", "normal": "native"}
+        mode = aliases.get(mode, mode)
+        if mode not in {"native", "trim", "extend", "hold_last_frame", "slow_motion"}:
+            raise ValueError("Timing mode must be native, trim, extend, hold_last_frame, or slow_motion.")
+        requested = shot.duration_seconds if desired_duration is None else float(desired_duration)
+        if not 1 <= requested <= 80:
+            raise ValueError("Desired shot duration must be between 1 and 80 seconds.")
+        # Keep a native render duration for ComfyUI while allowing editorial
+        # changes to exceed the 4–8 second generation window.
+        shot.duration_seconds = max(1, int(round(requested)))
+        shot.desired_duration = float(shot.duration_seconds)
+        shot.timing_mode = mode
+        project.duration_seconds = sum(int(item.duration_seconds) for item in project.storyboard)
+        project.brief["target_duration"] = f"{project.duration_seconds} seconds"
+        project.script = align_script_to_shots(project.script, project.storyboard)
+        ensure_audio_design(project)
+        self._invalidate_edit_outputs(project)
+        project.status = "ready_for_ai_edit" if all(
+            str(item.status).startswith("approved") for item in project.storyboard
+        ) else "ready_for_comfyui_render"
+        project.logs.append(
+            f"Editor Agent: Shot {shot_number} timing updated to {shot.duration_seconds}s ({mode.upper()}); downstream cut invalidated."
+        )
         self.store.save(project)
         return project
 
@@ -892,6 +965,13 @@ class MovieOrchestrator:
                 script=project.script,
                 visual_bible=project.visual_bible,
                 storyboard=project.storyboard,
+            )
+        )
+        project.quality_report.extend(
+            self.continuity_gate.review(
+                visual_bible=project.visual_bible,
+                storyboard=project.storyboard,
+                continuity_lock=project.continuity_lock,
             )
         )
         project.final_output_placeholder = None

@@ -65,6 +65,8 @@ class UpdateShotPayload(BaseModel):
     """Editable fields exposed by the expanded Shot Workspace."""
 
     duration_seconds: int | None = Field(default=None, ge=1, le=80)
+    desired_duration: float | None = Field(default=None, ge=1, le=80)
+    timing_mode: Literal["native", "trim", "extend", "hold_last_frame", "slow_motion"] | None = None
     framing: str | None = Field(default=None, min_length=1, max_length=120)
     image_description: str | None = Field(default=None, min_length=1, max_length=4_000)
     action: str | None = Field(default=None, min_length=1, max_length=2_000)
@@ -499,19 +501,24 @@ async def update_shot(project_id: str, shot_number: int, request: Request):
             return invalid_payload(error)
         return JSONResponse({"error": "Request must be valid JSON."}, status_code=400)
     try:
+        updates = payload.model_dump(exclude_unset=True)
+        timing_requested = "duration_seconds" in updates or "desired_duration" in updates or "timing_mode" in updates
         project = orchestrator.store.load(project_id)
-        if not 1 <= shot_number <= len(project.storyboard):
-            raise ValueError(f"Shot number must be between 1 and {len(project.storyboard)}.")
-        shot = project.storyboard[shot_number - 1]
-        updates = {
-            key: value
-            for key, value in payload.model_dump(exclude_unset=True).items()
-            if value is not None
-        }
-        for key, value in updates.items():
-            setattr(shot, key, value)
-        project.logs.append(f"Script Supervisor: Saved Inspector edits for shot {shot_number}.")
-        orchestrator.store.save(project)
+        if timing_requested:
+            project = orchestrator.update_shot_timing(
+                project_id,
+                shot_number,
+                desired_duration=updates.pop("desired_duration", updates.pop("duration_seconds", None)),
+                timing_mode=updates.pop("timing_mode", None),
+            )
+        if updates:
+            if not 1 <= shot_number <= len(project.storyboard):
+                raise ValueError(f"Shot number must be between 1 and {len(project.storyboard)}.")
+            shot = project.storyboard[shot_number - 1]
+            for key, value in updates.items():
+                setattr(shot, key, value)
+            project.logs.append(f"Script Supervisor: Saved Inspector edits for shot {shot_number}.")
+            orchestrator.store.save(project)
     except FileNotFoundError:
         return project_not_found(project_id)
     except ValueError as error:

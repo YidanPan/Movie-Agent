@@ -170,6 +170,7 @@ def build_audio_tracks(
         getattr(project, "music_intensity", DEFAULT_MUSIC_INTENSITY) if music_intensity is None else music_intensity
     )
     locked = bool((getattr(project, "script", {}) or {}).get("dialogue_locked"))
+    voice_profile = getattr(project, "voice_profile", {}) or {}
     shots = list(getattr(project, "storyboard", []) or [])
     music_source, music_status = _mode_source(resolved_mode, asset_name)
     cue_count = len(script_subtitle_track(getattr(project, "script", {}) or {}))
@@ -181,6 +182,11 @@ def build_audio_tracks(
             "name": "Narration / Dialogue",
             "status": "READY" if locked else "LOCK REQUIRED",
             "source": f"LOCKED DIALOGUE BOOK · {cue_count} CUES" if locked else "DIALOGUE BOOK / REVIEW",
+            "generation_strategy": "continuous_voice_track",
+            "voice_id": voice_profile.get("voice_id", "en-US-GuyNeural"),
+            "accent": voice_profile.get("accent", "en-US"),
+            "speaking_rate": voice_profile.get("speaking_rate", 1.0),
+            "voice_style": voice_profile.get("voice_style", "restrained cinematic narration"),
             "enabled": True,
             "volume_db": -2,
             "preview_url": None,
@@ -254,6 +260,7 @@ def build_smart_ducking(project: Any, *, enabled: bool = True) -> dict[str, Any]
         "release_ms": 420,
         "voice_cues": cues,
         "description": "Music automatically ducks when dialogue or narration is present and smoothly recovers after speech ends.",
+        "signal_source": "continuous_voice_track",
     }
 
 

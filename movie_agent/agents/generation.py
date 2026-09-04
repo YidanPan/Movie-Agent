@@ -24,7 +24,8 @@ def build_continuity_prompt(shot: Shot, visual_bible: dict[str, str], previous_s
     cinema = visual_bible.get("cinematography_lock", "")
     delta = shot.prompt
 
-    parts = [part for part in (character, scene, cinema, delta) if part]
+    language = "English only: dialogue, narration, subtitles, title cards, credits, on-screen text, and monitor text."
+    parts = [language, character, scene, cinema, delta]
     return ". ".join(parts) if parts else delta
 
 
@@ -59,7 +60,14 @@ class GenerationAgent:
         continuity_prompt = build_continuity_prompt(shot, visual_bible or {}, previous_shot)
         workflow = load_verified_workflow(
             template_path,
-            WorkflowOverrides(prompt=continuity_prompt, seed=seed, duration_seconds=shot.duration_seconds),
+            # Generate at the native duration. Editorial timing operations are
+            # applied later in the AI Edit sequence and must not break the
+            # shared visual continuity lock.
+            WorkflowOverrides(
+                prompt=continuity_prompt,
+                seed=seed,
+                duration_seconds=shot.source_duration_seconds or shot.duration_seconds,
+            ),
         )
         try:
             prompt_id = self.client.submit(workflow)

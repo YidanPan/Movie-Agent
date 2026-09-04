@@ -42,6 +42,7 @@ class ReviewerAgent:
             project_id = "ad-hoc-review"
         frames = self._extract_keyframes(project_id, shot, video_path, duration)
         if self.vision_llm is None:
+            shot.qc_flags = []
             shot.status = "approved_comfyui"
             return (
                 f"Quality Agent: Shot {shot.number} integrity passed ({duration:.2f}s), "
@@ -53,11 +54,26 @@ class ReviewerAgent:
         verdict = str(review.get("verdict", "")).strip().lower()
         character_score = self._score(review.get("character_consistency"))
         scene_score = self._score(review.get("scene_consistency"))
+        drift_flags = [
+            str(flag).strip().upper()
+            for flag in (review.get("drift_flags") or [])
+            if str(flag).strip().upper() in {"STYLE_DRIFT", "CHARACTER_DRIFT", "SCENE_DRIFT"}
+        ]
+        shot.qc_flags = drift_flags
         copyright_risk = str(review.get("copyright_risk", "")).strip().lower()
-        if verdict == "fail" or character_score < 70 or scene_score < 70 or copyright_risk == "high":
+        if (
+            verdict == "fail"
+            or verdict == "review"
+            or character_score < 70
+            or scene_score < 70
+            or copyright_risk == "high"
+            or len(drift_flags) >= 2
+        ):
+            shot.status = "qc_failed_continuity"
+            flag_text = ", ".join(drift_flags) if drift_flags else "none"
             raise RuntimeError(
                 f"Shot {shot.number} visual quality check failed: character consistency {character_score}/100, "
-                f"scene consistency {scene_score}/100, copyright risk {copyright_risk or 'unknown'}."
+                f"scene consistency {scene_score}/100, copyright risk {copyright_risk or 'unknown'}, flags {flag_text}."
             )
         self._reference_frames.setdefault(project_id, frames[len(frames) // 2])
         shot.status = "approved_comfyui"

@@ -38,6 +38,11 @@ class MovieOrchestratorTests(unittest.TestCase):
             self.assertEqual(set(project.audio_tracks), {"voice", "music", "sfx", "ambience"})
             self.assertTrue(project.smart_ducking["enabled"])
             self.assertEqual(project.mix_state["pipeline"], ["picture_cut", "voice", "music", "sfx", "subtitles", "mix", "final_encode"])
+            self.assertEqual(project.film_language, "en")
+            self.assertEqual(project.continuity_lock["status"], "LOCKED")
+            self.assertTrue(all(shot.source_duration_seconds == shot.duration_seconds for shot in project.storyboard))
+            self.assertTrue(all(shot.desired_duration == shot.duration_seconds for shot in project.storyboard))
+            self.assertTrue(any("Continuity QC" in note for note in project.quality_report))
             exported = MovieOrchestrator(settings).store.export(project.project_id)
             self.assertEqual(len(exported), 2)
             self.assertIn("Final Video Prompts", exported[1].read_text(encoding="utf-8"))
@@ -78,6 +83,28 @@ class MovieOrchestratorTests(unittest.TestCase):
             revised = MovieOrchestrator(settings).regenerate_shot(project.project_id, 1)
             self.assertEqual(revised.storyboard[0].status, "replanned")
             self.assertEqual(revised.storyboard[0].attempts, 2)
+
+    def test_editorial_timing_is_separate_from_native_generation_length(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            settings = Settings(
+                "http://127.0.0.1:8188", 900, Path("workflows"), 9071, root, True,
+                outputs_dir=root / "outputs",
+            )
+            orchestrator = MovieOrchestrator(settings)
+            project = orchestrator.create_project("一名守夜人发现空城每天都在等他下班。", 48, "胶片科幻")
+            source = project.storyboard[0].source_duration_seconds
+            updated = orchestrator.update_shot_timing(
+                project.project_id, 1, desired_duration=9, timing_mode="hold_last_frame"
+            )
+            shot = updated.storyboard[0]
+            self.assertEqual(shot.duration_seconds, 9)
+            self.assertEqual(shot.desired_duration, 9)
+            self.assertEqual(shot.source_duration_seconds, source)
+            self.assertEqual(shot.timing_mode, "hold_last_frame")
+            self.assertEqual(updated.duration_seconds, sum(item.duration_seconds for item in updated.storyboard))
+            self.assertEqual(len(updated.script["subtitle_track"]), len(updated.storyboard))
+            self.assertEqual(updated.status, "ready_for_ai_edit")
 
     def test_rejects_short_ideas(self) -> None:
         with TemporaryDirectory() as temporary_directory:

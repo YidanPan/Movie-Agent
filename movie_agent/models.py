@@ -8,6 +8,7 @@ from typing import Any
 from movie_agent.services.subtitles import ensure_dialogue_assets, normalise_subtitle_mode
 from movie_agent.services.audio import DEFAULT_MUSIC_INTENSITY, normalise_music_intensity, normalise_music_mode
 from movie_agent.services.final_look import ensure_final_look
+from movie_agent.services.continuity import build_continuity_lock
 
 
 @dataclass
@@ -30,6 +31,18 @@ class Shot:
     ending_state: str = ""
     transition_hook: str = ""
     desired_duration: float = 0
+    # Native generation length stays separate from the editorial timeline
+    # length. This lets an editor trim, hold, or slow a shot without asking
+    # ComfyUI to regenerate the whole film.
+    source_duration_seconds: int = 0
+    timing_mode: str = "native"
+    qc_flags: list[str] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        if self.source_duration_seconds <= 0:
+            self.source_duration_seconds = int(self.duration_seconds)
+        if not self.desired_duration:
+            self.desired_duration = float(self.duration_seconds)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -63,6 +76,9 @@ class MovieProject:
     mix_state: dict[str, Any] = field(default_factory=dict)
     final_look: dict[str, Any] = field(default_factory=dict)
     story_beats: list[dict[str, Any]] = field(default_factory=list)
+    film_language: str = "en"
+    continuity_lock: dict[str, Any] = field(default_factory=dict)
+    voice_profile: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -102,6 +118,9 @@ class MovieProject:
             mix_state=data.get("mix_state") or {},
             final_look=data.get("final_look") or {},
             story_beats=data.get("story_beats") or [],
+            film_language=str(data.get("film_language") or "en").lower(),
+            continuity_lock=data.get("continuity_lock") or {},
+            voice_profile=data.get("voice_profile") or {},
         )
         # Older project JSON files predate the sound department. Migrate them
         # in memory so the next save exposes the same audio contract.
@@ -117,6 +136,8 @@ class MovieProject:
             migrated_vb[english_key] = value
         project.visual_bible = migrated_vb
         ensure_final_look(project)
+        if not project.continuity_lock:
+            project.continuity_lock = build_continuity_lock(project.visual_bible, project.film_language)
         return project
 
     def brief_as_markdown(self) -> str:

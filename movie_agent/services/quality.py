@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from movie_agent.models import Shot
 from movie_agent.services.llm import CreativeLLM
 
@@ -45,6 +47,64 @@ class PlanningQualityGate:
             "Quality Agent: No preset film/TV IP references detected.",
             "Quality Agent: character_card, scene_card, and style_card are all present; ready for video generation queue.",
         ]
+
+
+class ContinuityQualityGate:
+    """Validate the whole-film handoff contract before media generation.
+
+    This is intentionally structural in mock mode. When a vision model is
+    available, :class:`ReviewerAgent` adds frame-level scores and drift flags.
+    Keeping both layers means a malformed plan is blocked early while visual
+    drift is still caught after rendering.
+    """
+
+    required_shot_fields = (
+        "narrative_purpose",
+        "starting_state",
+        "main_action",
+        "ending_state",
+        "transition_hook",
+    )
+    drift_tokens = {
+        "STYLE_DRIFT": ("different style", "new visual style", "style reset"),
+        "CHARACTER_DRIFT": ("different character", "new costume", "new protagonist", "different outfit"),
+        "SCENE_DRIFT": ("new location", "different location", "scene reset", "another environment"),
+    }
+
+    def review(
+        self,
+        *,
+        visual_bible: dict[str, Any],
+        storyboard: list[Shot],
+        continuity_lock: dict[str, Any] | None = None,
+    ) -> list[str]:
+        errors: list[str] = []
+        lock = continuity_lock or {}
+        if lock.get("status") != "LOCKED":
+            errors.append("Continuity lock is missing or not locked.")
+        if not {"character_lock", "scene_lock", "cinematography_lock"}.issubset(visual_bible):
+            errors.append("Visual continuity requires character, scene, and cinematography locks.")
+        for shot in storyboard:
+            missing = [field for field in self.required_shot_fields if not str(getattr(shot, field, "")).strip()]
+            if missing:
+                errors.append(f"Shot {shot.number} is missing continuity fields: {', '.join(missing)}.")
+        if errors:
+            raise ValueError("Continuity QC failed: " + "; ".join(errors))
+
+        notes = [
+            "Continuity QC: Visual Bible, Character Lock, Scene Lock, and Cinematography Lock are active.",
+            "Continuity QC: Narrative state and transition hooks are present for every shot.",
+            "Continuity QC: Generation prompts use a shared lock plus shot-level delta strategy.",
+        ]
+        for shot in storyboard:
+            text = " ".join(
+                str(getattr(shot, field, ""))
+                for field in ("image_description", "action", "prompt")
+            ).lower()
+            for flag, tokens in self.drift_tokens.items():
+                if any(token in text for token in tokens):
+                    notes.append(f"{flag}: Shot {shot.number} contains a possible continuity drift; manual review required.")
+        return notes
 
 
 class SemanticCopyrightReviewer:

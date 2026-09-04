@@ -193,4 +193,7 @@ class StoryboardAgent:
             ending_state=shot.ending_state,
             transition_hook=shot.transition_hook,
             desired_duration=shot.desired_duration,
+            source_duration_seconds=shot.source_duration_seconds,
+            timing_mode=shot.timing_mode,
+            qc_flags=list(shot.qc_flags),
         )
