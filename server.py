@@ -27,6 +27,7 @@ from pydantic import BaseModel, Field, ValidationError, field_validator
 from movie_agent.config import Settings
 from movie_agent.orchestrator import MovieOrchestrator
 from movie_agent.services.subtitles import render_srt, render_vtt, script_subtitle_track
+from movie_agent.services.media_quality import best_screening_path, quality_snapshot
 
 settings = Settings.from_env()
 orchestrator = MovieOrchestrator(settings)
@@ -134,6 +135,11 @@ class ExportVideoPayload(BaseModel):
     subtitle_mode: Literal["none", "soft", "burned"] = "burned"
 
 
+class NormalizeResolutionPayload(BaseModel):
+    resolution: Literal["720p", "1080p"] = "1080p"
+    method: Literal["resolution_normalize", "ai_upscale"] = "resolution_normalize"
+
+
 def sse_chunk(payload: dict) -> str:
     return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
@@ -152,6 +158,15 @@ def invalid_payload(error: ValidationError) -> JSONResponse:
     return JSONResponse(
         {"error": f"Invalid submission: {field} {first.get('msg', 'invalid')}"}, status_code=400
     )
+
+
+def serialized_project(project) -> dict[str, Any]:
+    """Expose persisted data plus a fresh, read-only media quality view."""
+
+    payload = project.to_dict()
+    payload["video_quality"] = quality_snapshot(project, settings.ffprobe_bin)
+    payload["screening_preview_url"] = f"/api/projects/{project.project_id}/screening-preview"
+    return payload
 
 
 def run_with_sse(
@@ -214,7 +229,7 @@ def list_projects() -> dict:
 @app.get("/api/projects/{project_id}")
 def get_project(project_id: str) -> dict:
     try:
-        return orchestrator.store.load(project_id).to_dict()
+        return serialized_project(orchestrator.store.load(project_id))
     except FileNotFoundError:
         return project_not_found(project_id)  # type: ignore[return-value]
     except ValueError as error:
@@ -234,7 +249,7 @@ async def create_project_stream(request: Request) -> StreamingResponse:
         project = orchestrator.create_project(
             payload.idea, payload.duration, payload.visual_style, event_callback=emit
         )
-        emit({"type": "done", "project": project.to_dict()})
+        emit({"type": "done", "project": serialized_project(project)})
 
     return run_with_sse(request, work)
 
@@ -257,7 +272,7 @@ async def update_script(project_id: str, request: Request):
         return project_not_found(project_id)
     except ValueError as error:
         return JSONResponse({"error": str(error)}, status_code=400)
-    return project.to_dict()
+    return serialized_project(project)
 
 
 @app.post("/api/projects/{project_id}/script/lock")
@@ -268,7 +283,7 @@ def lock_script(project_id: str):
         return project_not_found(project_id)
     except ValueError as error:
         return JSONResponse({"error": str(error)}, status_code=400)
-    return project.to_dict()
+    return serialized_project(project)
 
 
 @app.post("/api/projects/{project_id}/script/unlock")
@@ -279,7 +294,7 @@ def unlock_script(project_id: str):
         return project_not_found(project_id)
     except ValueError as error:
         return JSONResponse({"error": str(error)}, status_code=400)
-    return project.to_dict()
+    return serialized_project(project)
 
 
 @app.post("/api/projects/{project_id}/edit/stream")
@@ -300,7 +315,7 @@ async def create_rough_cut_stream(project_id: str, request: Request) -> Streamin
         with render_lock:
             def on_progress(description: str) -> None:
                 try:
-                    snapshot = orchestrator.store.load(project_id).to_dict()
+                    snapshot = serialized_project(orchestrator.store.load(project_id))
                 except Exception:  # noqa: BLE001 - snapshot is best-effort
                     snapshot = None
                 emit({"type": "edit_progress", "description": description, "project": snapshot})
@@ -315,7 +330,7 @@ async def create_rough_cut_stream(project_id: str, request: Request) -> Streamin
                 track_enabled=payload.track_enabled,
                 track_params=payload.track_params,
             )
-            emit({"type": "done", "project": project.to_dict()})
+            emit({"type": "done", "project": serialized_project(project)})
 
     return run_with_sse(request, work)
 
@@ -342,7 +357,7 @@ async def update_audio_design(project_id: str, request: Request):
         return project_not_found(project_id)
     except ValueError as error:
         return JSONResponse({"error": str(error)}, status_code=400)
-    return project.to_dict()
+    return serialized_project(project)
 
 
 @app.patch("/api/projects/{project_id}/final-look")
@@ -371,7 +386,7 @@ async def update_final_look(project_id: str, request: Request):
         return JSONResponse({"error": str(error)}, status_code=400)
     except RuntimeError as error:
         return JSONResponse({"error": str(error)}, status_code=409)
-    return project.to_dict()
+    return serialized_project(project)
 
 
 @app.post("/api/projects/{project_id}/audio/tracks/{track_key}/regenerate")
@@ -382,7 +397,7 @@ def regenerate_audio_track(project_id: str, track_key: str):
         return project_not_found(project_id)
     except ValueError as error:
         return JSONResponse({"error": str(error)}, status_code=400)
-    return project.to_dict()
+    return serialized_project(project)
 
 
 @app.post("/api/projects/{project_id}/audio/upload")
@@ -422,7 +437,7 @@ async def upload_music(project_id: str, request: Request):
     project.audio_tracks["music"]["status"] = "FILE READY"
     project.logs.append(f"Sound Design Agent: Received uploaded score {filename}.")
     orchestrator.store.save(project)
-    return project.to_dict()
+    return serialized_project(project)
 
 
 @app.post("/api/projects/{project_id}/edit/approve")
@@ -441,7 +456,32 @@ async def approve_edit(project_id: str, request: Request):
         return JSONResponse({"error": str(error)}, status_code=400)
     except RuntimeError as error:
         return JSONResponse({"error": str(error)}, status_code=502)
-    return project.to_dict()
+    return serialized_project(project)
+
+
+@app.post("/api/projects/{project_id}/media/normalize")
+async def normalize_media_resolution(project_id: str, request: Request):
+    """Opt-in source normalization before AI Edit; never normalizes a proxy."""
+
+    try:
+        payload = NormalizeResolutionPayload.model_validate(await request.json())
+    except (ValidationError, ValueError) as error:
+        if isinstance(error, ValidationError):
+            return invalid_payload(error)
+        return JSONResponse({"error": "Request must be valid JSON."}, status_code=400)
+    try:
+        with render_lock:
+            project = orchestrator.normalize_resolution(project_id, payload.resolution)
+            if payload.method == "ai_upscale":
+                project.logs.append("Media Pipeline: AI Upscale requested; deterministic Resolution Normalize used until an upscaler is configured.")
+                orchestrator.store.save(project)
+    except FileNotFoundError:
+        return project_not_found(project_id)
+    except ValueError as error:
+        return JSONResponse({"error": str(error)}, status_code=400)
+    except RuntimeError as error:
+        return JSONResponse({"error": str(error)}, status_code=409)
+    return serialized_project(project)
 
 
 @app.post("/api/projects/{project_id}/render/stream")
@@ -462,7 +502,7 @@ async def render_project_stream(project_id: str, request: Request) -> StreamingR
         with render_lock:
             def on_progress(completed: int, total: int, description: str) -> None:
                 try:
-                    snapshot = orchestrator.store.load(project_id).to_dict()
+                    snapshot = serialized_project(orchestrator.store.load(project_id))
                 except Exception:  # noqa: BLE001 - snapshot is best-effort
                     snapshot = None
                 emit(
@@ -476,7 +516,7 @@ async def render_project_stream(project_id: str, request: Request) -> StreamingR
                 )
 
             project = orchestrator.render_project(project_id, progress_callback=on_progress)
-            emit({"type": "done", "project": project.to_dict()})
+            emit({"type": "done", "project": serialized_project(project)})
 
     return run_with_sse(request, work)
 
@@ -489,7 +529,7 @@ def regenerate_shot(project_id: str, shot_number: int):
         return project_not_found(project_id)
     except ValueError as error:
         return JSONResponse({"error": str(error)}, status_code=400)
-    return project.to_dict()
+    return serialized_project(project)
 
 
 @app.patch("/api/projects/{project_id}/shots/{shot_number}")
@@ -523,7 +563,7 @@ async def update_shot(project_id: str, shot_number: int, request: Request):
         return project_not_found(project_id)
     except ValueError as error:
         return JSONResponse({"error": str(error)}, status_code=400)
-    return project.to_dict()
+    return serialized_project(project)
 
 
 @app.post("/api/projects/{project_id}/shots/{shot_number}/render")
@@ -542,7 +582,7 @@ def render_single_shot(project_id: str, shot_number: int):
         return JSONResponse({"error": str(error)}, status_code=400)
     except Exception as error:  # noqa: BLE001 - surface generation failures to the inspector
         return JSONResponse({"error": str(error)}, status_code=502)
-    return project.to_dict()
+    return serialized_project(project)
 
 
 @app.get("/api/projects/{project_id}/export/json")
@@ -619,6 +659,14 @@ def _resolve_rough_cut(project_id: str) -> Path:
     return path
 
 
+def _resolve_screening_preview(project_id: str) -> Path:
+    project = _load_project_or_http(project_id)
+    path = best_screening_path(project)
+    if not path or not path.is_file():
+        raise HTTPException(status_code=404, detail="Screening Preview has not been rendered yet.")
+    return path
+
+
 def _resolve_shot_video(project_id: str, shot_number: int) -> Path:
     try:
         project = orchestrator.store.load(project_id)
@@ -642,6 +690,17 @@ def final_video(project_id: str):
 @app.head("/api/projects/{project_id}/final-video")
 def final_video_head(project_id: str):
     _resolve_final_video(project_id)
+    return Response(status_code=200)
+
+
+@app.get("/api/projects/{project_id}/screening-preview")
+def screening_preview_video(project_id: str):
+    return FileResponse(_resolve_screening_preview(project_id), media_type="video/mp4")
+
+
+@app.head("/api/projects/{project_id}/screening-preview")
+def screening_preview_video_head(project_id: str):
+    _resolve_screening_preview(project_id)
     return Response(status_code=200)
 
 

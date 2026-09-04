@@ -37,6 +37,9 @@ class Shot:
     source_duration_seconds: int = 0
     timing_mode: str = "native"
     qc_flags: list[str] = field(default_factory=list)
+    # Media contracts stay attached to the shot so the UI can distinguish a
+    # disposable proxy from a viewer copy and the original/master source.
+    media_assets: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.source_duration_seconds <= 0:
@@ -79,6 +82,9 @@ class MovieProject:
     film_language: str = "en"
     continuity_lock: dict[str, Any] = field(default_factory=dict)
     voice_profile: dict[str, Any] = field(default_factory=dict)
+    target_resolution: str = "1080p"
+    target_fps: int = 24
+    video_assets: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -121,6 +127,9 @@ class MovieProject:
             film_language=str(data.get("film_language") or "en").lower(),
             continuity_lock=data.get("continuity_lock") or {},
             voice_profile=data.get("voice_profile") or {},
+            target_resolution=str(data.get("target_resolution") or "1080p").lower(),
+            target_fps=int(data.get("target_fps") or 24),
+            video_assets=data.get("video_assets") or {},
         )
         # Older project JSON files predate the sound department. Migrate them
         # in memory so the next save exposes the same audio contract.

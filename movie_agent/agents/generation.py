@@ -10,6 +10,7 @@ from typing import Any
 from movie_agent.config import Settings
 from movie_agent.models import Shot
 from movie_agent.services.comfyui import ComfyUIClient, ComfyUIError, WorkflowOverrides, load_verified_workflow
+from movie_agent.services.media_quality import asset_record
 
 
 def build_continuity_prompt(shot: Shot, visual_bible: dict[str, str], previous_shot: Shot | None = None) -> str:
@@ -39,7 +40,15 @@ class GenerationAgent:
         shot.attempts += 1
         return f"Generation Agent: Shot {shot.number} entered the mock generation queue."
 
-    def generate(self, project_id: str, shot: Shot, *, visual_bible: dict[str, str] | None = None, previous_shot: Shot | None = None) -> str:
+    def generate(
+        self,
+        project_id: str,
+        shot: Shot,
+        *,
+        visual_bible: dict[str, str] | None = None,
+        previous_shot: Shot | None = None,
+        target_resolution: str = "1080p",
+    ) -> str:
         """Submit one planned shot and copy its MP4 into the project output folder."""
         if shot.generation_mode != "T2V":
             raise ComfyUIError(
@@ -81,6 +90,13 @@ class GenerationAgent:
             shot.status = "generation_failed"
             raise ComfyUIError(f"Shot {shot.number} generation failed: {error}") from error
         shot.output_placeholder = str(destination)
+        shot.media_assets["final_master"] = asset_record(
+            destination,
+            tier="final_master",
+            ffprobe_bin=self.settings.ffprobe_bin,
+            target_resolution=target_resolution,
+            source="comfyui_original",
+        )
         shot.status = "generated_comfyui"
         return f"Generation Agent: Shot {shot.number} completed (ComfyUI task {prompt_id})."
 

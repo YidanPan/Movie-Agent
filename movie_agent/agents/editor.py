@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import subprocess
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +16,12 @@ from movie_agent.services.subtitles import (
     script_subtitle_track,
 )
 from movie_agent.services.final_look import final_look_filter, normalise_final_look
+from movie_agent.services.media_quality import (
+    asset_record,
+    best_master_path,
+    probe_media,
+    target_dimensions,
+)
 
 
 ASPECT_RATIOS = {
@@ -44,6 +51,160 @@ class EditorAgent:
         output_dir = self.settings.outputs_dir / project.project_id
         output_dir.mkdir(parents=True, exist_ok=True)
         return output_dir
+
+    def _derive_preview(self, project: MovieProject, source: Path, *, tier: str, resolution: str) -> Path | None:
+        """Create a bounded preview copy without ever replacing the source master."""
+
+        if not source.is_file():
+            return None
+        width, height = target_dimensions(resolution)
+        metadata = probe_media(source, self.settings.ffprobe_bin)
+        output_dir = self._output_dir(project) / "previews"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        suffix = "proxy" if tier == "working_proxy" else "screening"
+        output = output_dir / f"{suffix}-{resolution}.mp4"
+        source_width = metadata.get("width")
+        if isinstance(source_width, int) and source_width <= width:
+            # Do not silently upscale a low-res source. The UI will surface the
+            # resulting LOW RES SOURCE quality label from the copied asset.
+            shutil.copy2(source, output)
+            return output
+        command = [
+            self.settings.ffmpeg_bin,
+            "-y",
+            "-i",
+            str(source),
+            "-vf",
+            f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height}",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast" if tier == "working_proxy" else "fast",
+            "-crf",
+            "30" if tier == "working_proxy" else "22",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "128k",
+            "-movflags",
+            "+faststart",
+            str(output),
+        ]
+        completed = subprocess.run(command, capture_output=True, text=True, check=False)
+        if completed.returncode != 0 or not output.is_file():
+            output.unlink(missing_ok=True)
+            return None
+        return output
+
+    def _register_cut_assets(self, project: MovieProject, source: Path, *, include_master: bool) -> None:
+        """Persist proxy/screening/master records for the current cut."""
+
+        assets: dict[str, dict[str, Any]] = {}
+        proxy = self._derive_preview(project, source, tier="working_proxy", resolution="720p")
+        screening = self._derive_preview(
+            project,
+            source,
+            tier="screening_preview",
+            resolution=str(project.target_resolution or "1080p"),
+        )
+        if proxy:
+            assets["working_proxy"] = asset_record(
+                proxy,
+                tier="working_proxy",
+                ffprobe_bin=self.settings.ffprobe_bin,
+                target_resolution=project.target_resolution,
+                source="cut",
+            )
+        if screening:
+            assets["screening_preview"] = asset_record(
+                screening,
+                tier="screening_preview",
+                ffprobe_bin=self.settings.ffprobe_bin,
+                target_resolution=project.target_resolution,
+                source="cut",
+            )
+        if include_master and source.is_file():
+            assets["final_master"] = asset_record(
+                source,
+                tier="final_master",
+                ffprobe_bin=self.settings.ffprobe_bin,
+                target_resolution=project.target_resolution,
+                source="final_cut",
+            )
+        project.video_assets = assets
+
+    def normalize_resolution(self, project: MovieProject, resolution: str = "1080p") -> str:
+        """Normalize every generated shot before AI Edit using a true master path.
+
+        This is deliberately opt-in. It uses FFmpeg's deterministic scale/crop
+        path today and records ``method=resolution_normalize`` so a future AI
+        upscaler can replace the implementation without changing the project
+        contract or allowing a proxy to become an export source.
+        """
+
+        resolution = str(resolution or project.target_resolution or "1080p").lower()
+        width, height = target_dimensions(resolution)
+        normalized_dir = self._output_dir(project) / "normalized" / "shots"
+        normalized_dir.mkdir(parents=True, exist_ok=True)
+        changed = 0
+        for shot in project.storyboard:
+            source = Path(shot.output_placeholder)
+            if not source.is_file():
+                continue
+            output = normalized_dir / f"shot-{shot.number:02d}-{resolution}.mp4"
+            if not output.is_file():
+                command = [
+                    self.settings.ffmpeg_bin,
+                    "-y",
+                    "-i",
+                    str(source),
+                    "-vf",
+                    f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height}",
+                    "-r",
+                    str(project.target_fps or 24),
+                    "-c:v",
+                    "libx264",
+                    "-preset",
+                    "medium",
+                    "-crf",
+                    "18",
+                    "-c:a",
+                    "aac",
+                    "-b:a",
+                    "192k",
+                    "-movflags",
+                    "+faststart",
+                    str(output),
+                ]
+                completed = subprocess.run(command, capture_output=True, text=True, check=False)
+                if completed.returncode != 0 or not output.is_file():
+                    raise RuntimeError(f"Resolution Normalize failed for Shot {shot.number}: {completed.stderr[-400:]}")
+            shot.media_assets.setdefault("final_master", {})["original_path"] = str(source)
+            shot.media_assets["final_master"] = asset_record(
+                output,
+                tier="final_master",
+                ffprobe_bin=self.settings.ffprobe_bin,
+                target_resolution=resolution,
+                source="resolution_normalize",
+                normalized=True,
+            )
+            shot.output_placeholder = str(output)
+            changed += 1
+        if not changed:
+            raise RuntimeError("No real shot media is available for Resolution Normalize. Generate the shots first.")
+        project.target_resolution = resolution
+        project.edit_plan = {
+            **(project.edit_plan or {}),
+            "resolution_normalize": {
+                "status": "READY",
+                "method": "resolution_normalize",
+                "resolution": resolution,
+                "fps": project.target_fps or 24,
+                "shots": changed,
+            },
+        }
+        project.logs.append(f"Media Pipeline: Resolution Normalize completed for {changed} shots at {width}×{height} / {project.target_fps or 24}fps.")
+        return f"Resolution Normalize: {changed} shots prepared at {resolution.upper()} / {project.target_fps or 24}fps."
 
     @staticmethod
     def _subtitle_filter(srt_path: Path, aspect: str = "16:9") -> str:
@@ -340,6 +501,7 @@ class EditorAgent:
             self._concat_media(project, rough_path)
             self._mix_audio(project, rough_path)
             project.rough_cut_placeholder = str(rough_path)
+            self._register_cut_assets(project, rough_path, include_master=False)
             return "Editor Agent: Rough Cut complete. Picture Cut, Voice, Music, SFX, Subtitles, and Mix are ready."
         project.rough_cut_placeholder = f"outputs/{project.project_id}/rough-cut.mp4"
         return "Editor Agent: Rough Cut simulated. Four-track audio design and subtitle plan are ready; preview available once real shot media exist."
@@ -401,6 +563,7 @@ class EditorAgent:
             # users who want to add subtitles later.
             self._concat_media(project, final_cut)
         project.final_output_placeholder = str(final_cut)
+        self._register_cut_assets(project, final_cut, include_master=True)
         project.edit_plan = {**(project.edit_plan or {}), "status": "final_approved", "approved": True}
         return f"Editor Agent: Assembled {len(project.storyboard)} shots with FFmpeg (subtitle mode: {project.subtitle_mode})."
 
@@ -447,6 +610,13 @@ class EditorAgent:
         if completed.returncode != 0 or not output.is_file():
             output.unlink(missing_ok=True)
             return None
+        project.video_assets["final_master"] = asset_record(
+            output,
+            tier="final_master",
+            ffprobe_bin=self.settings.ffprobe_bin,
+            target_resolution=project.target_resolution,
+            source="final_look",
+        )
         return output
 
     def export_variant(
@@ -458,14 +628,13 @@ class EditorAgent:
         aspect: str = "16:9",
         subtitle_mode: str = "burned",
     ) -> Path:
-        """Encode a selectable delivery variant from the approved cut.
+        """Encode a selectable delivery variant from the approved Final Master.
 
-        The rough cut is preferred as the source so a user can switch between
-        burned, soft, and clean subtitles without stacking subtitles onto an
-        already-burned master. The saved Final Look is applied to the export
-        source unless that exact source is already the rendered look. Mock
-        projects deliberately fail here because their placeholder paths are
-        not media files.
+        Screening previews and working proxies are intentionally excluded from
+        this path. The saved Final Look is applied to the master source unless
+        that exact source is already the rendered look. Mock projects
+        deliberately fail here because their placeholder paths are not media
+        files.
         """
 
         self._require_locked_dialogue(project)
@@ -483,9 +652,14 @@ class EditorAgent:
             raise ValueError("Aspect ratio must be 16:9, 9:16, or 1:1.")
         output_dir = self._output_dir(project)
         rough_path = output_dir / "rough-cut.mp4"
-        final_path = Path(project.final_output_placeholder or "")
-        source = rough_path if rough_path.is_file() else final_path
-        if not source.is_file():
+        # Exports are always sourced from the final-master contract. A
+        # screening preview or working proxy can never silently become a
+        # delivery source.
+        source = best_master_path(project)
+        if source is None:
+            final_path = Path(project.final_output_placeholder or "")
+            source = final_path if final_path.is_file() else (rough_path if rough_path.is_file() else None)
+        if source is None or not source.is_file():
             raise RuntimeError("The Final Cut has not been rendered to a real video file yet; cannot export.")
         look = normalise_final_look(project.final_look or {})
         look_media = Path(str(look.get("media_path") or ""))
@@ -501,6 +675,17 @@ class EditorAgent:
         scale = base_height / ratio_config["height"]
         width = int(round(ratio_config["width"] * scale))
         height = base_height
+        source_metadata = probe_media(source, self.settings.ffprobe_bin)
+        if (
+            isinstance(source_metadata.get("width"), int)
+            and isinstance(source_metadata.get("height"), int)
+            and (source_metadata["width"] < width or source_metadata["height"] < height)
+        ):
+            actual = f"{source_metadata['width']}×{source_metadata['height']}"
+            raise RuntimeError(
+                f"LOW RES SOURCE ({actual}) cannot produce a {resolution.upper()} {aspect} Final Master. "
+                "Run AI Upscale / Resolution Normalize before exporting."
+            )
         scale_filter = f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height}"
         srt_path, _ = self.write_subtitle_exports(project)
         output_path = output_dir / f"final-{resolution}-{aspect.replace(':', 'x')}-{subtitle_mode}.{container}"

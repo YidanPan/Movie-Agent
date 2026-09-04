@@ -119,11 +119,14 @@ const els = {
   deliverStateTitle: $("#deliver-state-title"),
   deliverStateCopy: $("#deliver-state-copy"),
   deliverStateBadge: $("#deliver-state-badge"),
+  deliverQualityReadout: $("#deliver-quality-readout"),
   deliverSummary: $("#deliver-summary"),
   deliverProjectTitle: $("#deliver-project-title"),
   deliverProjectCopy: $("#deliver-project-copy"),
   deliverShotsReady: $("#deliver-shots-ready"),
   deliverReadyNote: $("#deliver-ready-note"),
+  deliverQualityNote: $("#deliver-quality-note"),
+  btnNormalizeResolution: $("#btn-normalize-resolution"),
   deliverSummarySpecs: $("#deliver-summary-specs"),
   deliverWorkProgress: $("#deliver-work-progress"),
   deliverProgressTitle: $("#deliver-progress-title"),
@@ -337,6 +340,7 @@ const state = {
   exportOptions: { container: "mp4", resolution: "1080p", aspect: "16:9", subtitle_mode: "burned" },
   finalVideoUrl: null,
   finalVideoProbeRun: 0,
+  videoQuality: null,
   editProgressStep: 0,
   musicMode: "ai",
   musicIntensity: 0.6,
@@ -1574,6 +1578,45 @@ function deliverRuntime(project) {
   return seconds || Number(project?.duration_seconds || 0) || 0;
 }
 
+function mediaQualityLabel(record, video = null) {
+  const width = Number(record?.width || video?.videoWidth || 0);
+  const height = Number(record?.height || video?.videoHeight || 0);
+  if (width && height) {
+    if (width < 1280 || height < 720) return "LOW RES SOURCE";
+    if (width < 1920 || height < 1080) return "720P";
+    return "1080P";
+  }
+  const quality = String(record?.quality || "").toUpperCase();
+  return quality || "QUALITY UNKNOWN";
+}
+
+function renderMediaQuality(project, mode = "screening") {
+  const snapshot = project?.video_quality || {};
+  state.videoQuality = snapshot;
+  const record = mode === "proxy"
+    ? snapshot.working_proxy
+    : state.hasFinalVideo
+      ? (snapshot.final_master || snapshot.screening_preview)
+      : (snapshot.screening_preview || snapshot.final_master || snapshot.working_proxy);
+  const label = mediaQualityLabel(record, state.hasFinalVideo ? els.finalVideo : els.roughCutVideo);
+  const prefix = mode === "proxy" ? "PROXY" : "PREVIEW";
+  if (els.deliverQualityReadout) {
+    els.deliverQualityReadout.textContent = `${prefix} · ${label}`;
+    els.deliverQualityReadout.dataset.quality = label.toLowerCase().replaceAll(" ", "-");
+  }
+  const lowRes = label === "LOW RES SOURCE" || Boolean(snapshot.source_low_res);
+  if (els.deliverQualityNote) {
+    els.deliverQualityNote.textContent = lowRes
+      ? "LOW RES SOURCE · Screening 仅保留原始清晰度；导出前请运行 Resolution Normalize。"
+      : `Screening Room · ${prefix} 优先读取 ${label === "QUALITY UNKNOWN" ? "720P / 1080P" : label}。Final Export 只使用 Final Master。`;
+  }
+  if (els.btnNormalizeResolution) {
+    const showNormalize = lowRes && !state.hasFinalVideo && Boolean(project?.storyboard?.length);
+    els.btnNormalizeResolution.classList.toggle("hidden", !showNormalize);
+    els.btnNormalizeResolution.disabled = state.editing;
+  }
+}
+
 function deliverStatus(project) {
   const status = String(project?.status || "");
   if (status === "editing_rough_cut") return { key: "editing", badge: "AI EDITING", title: "AI 剪辑正在组装", copy: "镜头、声音与字幕正在进入粗剪时间线。" };
@@ -1592,8 +1635,9 @@ function subtitleModeLabel(mode) {
 }
 
 function finalVideoCandidate(project) {
+  if (project?.screening_preview_url) return project.screening_preview_url;
   if (project?.final_video_url) return project.final_video_url;
-  return `/api/projects/${encodeURIComponent(project.project_id)}/final-video`;
+  return `/api/projects/${encodeURIComponent(project.project_id)}/screening-preview`;
 }
 
 function renderDeliverSummary(project) {
@@ -2432,6 +2476,7 @@ function renderDeliverProgress(project, description = "") {
 function updateFinalVideoMetadata() {
   const video = els.finalVideo;
   if (!video || !state.hasFinalVideo) return;
+  renderMediaQuality(state.project, "screening");
   if (els.deliverMetaDuration && Number.isFinite(video.duration)) els.deliverMetaDuration.textContent = compactDuration(video.duration);
   if (els.deliverMetaResolution && video.videoWidth && video.videoHeight) {
     els.deliverMetaResolution.textContent = `${video.videoWidth} × ${video.videoHeight}`;
@@ -2567,6 +2612,7 @@ async function renderScreening(project) {
     els.deliverStateBadge.dataset.state = stateInfo.key;
   }
   renderDeliverSummary(project);
+  renderMediaQuality(project, status === "editing_rough_cut" || status === "rough_cut_ready" ? "proxy" : "screening");
   renderAudioDesign(project);
   renderDeliverTimeline(project);
   if (els.deliverWorkProgress) els.deliverWorkProgress.classList.toggle("hidden", !["editing", "rough", "ready"].includes(stateInfo.key));
@@ -2579,6 +2625,7 @@ async function renderScreening(project) {
       if (response.ok && els.roughCutVideo && probeRun === state.finalVideoProbeRun) {
         els.roughCutVideo.src = `/api/projects/${encodeURIComponent(project.project_id)}/rough-cut`;
         els.roughCutStage?.classList.add("has-media");
+        renderMediaQuality(project, "proxy");
       }
     } catch { /* mock mode may only expose rough-cut metadata */ }
   }
@@ -2595,6 +2642,7 @@ async function renderScreening(project) {
           els.finalVideoAfter.src = candidate;
           els.finalVideoAfter.load();
         }
+        renderMediaQuality(project, "screening");
       }
     } catch { /* final media is optional in mock mode */ }
   }
@@ -2734,6 +2782,31 @@ async function exportFinalCut() {
   } finally {
     button.disabled = false;
     button.innerHTML = original;
+  }
+}
+
+async function normalizeProjectResolution() {
+  if (!state.project || !els.btnNormalizeResolution) return;
+  const button = els.btnNormalizeResolution;
+  const original = button.textContent;
+  button.disabled = true;
+  button.textContent = "NORMALIZING…";
+  try {
+    const response = await fetch(`/api/projects/${encodeURIComponent(state.project.project_id)}/media/normalize`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ resolution: "1080p", method: "resolution_normalize" }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    state.project = payload;
+    renderScreening(payload);
+    toast("已完成 1080P / 24fps Resolution Normalize，可继续进入 AI Edit。", false);
+  } catch (error) {
+    toast(`Resolution Normalize 失败：${error.message}`, true);
+  } finally {
+    button.disabled = false;
+    button.textContent = original;
   }
 }
 
@@ -4720,6 +4793,7 @@ function init() {
     els.moreExportMenu?.classList.toggle("hidden", isOpen);
     els.btnMoreExport?.setAttribute("aria-expanded", String(!isOpen));
   });
+  els.btnNormalizeResolution?.addEventListener("click", normalizeProjectResolution);
   [els.finalVideo, els.roughCutVideo].forEach((media) => {
     if (!media) return;
     media.addEventListener("loadedmetadata", () => {

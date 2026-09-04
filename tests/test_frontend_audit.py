@@ -201,4 +201,14 @@ def test_light_screening_room_keeps_content_sharp_and_monitor_readable():
     assert "backdrop-filter: none" in CSS
     assert "text-shadow: none" in CSS
     assert "FINAL CUT NOT GENERATED" in INDEX
-    assert "screening-sharp-20260904" in INDEX
+    assert "media-quality-20260904" in INDEX
+
+
+def test_video_quality_tiers_keep_screening_preview_separate_from_final_master():
+    assert 'id="deliver-quality-readout"' in INDEX
+    assert 'id="btn-normalize-resolution"' in INDEX
+    assert 'screening-preview' in APP
+    assert "function renderMediaQuality" in APP
+    assert "Final Export 只使用 Final Master" in APP
+    assert "/api/projects/{project_id}/screening-preview" in (ROOT / "server.py").read_text(encoding="utf-8")
+    assert "LOW RES SOURCE" in (ROOT / "movie_agent/services/media_quality.py").read_text(encoding="utf-8")

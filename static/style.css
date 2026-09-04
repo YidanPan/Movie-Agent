@@ -8983,3 +8983,78 @@ body[data-design="archive-console"] .timeline-resize-handle:focus-visible {
   opacity: 1;
   border-color: var(--amber);
 }
+
+/* Media quality is production metadata, not a decorative badge. Keep it
+   adjacent to the Deliver state so a large player can never hide the source
+   contract. */
+body[data-design="archive-console"] .deliver-stage-status {
+  display: grid;
+  justify-items: end;
+  gap: 7px;
+  min-width: 150px;
+  text-align: right;
+}
+
+body[data-design="archive-console"] .deliver-quality-readout {
+  color: var(--text-meta);
+  font: 600 12px/1.35 var(--mono);
+  letter-spacing: .055em;
+  white-space: nowrap;
+}
+
+body[data-design="archive-console"] .deliver-quality-readout[data-quality="1080p"],
+body[data-design="archive-console"] .deliver-quality-readout[data-quality="720p"] {
+  color: var(--status-ok-token);
+}
+
+body[data-design="archive-console"] .deliver-quality-readout[data-quality="low-res-source"] {
+  color: var(--status-error-token);
+}
+
+body[data-design="archive-console"] .deliver-quality-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 15px;
+  padding-top: 13px;
+  border-top: 1px solid var(--line-token-soft);
+}
+
+body[data-design="archive-console"] .deliver-quality-actions .type-helper {
+  margin: 0;
+  max-width: 64ch;
+}
+
+body[data-design="archive-console"] #btn-normalize-resolution {
+  flex: 0 0 auto;
+  min-height: 36px;
+  padding-inline: 13px;
+  color: var(--accent-token);
+  border-color: var(--line-token-strong);
+  white-space: nowrap;
+}
+
+html[data-theme="light"] body[data-design="archive-console"] .deliver-quality-readout[data-quality="1080p"],
+html[data-theme="light"] body[data-design="archive-console"] .deliver-quality-readout[data-quality="720p"] {
+  color: var(--desk-status-ok);
+}
+
+html[data-theme="light"] body[data-design="archive-console"] .deliver-quality-readout[data-quality="low-res-source"] {
+  color: var(--desk-status-error);
+}
+
+@media (max-width: 560px) {
+  body[data-design="archive-console"] .deliver-stage-status {
+    justify-items: start;
+    min-width: 0;
+    text-align: left;
+  }
+
+  body[data-design="archive-console"] .deliver-quality-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  body[data-design="archive-console"] #btn-normalize-resolution { width: 100%; }
+}

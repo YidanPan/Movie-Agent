@@ -20,6 +20,8 @@
 
 Deliver 页是 Final Cut Screening Room：项目未剪辑时显示项目摘要与 `N/N SHOTS READY`，AI Edit 进行时展示镜头合成、旁白、字幕、BGM、SFX 和 FFmpeg 编码进度；批准真实成片后才显示播放器、时长/分辨率/画幅/编码/音频元数据与可跳转 Shot Timeline。播放器右侧的 `FINAL LOOK / COLOR FINISH` 是导出前的全片最终润色台：提供原片、胶片叙事、冷灰未来、梦境超现实、纪实去饱和、赛博夜色六种预设，支持强度、颗粒、暗角和高光柔化，点击预设即可在播放器中即时试听；默认锁定 `WHOLE FILM`，点击应用后才写入交付配置。`导出成片` 支持 MP4/MOV/WebM、720P/1080P、16:9/9:16/1:1 和三种字幕模式，默认 MP4 + H.264 + 1080P + 16:9；JSON、制作手册 Markdown 和 SRT/VTT 收纳在 `更多导出`。
 
+视频质量按三层资产管理：`Working Proxy` 只服务分镜浏览和编辑响应，`Screening Preview` 用于 Deliver 放映室并优先选择 720P 或 1080P，`Final Master` 是唯一允许进入最终导出的来源。播放器不会通过 CSS scale、blur 或低质量 canvas 二次放大；如果源文件低于目标分辨率，界面会明确显示 `LOW RES SOURCE`，并提供进入 AI Edit 前执行 `Resolution Normalize` 的入口。Normalize 会按项目目标统一为 1920×1080 / 24fps（或 720P 预览），保留原始文件记录，最终导出仍只读取 Master，不会把 Proxy 当成母版。
+
 ### 双主题工作状态
 
 顶栏的 `SCREENING / DESK` 切换对应两种制作状态，并不是简单的黑白反转：
@@ -154,6 +156,8 @@ The writer emits one editable `dialogue_book` and timed `subtitle_track` cue per
 Editorial timing is separate from native generation timing. Each shot stores `source_duration_seconds` plus the current `desired_duration`, with `TRIM`, `EXTEND`, `HOLD LAST FRAME`, `SLOW MOTION`, and `REGENERATE` operations. FFmpeg applies the timing operation before concatenation, then subtitle cues and the Music Emotional Arc are realigned to the edited timeline. Voice is planned as one continuous English track with a locked voice profile instead of unrelated per-shot TTS clips.
 
 Deliver also includes a dedicated `FINAL LOOK / COLOR FINISH` inspector after Final Cut preview and before export. It offers six whole-film presets — Original, Film Narrative, Cool Gray Future, Dream Surreal, Documentary Desat, and Cyber Night — plus intensity, grain, vignette, and highlight-softening controls. Clicking a preset immediately auditions a browser preview; only an explicit Apply action persists the look. Real media is rendered by FFmpeg into a revisioned master, while mock mode stores the reproducible export plan without inventing a video file. Whole-film scope is the default; current-shot/current-scene scope is reserved for a future advanced mode.
+
+Video media follows three explicit quality tiers. `Working Proxy` is disposable and optimized for storyboard and edit responsiveness. `Screening Preview` is the Deliver viewer copy and prefers 720p or 1080p without silently upscaling a smaller source. `Final Master` is the only source accepted by the export endpoint, so a proxy can never become a delivery master. The player avoids CSS scaling, blur, and low-quality canvas resizing. When source media is below the project target, Deliver shows `LOW RES SOURCE` and offers an opt-in `Resolution Normalize` step before AI Edit. Normalize produces a deterministic 1920×1080 / 24fps (or 720p) master-derived source while retaining the original path; final export always reads the master contract.
 
 ### Theme system
 

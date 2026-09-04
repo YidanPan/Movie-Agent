@@ -422,6 +422,7 @@ class MovieOrchestrator:
         project.status = "rendering_comfyui"
         project.final_output_placeholder = None
         project.rough_cut_placeholder = None
+        project.video_assets = {}
         project.edit_plan = {}
         project.logs.append("Generation Agent: Submitting Spark ComfyUI per-shot tasks.")
         self.store.save(project)
@@ -440,6 +441,7 @@ class MovieOrchestrator:
                         project.project_id, shot,
                         visual_bible=project.visual_bible,
                         previous_shot=previous_shot,
+                        target_resolution=project.target_resolution,
                     ))
                     project.logs.append(
                         self.reviewer.review_generated(
@@ -495,6 +497,7 @@ class MovieOrchestrator:
         project.status = "rendering_comfyui"
         project.final_output_placeholder = None
         project.rough_cut_placeholder = None
+        project.video_assets = {}
         project.edit_plan = {}
         project.logs.append(f"Generation Agent: Inspector submitted shot {shot_number} for single-shot regeneration.")
         self.store.save(project)
@@ -504,6 +507,7 @@ class MovieOrchestrator:
                 project.project_id, shot,
                 visual_bible=project.visual_bible,
                 previous_shot=previous_shot,
+                target_resolution=project.target_resolution,
             ))
             project.logs.append(
                 self.reviewer.review_generated(
@@ -538,6 +542,7 @@ class MovieOrchestrator:
 
         project.final_output_placeholder = None
         project.rough_cut_placeholder = None
+        project.video_assets = {}
         project.edit_plan = {}
         reset_final_look(project)
         shots_ready = bool(project.storyboard) and all(
@@ -683,6 +688,7 @@ class MovieOrchestrator:
         # without touching the locked dialogue or regenerating shots.
         if str(project.status).startswith("completed"):
             project.final_output_placeholder = None
+            project.video_assets = {}
             project.edit_plan = {}
         ensure_audio_design(
             project,
@@ -753,6 +759,18 @@ class MovieOrchestrator:
         project.mix_state["status"] = "ROUGH CUT READY"
         project.status = "rough_cut_ready"
         project.logs.append("Editor Agent: Rough Cut complete. Preview sound design, re-edit, or approve final cut.")
+        self.store.save(project)
+        return project
+
+    def normalize_resolution(self, project_id: str, resolution: str = "1080p") -> MovieProject:
+        """Opt-in source normalization before AI Edit / Final Cut."""
+
+        project = self.store.load(project_id)
+        if not project.storyboard or not all(str(shot.status).startswith("approved") for shot in project.storyboard):
+            raise ValueError("All shots must pass QC before Resolution Normalize can run.")
+        self.editor.normalize_resolution(project, resolution)
+        if project.status not in {"ready_for_ai_edit", "ready_for_comfyui_render"}:
+            project.status = "ready_for_ai_edit"
         self.store.save(project)
         return project
 
@@ -976,6 +994,7 @@ class MovieOrchestrator:
         )
         project.final_output_placeholder = None
         project.rough_cut_placeholder = None
+        project.video_assets = {}
         project.edit_plan = {}
         reset_final_look(project)
         project.status = "ready_for_ai_edit" if all(

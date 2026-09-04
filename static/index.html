@@ -17,7 +17,7 @@
   })();
 </script>
 <link id="favicon" rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%2315110b'/%3E%3Crect x='6' y='12' width='5' height='8' fill='%23c28a3e'/%3E%3Crect x='14' y='12' width='5' height='8' fill='%23c28a3e' opacity='.55'/%3E%3Crect x='22' y='12' width='5' height='8' fill='%23c28a3e' opacity='.3'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="/static/style.css?v=screening-sharp-20260904">
+<link rel="stylesheet" href="/static/style.css?v=media-quality-20260904">
 </head>
 <body data-view="landing" data-design="archive-console">
 <div class="theme-transition-wash" id="theme-transition-wash" aria-hidden="true"></div>
@@ -352,7 +352,10 @@
               <h3 id="deliver-state-title">FINAL CUT NOT GENERATED</h3>
               <p id="deliver-state-copy">镜头和制作手册准备好后，从这里启动 AI 剪辑。</p>
             </div>
-            <span class="deliver-state-badge type-status" id="deliver-state-badge">NOT EDITED</span>
+            <div class="deliver-stage-status">
+              <span class="deliver-state-badge type-status" id="deliver-state-badge">NOT EDITED</span>
+              <span class="deliver-quality-readout type-system-meta" id="deliver-quality-readout">QUALITY: AUTO</span>
+            </div>
           </header>
 
           <section class="deliver-summary" id="deliver-summary" aria-label="项目摘要">
@@ -361,6 +364,7 @@
               <h4 id="deliver-project-title">等待项目进入放映室</h4>
               <p class="type-helper" id="deliver-project-copy">完成分镜生成后，这里会显示成片状态、镜头就绪度和交付控制。</p>
               <div class="deliver-ready-line"><strong class="mono" id="deliver-shots-ready">0/0 SHOTS READY</strong><span id="deliver-ready-note">尚未收到镜头素材。</span></div>
+              <div class="deliver-quality-actions"><span class="type-helper" id="deliver-quality-note">Screening Room 会优先读取 720P / 1080P 预览。</span><button class="ghost type-control hidden" id="btn-normalize-resolution" type="button">RESOLUTION NORMALIZE</button></div>
             </div>
             <div class="deliver-summary-specs" id="deliver-summary-specs" aria-label="项目摘要数据"></div>
           </section>
@@ -570,6 +574,6 @@
 
 <div class="toast mono" id="toast" role="status"></div>
 
-<script src="/static/app.js?v=screening-sharp-20260904"></script>
+<script src="/static/app.js?v=media-quality-20260904"></script>
 </body>
 </html>
