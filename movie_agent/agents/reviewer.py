@@ -33,10 +33,15 @@ class ReviewerAgent:
             raise RuntimeError(f"Shot {shot.number} has not been generated yet; cannot enter quality review.")
         video_path = Path(shot.output_placeholder)
         duration = self._video_duration(video_path)
-        tolerance = max(1.5, shot.duration_seconds * 0.25)
-        if abs(duration - shot.duration_seconds) > tolerance:
+        # Review the native media against the length requested from the video
+        # model.  Editorial timing may intentionally trim, extend, hold, or
+        # slow the shot later, so ``duration_seconds`` is not the right QC
+        # expectation once a timeline edit has been made.
+        expected_duration = float(shot.source_duration_seconds or shot.duration_seconds)
+        tolerance = max(1.5, expected_duration * 0.25)
+        if abs(duration - expected_duration) > tolerance:
             raise RuntimeError(
-                f"Shot {shot.number} duration anomaly: target {shot.duration_seconds}s, actual {duration:.2f}s."
+                f"Shot {shot.number} duration anomaly: native target {expected_duration:g}s, actual {duration:.2f}s."
             )
         if project_id is None:
             project_id = "ad-hoc-review"

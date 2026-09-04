@@ -212,3 +212,10 @@ def test_video_quality_tiers_keep_screening_preview_separate_from_final_master()
     assert "Final Export 只使用 Final Master" in APP
     assert "/api/projects/{project_id}/screening-preview" in (ROOT / "server.py").read_text(encoding="utf-8")
     assert "LOW RES SOURCE" in (ROOT / "movie_agent/services/media_quality.py").read_text(encoding="utf-8")
+
+
+def test_frontend_consumes_backend_pipeline_state_and_saved_event():
+    assert "pipeline_state?.pipeline" in APP
+    assert "function canonicalProjectState" in APP
+    assert 'event.type === "project_saved"' in APP
+    assert 'appendCrewStatus("system", "SAVED"' in APP

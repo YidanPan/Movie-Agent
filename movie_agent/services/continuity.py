@@ -1,7 +1,15 @@
-"""Whole-film continuity contracts shared by planning and rendering agents."""
+"""Whole-film continuity contracts shared by planning and rendering agents.
+
+The continuity module owns the small pieces of state that must remain stable
+between planning and media generation.  In particular, the project reference
+seed is persisted once and every shot receives a deterministic derivative.
+That keeps a retry or a resumed Spark render from silently changing the visual
+identity of an otherwise unchanged shot.
+"""
 
 from __future__ import annotations
 
+import hashlib
 from typing import Any
 
 
@@ -47,3 +55,20 @@ def ensure_continuity_lock(project: Any) -> dict[str, Any]:
         )
         project.continuity_lock = current
     return current
+
+
+def derive_shot_seed(project_id: str, reference_seed: str | int | None, shot_number: int) -> int:
+    """Derive a stable ComfyUI seed for one shot in one project.
+
+    A cryptographic digest is used instead of Python's process-randomised
+    ``hash()`` so the value is reproducible across restarts, machines, and
+    Python versions.  The result stays inside the positive signed 63-bit range
+    accepted by the verified ComfyUI workflow.
+    """
+
+    material = f"{str(project_id).strip()}|{str(reference_seed or '42').strip()}|{int(shot_number)}".encode(
+        "utf-8"
+    )
+    digest = hashlib.sha256(material).digest()
+    seed = int.from_bytes(digest[:8], "big") & ((1 << 63) - 1)
+    return seed or 1

@@ -107,9 +107,12 @@ def _split_for_shots(text: str, count: int) -> list[str]:
             segments.append(sentence)
         else:
             segments.extend(_split_at_clauses(sentence))
-    if len(segments) >= count:
-        return _merge_segments(segments, count)
-    return _pad_segments(segments, count)
+    expanded: list[str] = []
+    for segment in segments:
+        expanded.extend(_split_long_text(segment))
+    if len(expanded) >= count:
+        return _merge_segments(expanded, count)
+    return _pad_segments(expanded, count)
 
 
 def _split_at_clauses(sentence: str) -> list[str]:
@@ -185,8 +188,11 @@ def _pad_segments(segments: list[str], target: int) -> list[str]:
         if len(words) < 2:
             break
         mid = len(words) // 2
-        result[longest_index] = " ".join(words[:mid])
-        result.insert(longest_index + 1, " ".join(words[mid:]))
+        split_at = _find_best_break(words, mid)
+        if split_at <= 0 or split_at >= len(words):
+            break
+        result[longest_index] = " ".join(words[:split_at])
+        result.insert(longest_index + 1, " ".join(words[split_at:]))
     return result[:target]
 
 
@@ -207,15 +213,10 @@ def _wrap_cue_text(text: str) -> str:
     best_break = _find_best_break(words, mid)
     line1 = " ".join(words[:best_break])
     line2 = " ".join(words[best_break:])
-    if len(line2) > _MAX_LINE_CHARS and len(words) > 3:
-        second_mid = len(words[best_break:]) // 2 + best_break
-        second_break = _find_best_break(words, second_mid, lo=best_break + 1)
-        if second_break > best_break:
-            line1 = " ".join(words[:best_break])
-            remainder = words[best_break:]
-            line2 = " ".join(remainder[: second_break - best_break])
-            line3 = " ".join(remainder[second_break - best_break :])
-            return f"{line1}\n{line2}\n{line3}"
+    # A cue is never allowed to grow a third line.  Long text is split into
+    # multiple timed cues by ``_render_entries`` before this wrapper is called;
+    # this function therefore has one responsibility: format one cue as one
+    # or two lines while preserving all of its words.
     return f"{line1}\n{line2}"
 
 
@@ -237,6 +238,54 @@ def _find_best_break(words: list[str], target: int, lo: int = 1) -> int:
                 continue
             return candidate
     return best
+
+
+def _split_long_text(text: str, max_chars: int = _MAX_LINE_CHARS * _MAX_LINES_PER_CUE) -> list[str]:
+    """Split an overlong subtitle into natural, two-line-sized cue chunks.
+
+    The old implementation attempted to keep every word in one cue and
+    produced a third line as a last resort.  Subtitle renderers cannot express
+    that reliably across players, so we create additional cues and let their
+    timestamps be proportionally distributed by ``_render_entries``.
+    """
+
+    clean = re.sub(r"\s+", " ", text or "").strip()
+    if not clean or len(clean) <= max_chars:
+        return [clean] if clean else []
+    words = clean.split()
+    chunks: list[str] = []
+    while words:
+        remaining = " ".join(words)
+        if len(remaining) <= max_chars:
+            chunks.append(remaining)
+            break
+        # Find the largest word prefix within the two-line budget, then move
+        # the boundary toward a protected-phrase-safe word break.
+        max_cut = 1
+        for index in range(2, len(words) + 1):
+            if len(" ".join(words[:index])) > max_chars:
+                break
+            max_cut = index
+        split_at = _find_best_break(words, max_cut, lo=1)
+        split_at = min(max_cut, max(1, split_at))
+        # ``_find_best_break`` may choose a nearby candidate that still pushes
+        # the prefix over the character budget; walk back until it fits.
+        while split_at > 1 and (
+            len(" ".join(words[:split_at])) > max_chars or _protected_break(words, split_at)
+        ):
+            split_at -= 1
+        chunks.append(" ".join(words[:split_at]))
+        words = words[split_at:]
+    return chunks
+
+
+def _protected_break(words: list[str], index: int) -> bool:
+    """Whether a cue boundary would strand a protected English phrase."""
+
+    if index <= 0 or index >= len(words):
+        return False
+    previous = words[index - 1].lower().rstrip(".,;:!?")
+    return previous in (_ARTICLES_AND_DETERMINERS | _PROTECTED_PREPOSITIONS | _AUXILIARIES)
 
 
 def _entry_text(entry: Any) -> str:
@@ -351,10 +400,21 @@ def ensure_dialogue_assets(
 def align_script_to_shots(script: dict[str, Any], storyboard: Iterable[Any]) -> dict[str, Any]:
     """Align cue timing to the actual storyboard durations after planning."""
 
-    result = ensure_dialogue_assets(script)
     shots = list(storyboard)
     if not shots:
-        return result
+        return ensure_dialogue_assets(script)
+    target_duration = sum(
+        float(shot.get("duration_seconds", 4)) if isinstance(shot, dict) else float(getattr(shot, "duration_seconds", 4))
+        for shot in shots
+    )
+    # Pass the real shot count through.  Calling the legacy default here would
+    # normalise every project to six cues and silently replace shots 7–10 with
+    # silence in longer films.
+    result = ensure_dialogue_assets(
+        script,
+        duration_seconds=max(1, int(round(target_duration))),
+        shot_count=len(shots),
+    )
     dialogue = list(result.get("dialogue_book") or [])
     subtitle = list(result.get("subtitle_track") or [])
     cursor = 0.0
@@ -382,6 +442,40 @@ def align_script_to_shots(script: dict[str, Any], storyboard: Iterable[Any]) -> 
     return result
 
 
+def _render_entries(entries: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Return export cues with guaranteed one- or two-line text blocks."""
+
+    rendered: list[dict[str, Any]] = []
+    for entry in entries:
+        source = deepcopy(entry)
+        text = _entry_text(source) or "(silence)"
+        chunks = _split_long_text(text) or ["(silence)"]
+        try:
+            start = max(0.0, float(source.get("start_seconds", 0) or 0))
+            end = max(start, float(source.get("end_seconds", start) or start))
+        except (TypeError, ValueError):
+            start, end = 0.0, 0.0
+        if len(chunks) == 1:
+            source["text"] = _wrap_cue_text(chunks[0])
+            rendered.append(source)
+            continue
+        weights = [max(1, len(chunk)) for chunk in chunks]
+        total_weight = float(sum(weights))
+        duration = max(0.0, end - start)
+        cursor = start
+        for index, chunk in enumerate(chunks):
+            next_cursor = end if index == len(chunks) - 1 else cursor + duration * weights[index] / total_weight
+            part = deepcopy(source)
+            line_id = str(source.get("line_id") or "CUE")
+            part["line_id"] = f"{line_id}-{index + 1}"
+            part["start_seconds"] = round(cursor, 3)
+            part["end_seconds"] = round(max(cursor, next_cursor), 3)
+            part["text"] = _wrap_cue_text(chunk)
+            rendered.append(part)
+            cursor = next_cursor
+    return rendered
+
+
 def _timestamp(seconds: Any, separator: str) -> str:
     total_ms = max(0, int(round(float(seconds or 0) * 1000)))
     hours, remainder = divmod(total_ms, 3_600_000)
@@ -392,8 +486,8 @@ def _timestamp(seconds: Any, separator: str) -> str:
 
 def render_srt(entries: Iterable[dict[str, Any]]) -> str:
     rows = []
-    for index, entry in enumerate(entries, start=1):
-        text = _wrap_cue_text(_entry_text(entry) or "(silence)")
+    for index, entry in enumerate(_render_entries(entries), start=1):
+        text = str(entry.get("text") or "(silence)")
         rows.append(
             f"{index}\n{_timestamp(entry.get('start_seconds'), ',')} --> {_timestamp(entry.get('end_seconds'), ',')}\n{text}\n"
         )
@@ -402,8 +496,8 @@ def render_srt(entries: Iterable[dict[str, Any]]) -> str:
 
 def render_vtt(entries: Iterable[dict[str, Any]]) -> str:
     rows = ["WEBVTT", ""]
-    for index, entry in enumerate(entries, start=1):
-        text = _wrap_cue_text(_entry_text(entry) or "(silence)")
+    for index, entry in enumerate(_render_entries(entries), start=1):
+        text = str(entry.get("text") or "(silence)")
         rows.extend(
             [
                 str(index),

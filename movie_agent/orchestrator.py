@@ -88,7 +88,7 @@ class MovieOrchestrator:
             f"Visual Bible Agent: Character, scene and style specs locked via {creative_source}.",
             "Generation Agent: Per-shot generation queue ready.",
             "Dialogue Book: Dialogue Book and Subtitle Track generated; awaiting user lock.",
-            "Project archived: Project JSON saved; ready for review, AI Edit, or export.",
+            "Project saved: Project JSON persisted; ready for review, AI Edit, or export.",
         ]
         emit({"type": "agent_start", "agent": "director"})
         emit(
@@ -249,7 +249,29 @@ class MovieOrchestrator:
             cleaned_idea, duration, visual_style, project_id, brief, script, visual_bible,
             story_beats=story_beats,
         )
+        # The first Writer pass creates the broad screenplay.  Once the
+        # storyboard is locked, run the Script Supervisor pass so narration,
+        # dialogue, and subtitle cues are grounded in the actual shot events.
+        script = self.writer.supervise_storyboard(
+            cleaned_idea,
+            brief,
+            script,
+            storyboard,
+            duration_seconds=duration,
+        )
+        script["film_language"] = self.settings.film_language
         script = align_script_to_shots(script, storyboard)
+        emit(
+            {
+                "type": "artifact",
+                "agent": "writer",
+                "title": "Shot-aware Dialogue Lock Draft",
+                "content": (
+                    f"Script Supervisor mapped {len(storyboard)} dialogue and narration cues to the locked storyboard. "
+                    "Review this version before locking the Dialogue Book."
+                ),
+            }
+        )
         emit(
             {
                 "type": "agent_done",
@@ -356,7 +378,10 @@ class MovieOrchestrator:
             ]
         )
         self.store.save(project)
-        emit({"type": "archived", "project_id": project_id})
+        # Persisting a project is not the same as archiving it.  Keep this as a
+        # neutral lifecycle event so the UI cannot render a false ARCHIVED
+        # state while the project is still in active production.
+        emit({"type": "project_saved", "project_id": project_id})
         if self.settings.video_generation_mode == "comfyui":
             project.status = "ready_for_comfyui_render"
             project.logs.append("Generation Agent: Project is ready. Click 'Spark Real Generate' to submit per-shot tasks.")
@@ -442,6 +467,7 @@ class MovieOrchestrator:
                         visual_bible=project.visual_bible,
                         previous_shot=previous_shot,
                         target_resolution=project.target_resolution,
+                        film_language=project.film_language,
                     ))
                     project.logs.append(
                         self.reviewer.review_generated(
@@ -508,6 +534,7 @@ class MovieOrchestrator:
                 visual_bible=project.visual_bible,
                 previous_shot=previous_shot,
                 target_resolution=project.target_resolution,
+                film_language=project.film_language,
             ))
             project.logs.append(
                 self.reviewer.review_generated(

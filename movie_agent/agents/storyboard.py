@@ -165,15 +165,11 @@ class StoryboardAgent:
     def revise(self, shot: Shot, visual_bible: dict[str, str], previous_shot: Shot | None = None) -> Shot:
         """Refresh one render prompt while retaining narrative beat and duration."""
 
-        consistency = "; ".join(
-            value for key, value in visual_bible.items()
-            if key in {"character_card", "scene_card", "style_card", "character_lock", "scene_lock", "cinematography_lock"}
-        )
         continuity_prefix = ""
         if previous_shot:
             prev_ending = previous_shot.ending_state or previous_shot.action
             continuity_prefix = f"Continuing from previous shot: {prev_ending}. "
-        revised_prompt = f"{continuity_prefix}{shot.prompt}. Consistency constraints: {consistency}"
+        revised_prompt = f"{continuity_prefix}Shot delta revision: {shot.prompt}"
         return Shot(
             number=shot.number,
             duration_seconds=shot.duration_seconds,
@@ -196,4 +192,7 @@ class StoryboardAgent:
             source_duration_seconds=shot.source_duration_seconds,
             timing_mode=shot.timing_mode,
             qc_flags=list(shot.qc_flags),
+            media_assets={key: dict(value) if isinstance(value, dict) else value for key, value in shot.media_assets.items()},
+            compiled_generation_prompt="",
+            generation_seed=None,
         )

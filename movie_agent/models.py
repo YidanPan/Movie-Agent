@@ -9,6 +9,7 @@ from movie_agent.services.subtitles import ensure_dialogue_assets, normalise_sub
 from movie_agent.services.audio import DEFAULT_MUSIC_INTENSITY, normalise_music_intensity, normalise_music_mode
 from movie_agent.services.final_look import ensure_final_look
 from movie_agent.services.continuity import build_continuity_lock
+from movie_agent.state import describe_status
 
 
 @dataclass
@@ -40,6 +41,11 @@ class Shot:
     # Media contracts stay attached to the shot so the UI can distinguish a
     # disposable proxy from a viewer copy and the original/master source.
     media_assets: dict[str, Any] = field(default_factory=dict)
+    # The storyboard keeps ``prompt`` concise (a Shot Delta).  Generation
+    # compiles the full continuity context at render time and stores it here
+    # for review/debugging without overwriting the editorial prompt.
+    compiled_generation_prompt: str = ""
+    generation_seed: int | None = None
 
     def __post_init__(self) -> None:
         if self.source_duration_seconds <= 0:
@@ -47,8 +53,22 @@ class Shot:
         if not self.desired_duration:
             self.desired_duration = float(self.duration_seconds)
 
+    @property
+    def edit_duration_seconds(self) -> int:
+        """Explicit name for the current editorial/timeline duration."""
+
+        return int(self.duration_seconds)
+
+    @edit_duration_seconds.setter
+    def edit_duration_seconds(self, value: int) -> None:
+        self.duration_seconds = int(value)
+
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        payload = asdict(self)
+        # ``duration_seconds`` is retained for API compatibility; this alias
+        # makes the Source-vs-Edit distinction explicit to new consumers.
+        payload["edit_duration_seconds"] = self.edit_duration_seconds
+        return payload
 
 
 @dataclass
@@ -87,7 +107,11 @@ class MovieProject:
     video_assets: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        payload = asdict(self)
+        # Keep the legacy ``status`` field while exposing one canonical state
+        # interpretation for the frontend and external API clients.
+        payload["pipeline_state"] = describe_status(self.status)
+        return payload
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "MovieProject":
@@ -104,7 +128,10 @@ class MovieProject:
                 shot_count=len(data.get("storyboard") or []) or None,
             ),
             visual_bible=data["visual_bible"],
-            storyboard=[Shot(**shot) for shot in data["storyboard"]],
+            storyboard=[
+                Shot(**{key: value for key, value in shot.items() if key != "edit_duration_seconds"})
+                for shot in data["storyboard"]
+            ],
             quality_report=data.get("quality_report", []),
             logs=data.get("logs", []),
             final_output_placeholder=data.get("final_output_placeholder"),

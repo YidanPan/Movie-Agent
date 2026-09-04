@@ -79,6 +79,114 @@ class WriterAgent:
             shot_count=planned_shot_count,
         )
 
+    def supervise_storyboard(
+        self,
+        idea: str,
+        brief: dict[str, Any],
+        script: dict[str, Any],
+        storyboard: list[Any],
+        *,
+        duration_seconds: int,
+    ) -> dict[str, Any]:
+        """Create the second-pass, shot-aware dialogue and narration assets.
+
+        The first writing pass establishes the screenplay and broad story arc.
+        This pass runs only after the storyboard is locked, so every line can
+        refer to an actual visual event instead of repeating a generic theme.
+        ``dialogue_book`` remains the canonical editable source and the
+        subtitle track is derived from it by the shared subtitle service.
+        """
+
+        shot_count = len(storyboard)
+        if self.llm:
+            shot_context = "\n".join(
+                self._shot_context(shot, index)
+                for index, shot in enumerate(storyboard, start=1)
+            )
+            result = self.llm.complete_json(
+                "You are a script supervisor finishing an English sci-fi short after the storyboard is locked. "
+                "Write concise, speakable narration or dialogue that is directly grounded in each shot's visible event. "
+                "Do not write generic philosophical summaries before the final beat. All output must be English. "
+                "Return one short line per shot; preserve causal and emotional continuity.",
+                f"Idea: {idea}\nDirector brief: {brief}\nExisting screenplay: {script.get('story', '')}\n"
+                f"Existing outline: {script.get('outline', '')}\nLOCKED STORYBOARD:\n{shot_context}\n"
+                f"Return JSON with narration (one coherent English paragraph), dialogue_book and subtitle_track arrays. "
+                f"Both arrays must contain exactly {shot_count} items with shot, speaker, kind, text, start_seconds, end_seconds. "
+                "Use speaker=NARRATOR and kind=narration when no character speaks. Keep each line natural for voice performance.",
+            )
+            result_script = {
+                **script,
+                "narration": _as_text(result.get("narration") or script.get("narration", "")),
+                "dialogue_book": result.get("dialogue_book"),
+                "subtitle_track": result.get("subtitle_track"),
+                "narrative_source": "storyboard_supervisor",
+            }
+            return ensure_dialogue_assets(
+                result_script,
+                duration_seconds=duration_seconds,
+                shot_count=shot_count or None,
+            )
+
+        # Mock mode still needs to demonstrate the same contract.  Build lines
+        # from the actual narrative purpose/action/reaction fields rather than
+        # reusing the first-pass theme sentence for every shot.
+        dialogue: list[dict[str, Any]] = []
+        narration_lines: list[str] = []
+        for index, shot in enumerate(storyboard, start=1):
+            purpose = self._shot_value(shot, "narrative_purpose") or f"the next beat unfolds"
+            action = self._shot_value(shot, "main_action") or self._shot_value(shot, "action")
+            reaction = self._shot_value(shot, "character_reaction")
+            line_parts = [self._as_sentence(purpose), self._as_sentence(action)]
+            if reaction:
+                line_parts.append(self._as_sentence(reaction))
+            line = " ".join(part for part in line_parts if part)
+            narration_lines.append(line)
+            dialogue.append(
+                {
+                    "shot": index,
+                    "speaker": "NARRATOR",
+                    "kind": "narration",
+                    "text": line or "The moment holds.",
+                }
+            )
+        result_script = {
+            **script,
+            "narration": " ".join(line for line in narration_lines if line),
+            "dialogue_book": dialogue,
+            "subtitle_track": dialogue,
+            "narrative_source": "storyboard_supervisor",
+        }
+        return ensure_dialogue_assets(
+            result_script,
+            duration_seconds=duration_seconds,
+            shot_count=shot_count or None,
+        )
+
+    @staticmethod
+    def _shot_value(shot: Any, key: str) -> str:
+        if isinstance(shot, dict):
+            return str(shot.get(key) or "").strip()
+        return str(getattr(shot, key, "") or "").strip()
+
+    @classmethod
+    def _as_sentence(cls, value: str) -> str:
+        text = " ".join(str(value or "").split()).strip()
+        if not text:
+            return ""
+        return text if text[-1] in ".!?" else f"{text}."
+
+    @classmethod
+    def _shot_context(cls, shot: Any, index: int) -> str:
+        return (
+            f"Shot {index}: purpose={cls._shot_value(shot, 'narrative_purpose')}; "
+            f"starting_state={cls._shot_value(shot, 'starting_state')}; "
+            f"main_action={cls._shot_value(shot, 'main_action') or cls._shot_value(shot, 'action')}; "
+            f"character_reaction={cls._shot_value(shot, 'character_reaction')}; "
+            f"ending_state={cls._shot_value(shot, 'ending_state')}; "
+            f"transition_hook={cls._shot_value(shot, 'transition_hook')}; "
+            f"visual={cls._shot_value(shot, 'image_description')}"
+        )
+
     def generate_story_beats(
         self,
         idea: str,

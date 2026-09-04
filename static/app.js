@@ -249,7 +249,7 @@ const AGENT_DEFS = [
       const status = String(d.status || "");
       if (status === "rough_cut_ready" || d.rough_cut_placeholder) return "ROUGH CUT / 4-TRACK MIX READY";
       if (status === "editing_rough_cut") return "AI EDIT / PICTURE + SOUND MIX";
-      if (status.startsWith("completed")) return status === "completed_comfyui" && (d.final_video_url || state.hasFinalVideo) ? "DELIVERY / MASTER CUT + MIX READY" : "DELIVERY / ARCHIVED · MEDIA CHECK";
+      if (status.startsWith("completed")) return status === "completed_comfyui" && (d.final_video_url || state.hasFinalVideo) ? "DELIVERY / MASTER CUT + MIX READY" : "DELIVERY / MEDIA CHECK";
       if (status === "ready_for_ai_edit") return "AI EDIT / SOUND DESIGN READY";
       return "EDIT / WAITING FOR SHOT LOCK";
     } },
@@ -545,7 +545,7 @@ async function streamPost(url, body, onEvent) {
 
 /* 让 mock 模式下瞬间完成的流水线，以可观看的节奏逐帧呈现 */
 function createPacedHandler(onEvent) {
-  const delays = { project: 80, agent_start: 260, agent_done: 620, artifact: 360, chat: 280, shot_update: 110, archived: 120 };
+  const delays = { project: 80, agent_start: 260, agent_done: 620, artifact: 360, chat: 280, shot_update: 110, project_saved: 120 };
   const queue = [];
   let draining = false;
   let lastApply = 0;
@@ -628,6 +628,22 @@ function setPipeline(states = {}) {
 function pipelineFromProject(project, hasVideo) {
   const states = { plan: "todo", previs: "todo", render: "todo", deliver: "todo" };
   if (!project) return states;
+  // The backend's canonical state descriptor is authoritative for persisted
+  // projects.  Keep the legacy inference below only for an in-flight live
+  // creation stream whose temporary project object predates that descriptor.
+  const canonical = String(project.pipeline_state?.state || "");
+  if (canonical) {
+    const backendPipeline = project.pipeline_state?.pipeline || {};
+    for (const key of Object.keys(states)) {
+      const value = backendPipeline[key];
+      if (["todo", "active", "ready", "done", "archived"].includes(value)) states[key] = value;
+    }
+    // A completed project only becomes a delivered stage after the browser
+    // verifies a playable media asset.  The backend still reports FINAL_READY
+    // when a legacy project has no file, so the UI can honestly show READY.
+    if (canonical === "final_ready" && hasVideo) states.deliver = "done";
+    return states;
+  }
   const historical = Boolean(state.viewingHistorical);
   states.plan = "done";
   if ((project.storyboard || []).length > 0) states.previs = "done";
@@ -1022,7 +1038,7 @@ function hydrateCrewRadio(project) {
   const logs = Array.isArray(project?.logs) ? project.logs.slice(-8) : [];
   logs.forEach((line) => {
     const match = AGENT_DEFS.find((def) => String(line).includes(`${def.name} Agent`));
-    pushCrewRadio({ type: "status", agent: match?.id || "system", status: "ARCHIVED", message: String(line) });
+    pushCrewRadio({ type: "status", agent: match?.id || "system", status: "LOG", message: String(line) });
   });
 }
 
@@ -1617,11 +1633,16 @@ function renderMediaQuality(project, mode = "screening") {
   }
 }
 
+function canonicalProjectState(project) {
+  return String(project?.pipeline_state?.state || "");
+}
+
 function deliverStatus(project) {
   const status = String(project?.status || "");
-  if (status === "editing_rough_cut") return { key: "editing", badge: "AI EDITING", title: "AI 剪辑正在组装", copy: "镜头、声音与字幕正在进入粗剪时间线。" };
-  if (status === "rough_cut_ready") return { key: "rough", badge: "ROUGH CUT READY", title: "粗剪已完成，等待审片", copy: "先预览 Rough Cut，再决定是否批准最终成片。" };
-  if (status === "ready_for_ai_edit") return { key: "ready", badge: "SHOTS READY", title: "AI Edit 已就绪", copy: "全部镜头通过质检；先选择声音设计，再启动 Rough Cut。" };
+  const canonical = canonicalProjectState(project);
+  if (canonical === "editing" || status === "editing_rough_cut") return { key: "editing", badge: "AI EDITING", title: "AI 剪辑正在组装", copy: "镜头、声音与字幕正在进入粗剪时间线。" };
+  if (canonical === "rough_cut_ready" || status === "rough_cut_ready") return { key: "rough", badge: "ROUGH CUT READY", title: "粗剪已完成，等待审片", copy: "先预览 Rough Cut，再决定是否批准最终成片。" };
+  if (canonical === "shots_ready" || status === "ready_for_ai_edit") return { key: "ready", badge: "SHOTS READY", title: "AI Edit 已就绪", copy: "全部镜头通过质检；先选择声音设计，再启动 Rough Cut。" };
   if (status.startsWith("completed")) {
     return state.hasFinalVideo
       ? { key: "complete", badge: "FINAL CUT READY", title: "最终成片已完成", copy: "放映室已就绪：审片、跳转镜头并导出交付版本。" }
@@ -3473,6 +3494,8 @@ function handleCreateEvent(event) {
     appendCrewArtifact(event);
   } else if (event.type === "chat") {
     appendCrewMessage(event);
+  } else if (event.type === "project_saved") {
+    appendCrewStatus("system", "SAVED", "Project snapshot persisted · production state remains active");
   } else if (event.type === "shot_update") {
     if (event.shot && state.project) {
       const shots = Array.isArray(state.project.storyboard) ? state.project.storyboard : (state.project.storyboard = []);
@@ -3494,12 +3517,12 @@ function handleCreateEvent(event) {
     state.pendingProjectId = null;
     els.crewMeta.textContent = `LOCKED · PROJECT ${String(event.project?.project_id || "").replace(/^film-/, "").toUpperCase()}`;
     syncCrewBoard(state.project, { silent: true });
-    appendCrewStatus("system", "ARCHIVED", `Project snapshot saved · ${PROJECT_STATUS[state.project.status] || state.project.status}`);
+    appendCrewStatus("system", "SAVED", `Project snapshot saved · ${PROJECT_STATUS[state.project.status] || state.project.status}`);
     renderWorkspace(state.project, { entranceFrom: 0 });
     setBrowserActivity("idle", state.project);
     toast(state.project.status === "ready_for_ai_edit"
       ? `${state.project.storyboard?.length || 0}/${state.project.storyboard?.length || 0} SHOTS READY：当前阶段已推进到 DELIVER，请锁定台词本后启动 AI Edit。`
-      : `项目 ${state.project.project_id} 已完成并存档。`);
+      : `项目 ${state.project.project_id} 已完成并保存。`);
     setTimeout(() => els.actWorkspace.scrollIntoView({ behavior: "smooth", block: "start" }), 350);
   } else if (event.type === "error") {
     els.crewMeta.textContent = "INTERRUPTED · RETRY AVAILABLE";

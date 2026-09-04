@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import secrets
 import shutil
 from pathlib import Path
 from typing import Any
@@ -11,23 +10,65 @@ from movie_agent.config import Settings
 from movie_agent.models import Shot
 from movie_agent.services.comfyui import ComfyUIClient, ComfyUIError, WorkflowOverrides, load_verified_workflow
 from movie_agent.services.media_quality import asset_record
+from movie_agent.services.continuity import derive_shot_seed
 
 
-def build_continuity_prompt(shot: Shot, visual_bible: dict[str, str], previous_shot: Shot | None = None) -> str:
-    """Build a layered prompt with visual bible prefix + delta-only shot description.
+def _field(value: object, fallback: str = "Not specified") -> str:
+    text = str(value or "").strip()
+    return text or fallback
 
-    The visual bible lock cards (character_lock, scene_lock, cinematography_lock)
-    provide persistent context for visual continuity. The shot's prompt field
-    should contain only the delta: what changes from the previous shot.
+
+def build_continuity_prompt(
+    shot: Shot,
+    visual_bible: dict[str, Any],
+    previous_shot: Shot | None = None,
+    *,
+    project_id: str = "ad-hoc-project",
+    film_language: str = "en",
+) -> str:
+    """Compile the complete renderer prompt from global locks plus Shot Delta.
+
+    ``Shot.prompt`` intentionally remains a concise editorial delta.  T2V
+    cannot see a previous frame, so the generation layer must provide the
+    previous ending state and all persistent locks explicitly.  Keeping this
+    compilation here also makes the exact model input inspectable after a
+    retry.
     """
-    character = visual_bible.get("character_lock", "")
-    scene = visual_bible.get("scene_lock", "")
-    cinema = visual_bible.get("cinematography_lock", "")
-    delta = shot.prompt
 
-    language = "English only: dialogue, narration, subtitles, title cards, credits, on-screen text, and monitor text."
-    parts = [language, character, scene, cinema, delta]
-    return ". ".join(parts) if parts else delta
+    character = _field(visual_bible.get("character_lock") or visual_bible.get("character_card"))
+    scene = _field(visual_bible.get("scene_lock") or visual_bible.get("scene_card"))
+    cinema = _field(
+        visual_bible.get("cinematography_lock") or visual_bible.get("style_card")
+    )
+    reference_seed = _field(visual_bible.get("reference_seed"), "42")
+    previous_ending = "OPENING FRAME — no previous shot" if previous_shot is None else _field(
+        previous_shot.ending_state or previous_shot.action
+    )
+    previous_hook = "Establish the world and the protagonist." if previous_shot is None else _field(
+        previous_shot.transition_hook
+    )
+    sections = [
+        f"FILM LANGUAGE\n{_field(film_language).lower()} only. All dialogue, narration, subtitles, title cards, credits, on-screen text, and monitor text must be in English.",
+        f"GLOBAL CHARACTER LOCK\n{character}",
+        f"GLOBAL SCENE LOCK\n{scene}",
+        f"CINEMATOGRAPHY LOCK\n{cinema}",
+        f"PROJECT REFERENCE SEED\n{reference_seed}",
+        f"PREVIOUS SHOT ENDING STATE\n{previous_ending}",
+        f"PREVIOUS SHOT TRANSITION HOOK\n{previous_hook}",
+        f"CURRENT SHOT STARTING STATE\n{_field(shot.starting_state)}",
+        f"CURRENT SHOT MAIN ACTION\n{_field(shot.main_action or shot.action)}",
+        f"CHARACTER REACTION\n{_field(shot.character_reaction)}",
+        f"CURRENT VISUAL EVENT\n{_field(shot.image_description)}",
+        f"SHOT DELTA\n{_field(shot.prompt)}",
+        f"TRANSITION HOOK\n{_field(shot.transition_hook)}",
+        f"SOUND DESIGN\n{_field(shot.sound_design)}",
+        "NEGATIVE CONSTRAINTS\nNo existing film or TV characters, titles, logos, brands, real-person likenesses, copyrighted designs, or language other than English in the generated film.",
+    ]
+    # Include the derived seed in the compiled prompt so a human can audit a
+    # retry and verify that the model input and ComfyUI override agree.
+    shot_seed = derive_shot_seed(project_id, reference_seed, shot.number)
+    sections.insert(5, f"SHOT DERIVED SEED\n{shot_seed}")
+    return "\n\n".join(sections)
 
 
 class GenerationAgent:
@@ -48,6 +89,7 @@ class GenerationAgent:
         visual_bible: dict[str, str] | None = None,
         previous_shot: Shot | None = None,
         target_resolution: str = "1080p",
+        film_language: str = "en",
     ) -> str:
         """Submit one planned shot and copy its MP4 into the project output folder."""
         if shot.generation_mode != "T2V":
@@ -65,8 +107,18 @@ class GenerationAgent:
 
         shot.status = "generating_comfyui"
         shot.attempts += 1
-        seed = secrets.randbelow(2**63 - 1)
-        continuity_prompt = build_continuity_prompt(shot, visual_bible or {}, previous_shot)
+        visual_context = visual_bible or {}
+        reference_seed = str(visual_context.get("reference_seed") or "42")
+        seed = derive_shot_seed(project_id, reference_seed, shot.number)
+        continuity_prompt = build_continuity_prompt(
+            shot,
+            visual_context,
+            previous_shot,
+            project_id=project_id,
+            film_language=film_language,
+        )
+        shot.generation_seed = seed
+        shot.compiled_generation_prompt = continuity_prompt
         workflow = load_verified_workflow(
             template_path,
             # Generate at the native duration. Editorial timing operations are

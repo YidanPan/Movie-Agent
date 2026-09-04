@@ -51,13 +51,21 @@ def build_storyboard(
         image = f"{english_style} film cinematography, same protagonist and same core space, {phase}."
         action = f"The protagonist carries the previous beat forward, completing a restrained action in narrative beat {index + 1}."
         sound = "Low-frequency ambience, spatial reverb, and restrained musical progression; no copyrighted material."
-        delta = f"Delta from previous shot: {ending_state}" if index > 0 and ending_state else "Opening shot establishing the world."
-        prompt = (
-            f"{image} {action} [{0}s-{shot_duration}s] {delta} Camera movement is natural and steady. {sound} "
-            "No existing film/TV characters, titles, brand logos, real likenesses, or copyrighted designs."
-        )
         main_action = f"Narrative beat {index + 1}: {narrative_purpose or phase}. {emotional_arc}"
         character_reaction = f"The protagonist responds to the evolving situation with {emotional_arc.split(' → ')[-1] if ' → ' in emotional_arc else 'measured composure'}." if emotional_arc else ""
+        delta = (
+            "Establish the protagonist and the core space."
+            if index == 0
+            else f"Continue from the previous shot's ending state; change the action toward {ending_state or narrative_purpose or phase}."
+        )
+        # Keep the persisted storyboard prompt concise and delta-only.  The
+        # generation layer later compiles this with global locks, previous
+        # state, and negative constraints for a T2V model that has no frame
+        # memory.
+        prompt = (
+            f"Shot delta: {delta} Main change: {main_action} Reaction: {character_reaction or 'measured composure'}. "
+            f"Transition hook: {transition_hook or 'Cut to next shot.'}"
+        )
         shots.append(
             Shot(
                 number=index + 1,
