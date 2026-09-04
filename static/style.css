@@ -126,11 +126,11 @@
   --desk-monitor-text-muted: #c8bbaa;
   --desk-monitor-text-meta: #ab9d8c;
   --desk-monitor-status-active: #aa9167;
-  --desk-monitor-status-ready: #80917d;
-  --desk-monitor-status-failed: #a86e67;
-  --desk-monitor-progress: #b29562;
+  --desk-monitor-status-ready: #96a78f;
+  --desk-monitor-status-failed: #b07a70;
+  --desk-monitor-progress: #c0a36c;
   --desk-monitor-border-hover: #c0a16b;
-  --desk-monitor-disabled: #5d544a;
+  --desk-monitor-disabled: #b1a493;
 
   /* Semantic aliases consumed by the existing production surfaces. */
   --surface-0: var(--screening-surface-0);
@@ -8596,8 +8596,8 @@ body[data-design="archive-console"] .header-right .rec-clock {
    ───────────────────────────────────────────────────────────── */
 
 html[data-theme="light"] body[data-design="archive-console"] .monitor-hardware {
-  margin-top: 10px;
-  padding: clamp(15px, 1.8vw, 22px);
+  margin: 16px 4px 4px;
+  padding: clamp(17px, 2vw, 24px);
   background: linear-gradient(180deg, var(--desk-monitor-frame), var(--desk-monitor-frame-deep));
   border: 1px solid var(--desk-monitor-border);
   border-radius: var(--radius-surface);
@@ -8608,7 +8608,8 @@ html[data-theme="light"] body[data-design="archive-console"] .monitor-hardware {
 
 html[data-theme="light"] body[data-design="archive-console"] .monitor-screen {
   overflow: hidden;
-  padding: 21px 23px 19px;
+  min-height: 156px;
+  padding: 23px 25px 21px;
   background:
     radial-gradient(ellipse at 20% 12%, rgba(226, 190, 126, 0.055), transparent 38%),
     linear-gradient(145deg, var(--desk-monitor-surface), var(--desk-monitor-surface-deep));
@@ -8762,7 +8763,8 @@ html[data-theme="light"] body[data-design="archive-console"] .monitor-activity s
 html[data-theme="light"] body[data-design="archive-console"] .monitor-activity .activity-title { color: var(--desk-accent-deep); }
 html[data-theme="light"] body[data-design="archive-console"] .monitor-activity-recent {
   color: var(--desk-text-muted);
-  font-size: 0.73rem;
+  font-size: 0.8rem;
+  line-height: 1.55;
   letter-spacing: 0.02em;
 }
 html[data-theme="light"] body[data-design="archive-console"] .monitor-activity .activity-chevron { color: var(--desk-accent-deep); }

@@ -174,6 +174,8 @@ def test_production_desk_monitor_is_embedded_hardware_with_collapsed_activity():
     assert 'lines.slice(-3).join("\\n")' in APP
     assert ".cta--render:disabled" in CSS
     assert "pointer-events: none" in CSS
+    assert "margin: 16px 4px 4px" in CSS
+    assert "--desk-monitor-disabled: #b1a493" in CSS
 
 
 def test_final_cut_workspace_is_clipped_two_column_inspector_and_progressive():
