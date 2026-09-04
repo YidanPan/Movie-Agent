@@ -32,9 +32,11 @@ from movie_agent.services.errors import error_info, record_failure
 from movie_agent.services.subtitles import render_srt, render_vtt, script_subtitle_track
 from movie_agent.services.media_quality import best_master_path, best_screening_path, quality_snapshot
 from movie_agent.pipeline.diagnostics import delivery_preflight, diagnostics_snapshot
+from movie_agent.pipeline.jobs import JobAlreadyRunning, JobLedger
 
 settings = Settings.from_env()
 orchestrator = MovieOrchestrator(settings)
+job_ledger = JobLedger(settings.projects_dir)
 
 STATIC_DIR = Path(__file__).parent / "static"
 # Rendering and media mutation is serialized per project, not globally.  A
@@ -269,17 +271,20 @@ def serialized_project(project) -> dict[str, Any]:
     # Diagnostics contain only status, counts, redacted errors and media
     # availability.  Paths and prompts remain inside the project payload's
     # existing compatibility fields and are never copied into this view.
-    payload["diagnostics"] = diagnostics_snapshot(
+    diagnostics = diagnostics_snapshot(
         project,
         ffprobe_bin=settings.ffprobe_bin,
         outputs_dir=settings.outputs_dir,
     )
+    diagnostics["job"] = job_ledger.summary(project.project_id)
+    payload["diagnostics"] = diagnostics
     payload["delivery_preflight"] = delivery_preflight(
         project,
         ffmpeg_ready=_binary_ready(settings.ffmpeg_bin),
         ffprobe_bin=settings.ffprobe_bin,
         outputs_dir=settings.outputs_dir,
     )
+    payload["job"] = job_ledger.summary(project.project_id)
     return payload
 
 
@@ -289,23 +294,95 @@ def run_with_sse(
     *,
     project_id: str | None = None,
     stage: str = "pipeline",
-) -> StreamingResponse:
-    """Run a blocking orchestrator call on a worker thread and stream its events."""
+    job_kind: str | None = None,
+) -> StreamingResponse | JSONResponse:
+    """Run a blocking call while persisting a reconnectable event ledger.
+
+    SSE is intentionally treated as a disposable transport.  The durable job
+    record continues receiving progress after a browser or SSH tunnel drops,
+    and a second submission is rejected while the same project is active.
+    """
+    job_id: str | None = None
+    resolved_project_id = project_id
+    if project_id:
+        try:
+            started = job_ledger.start(
+                project_id,
+                kind=job_kind or stage,
+                stage=stage,
+            )
+        except JobAlreadyRunning as conflict:
+            return JSONResponse(
+                {
+                    "error": "A production job is already running for this project.",
+                    "error_code": "JOB_ALREADY_RUNNING",
+                    "stage": stage,
+                    "job": conflict.snapshot,
+                },
+                status_code=409,
+            )
+        job_id = started["job_id"]
+
     queue: asyncio.Queue = asyncio.Queue()
     loop = asyncio.get_running_loop()
 
     def emit(payload: dict) -> None:
-        loop.call_soon_threadsafe(queue.put_nowait, payload)
+        """Persist a redacted event before handing it to the live stream."""
+
+        nonlocal job_id, resolved_project_id
+        event_payload = dict(payload)
+        if resolved_project_id is None:
+            resolved_project_id = str(
+                event_payload.get("project_id")
+                or (event_payload.get("project") or {}).get("project_id")
+                or ""
+            ) or None
+        if job_id is None and resolved_project_id:
+            try:
+                started = job_ledger.start(
+                    resolved_project_id,
+                    kind=job_kind or stage,
+                    stage=stage,
+                )
+                job_id = started["job_id"]
+            except JobAlreadyRunning as conflict:
+                # A create stream can only reach this branch if a client
+                # submitted the same newly-created project twice.  Surface the
+                # conflict to the caller without leaking the full project.
+                event_payload = {
+                    "type": "error",
+                    "error_code": "JOB_ALREADY_RUNNING",
+                    "error_message": "A production job is already running for this project.",
+                    "stage": stage,
+                    "job": conflict.snapshot,
+                }
+        if job_id and resolved_project_id:
+            persisted = job_ledger.append(resolved_project_id, job_id, event_payload)
+            event_payload["job_id"] = job_id
+            if persisted:
+                event_payload["job_event_id"] = persisted["event_id"]
+            if event_payload.get("type") == "done":
+                finished = job_ledger.finish(resolved_project_id, job_id, status="succeeded")
+                if finished:
+                    event_payload["job_status"] = finished["status"]
+        try:
+            loop.call_soon_threadsafe(queue.put_nowait, event_payload)
+        except RuntimeError:
+            # The request loop may close after a disconnect while the worker
+            # is finishing.  The ledger remains authoritative in that case.
+            pass
 
     def worker() -> None:
         try:
             work(emit)
+            if job_id and resolved_project_id:
+                job_ledger.finish(resolved_project_id, job_id, status="succeeded")
         except Exception as error:  # noqa: BLE001 - surface every failure to the stream
             info = error_info(error, stage=stage)
             snapshot = None
-            if project_id:
+            if resolved_project_id:
                 try:
-                    project = orchestrator.store.load(project_id)
+                    project = orchestrator.store.load(resolved_project_id)
                     # Orchestrator stages may already have recorded a more
                     # specific failure (for example a per-shot retry). Keep
                     # that metadata and avoid incrementing it twice here.
@@ -338,6 +415,10 @@ def run_with_sse(
             payload = {"type": "error", **info}
             if snapshot is not None:
                 payload["project"] = snapshot
+            if job_id and resolved_project_id:
+                finished = job_ledger.finish(resolved_project_id, job_id, status="failed", error=info)
+                if finished:
+                    payload["job_status"] = finished["status"]
             emit(payload)
 
     threading.Thread(target=worker, daemon=True).start()
@@ -421,11 +502,13 @@ def get_project_diagnostics(project_id: str) -> dict:
         return invalid_project_id(error)  # type: ignore[return-value]
     except RuntimeError as error:
         return structured_error_response(error, status_code=503, stage="storage")  # type: ignore[return-value]
-    return diagnostics_snapshot(
+    snapshot = diagnostics_snapshot(
         project,
         ffprobe_bin=settings.ffprobe_bin,
         outputs_dir=settings.outputs_dir,
     )
+    snapshot["job"] = job_ledger.summary(project.project_id)
+    return snapshot
 
 
 @app.get("/api/projects/{project_id}/delivery-preflight")
@@ -456,6 +539,21 @@ def get_delivery_preflight(
     )
 
 
+@app.get("/api/projects/{project_id}/job")
+def get_project_job(project_id: str, after: int = 0, limit: int = 50) -> dict:
+    """Return the persisted job status and events after a client cursor."""
+
+    try:
+        orchestrator.store.load(project_id)
+    except FileNotFoundError:
+        return project_not_found(project_id)  # type: ignore[return-value]
+    except ValueError as error:
+        return invalid_project_id(error)  # type: ignore[return-value]
+    except RuntimeError as error:
+        return structured_error_response(error, status_code=503, stage="storage")  # type: ignore[return-value]
+    return job_ledger.snapshot(project_id, after=after, limit=limit)
+
+
 @app.post("/api/projects/stream")
 async def create_project_stream(request: Request) -> StreamingResponse:
     try:
@@ -471,7 +569,7 @@ async def create_project_stream(request: Request) -> StreamingResponse:
         )
         emit({"type": "done", "project": serialized_project(project)})
 
-    return run_with_sse(request, work)
+    return run_with_sse(request, work, job_kind="planning", stage="planning")
 
 
 @app.patch("/api/projects/{project_id}/script")
@@ -555,7 +653,7 @@ async def create_rough_cut_stream(project_id: str, request: Request) -> Streamin
             )
             emit({"type": "done", "project": serialized_project(project)})
 
-    return run_with_sse(request, work, project_id=project_id, stage="ai_edit")
+    return run_with_sse(request, work, project_id=project_id, stage="ai_edit", job_kind="ai_edit")
 
 
 @app.patch("/api/projects/{project_id}/audio/design")
@@ -761,7 +859,7 @@ async def render_project_stream(project_id: str, request: Request) -> StreamingR
             project = orchestrator.render_project(project_id, progress_callback=on_progress)
             emit({"type": "done", "project": serialized_project(project)})
 
-    return run_with_sse(request, work, project_id=project_id, stage="generation")
+    return run_with_sse(request, work, project_id=project_id, stage="generation", job_kind="generation")
 
 
 @app.post("/api/projects/{project_id}/shots/{shot_number}/regenerate")

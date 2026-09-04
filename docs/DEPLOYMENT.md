@@ -51,6 +51,16 @@ GET /api/projects/<project_id>/delivery-preflight?resolution=1080p&aspect=16:9&s
 
 `delivery-preflight` 会在导出前检查 Final Cut 是否批准、当前 Final Master 是否存在且未过期、台词本是否锁定、镜头是否全部通过质检、目标分辨率是否满足以及 FFmpeg 是否可用。导出接口会重复执行这份检查，失败时返回 `409 DELIVERY_NOT_READY` 和可读的 `blocking_reasons`，避免把 Proxy、Screening Preview 或低清素材误当成交付母版。
 
+### P5 断线恢复与重复任务保护
+
+创作、Spark 渲染和 AI Edit 启动后，服务会在每个项目目录写入被 `.gitignore` 忽略的 `job.json`。它只记录任务阶段、状态、进度、游标和脱敏后的最近事件，不保存 Prompt、媒体路径或凭据。SSE 连接断开不会停止后台任务，客户端可用下面的接口补读事件：
+
+```text
+GET /api/projects/<project_id>/job?after=0&limit=40
+```
+
+同一项目已有 `running` 任务时，重复提交会返回 `409 JOB_ALREADY_RUNNING` 以及当前任务摘要。服务重启后未正常收尾的任务会显示为 `orphaned`，页面将提示 `RESUME AVAILABLE`；重新提交时仍会经过项目锁和既有状态/QC检查。
+
 ## 5. Spark 视频模式
 
 将验证过的 ComfyUI 服务限定为 `127.0.0.1:8188`，由 Movie-Agent 后端调用。前端创空间不直接暴露 Spark 的 ComfyUI 端口或任何凭据。

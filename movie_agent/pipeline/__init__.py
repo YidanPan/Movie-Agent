@@ -7,6 +7,7 @@ rendering, editing and state contracts can be moved independently over time.
 
 from .editing import edit_output_exists, editing_snapshot
 from .diagnostics import delivery_preflight, diagnostics_snapshot
+from .jobs import JobAlreadyRunning, JobLedger
 from .planning import planning_snapshot
 from .rendering import shot_render_context
 
@@ -15,6 +16,8 @@ __all__ = [
     "editing_snapshot",
     "delivery_preflight",
     "diagnostics_snapshot",
+    "JobAlreadyRunning",
+    "JobLedger",
     "planning_snapshot",
     "shot_render_context",
 ]

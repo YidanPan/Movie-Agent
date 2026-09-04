@@ -365,6 +365,8 @@ const state = {
   audioTimelineDuration: 0,
   diagnostics: null,
   exportPreflightRun: 0,
+  job: null,
+  jobCursor: 0,
 };
 
 let manualTypingRun = 0;
@@ -375,6 +377,8 @@ let projectorGain = null;
 let faviconBlinkTimer = null;
 let drawerContentRun = 0;
 let drawerHideTimer = null;
+let jobPollTimer = null;
+let jobPollRun = 0;
 
 /* ── 小工具 ────────────────────────────────────────────────── */
 
@@ -1075,10 +1079,22 @@ function eventErrorMessage(event) {
 
 function renderProjectDiagnostics(project = state.project) {
   const diagnostics = project?.diagnostics;
+  const job = project?.job;
   state.diagnostics = diagnostics || null;
+  state.job = job || null;
   const readout = els.crewRecoveryReadout;
   if (!readout) return;
-  readout.classList.remove("is-attention");
+  readout.classList.remove("is-attention", "is-live");
+  const jobStatus = String(job?.status || "").toLowerCase();
+  if (job && ["running", "queued", "orphaned"].includes(jobStatus)) {
+    const progress = job.progress || {};
+    const progressText = progress.total ? ` · ${progress.completed || 0}/${progress.total}` : "";
+    readout.classList.toggle("is-attention", jobStatus === "orphaned");
+    readout.classList.toggle("is-live", jobStatus === "running" || jobStatus === "queued");
+    readout.textContent = `${jobStatus === "orphaned" ? "RESUME AVAILABLE" : "LIVE"} · ${String(job.kind || job.stage || "PIPELINE").toUpperCase()}${progressText}`;
+    readout.title = job.last_description || (jobStatus === "orphaned" ? "上次任务未正常结束，可重新提交以恢复。" : "任务仍在后台运行，页面断线不会丢失进度。");
+    return;
+  }
   if (!diagnostics) {
     readout.textContent = "";
     return;
@@ -1097,12 +1113,66 @@ function renderProjectDiagnostics(project = state.project) {
   readout.title = (diagnostics.activity?.recent || []).at(-1) || "项目诊断已同步";
 }
 
+function isActiveJob(job = state.job) {
+  return ["running", "queued", "orphaned"].includes(String(job?.status || "").toLowerCase());
+}
+
+function stopJobPolling() {
+  jobPollRun += 1;
+  if (jobPollTimer) window.clearTimeout(jobPollTimer);
+  jobPollTimer = null;
+}
+
+function scheduleJobPolling(projectId) {
+  if (!projectId || !isActiveJob(state.job)) {
+    stopJobPolling();
+    return;
+  }
+  const run = jobPollRun;
+  if (jobPollTimer) window.clearTimeout(jobPollTimer);
+  jobPollTimer = window.setTimeout(() => {
+    if (run !== jobPollRun) return;
+    refreshJobStatus(projectId, { poll: true });
+  }, 5000);
+}
+
+async function refreshJobStatus(projectId, { poll = true } = {}) {
+  if (!projectId) return;
+  const requestedProject = String(projectId);
+  const after = Number(state.jobCursor || 0);
+  try {
+    const response = await fetch(`/api/projects/${encodeURIComponent(requestedProject)}/job?after=${after}&limit=40`);
+    const payload = await response.json().catch(() => ({}));
+    if (String(state.project?.project_id || "") !== requestedProject) return;
+    if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    if (payload.job?.job_id && state.job?.job_id && payload.job.job_id !== state.job.job_id && after > 0) {
+      state.jobCursor = 0;
+      return refreshJobStatus(requestedProject, { poll });
+    }
+    state.job = payload.job || null;
+    state.project.job = state.job;
+    state.jobCursor = Number(payload.next_cursor || state.job?.event_seq || after || 0);
+    renderProjectDiagnostics(state.project);
+    const events = Array.isArray(payload.events) ? payload.events : [];
+    const latest = events[events.length - 1];
+    if (latest?.description || latest?.message) {
+      appendCrewStatus(latest.agent || "system", String(latest.status || "SYNC"), latest.description || latest.message);
+    }
+    if (poll && isActiveJob(state.job)) scheduleJobPolling(requestedProject);
+    else if (!isActiveJob(state.job)) stopJobPolling();
+  } catch (error) {
+    if (poll && String(state.project?.project_id || "") === requestedProject) scheduleJobPolling(requestedProject);
+  }
+}
+
 function syncHistoricalCrew(project) {
   state.workingAgent = null;
   state.crewDetails = {};
   syncCrewBoard(project, { silent: true });
   hydrateCrewRadio(project);
   renderProjectDiagnostics(project);
+  state.jobCursor = 0;
+  refreshJobStatus(project?.project_id, { poll: true });
 }
 
 /* ── 第三幕 · 工作区渲染 ───────────────────────────────────── */
@@ -3597,6 +3667,8 @@ function handleCreateEvent(event) {
   } else if (event.type === "done") {
     storyboardStageRun += 1;
     state.project = event.project;
+    if (event.job_status && state.project?.job) state.project.job.status = event.job_status;
+    state.job = state.project?.job || null;
     state.pendingProjectId = null;
     els.crewMeta.textContent = `LOCKED · PROJECT ${String(event.project?.project_id || "").replace(/^film-/, "").toUpperCase()}`;
     syncCrewBoard(state.project, { silent: true });
@@ -3611,6 +3683,7 @@ function handleCreateEvent(event) {
     const failure = eventErrorMessage(event);
     if (event.project) {
       state.project = event.project;
+      if (event.job_status && state.project.job) state.project.job.status = event.job_status;
       renderProjectDiagnostics(event.project);
       syncCrewBoard(event.project, { silent: true });
       renderLogFeed(event.project);
@@ -3630,6 +3703,9 @@ async function startCreation() {
   state.busy = true;
   state.assemblyLocked = true;
   state.project = null;
+  stopJobPolling();
+  state.job = null;
+  state.jobCursor = 0;
   state.pendingProjectId = null;
   state.viewingHistorical = false;
   state.crewDetails = {};
@@ -3665,6 +3741,7 @@ async function startCreation() {
     setIdeaError("创作暂时中断，请检查创意后重试。", `制作未完成：${error.message}`);
     els.crewMeta.textContent = "INTERRUPTED · RETRY AVAILABLE";
     failWorkingAgent();
+    if (state.project?.project_id) refreshJobStatus(state.project.project_id, { poll: true });
   } finally {
     state.busy = false;
     els.btnStart.disabled = false;
@@ -3705,6 +3782,8 @@ function handleRenderEvent(event) {
     if (event.description) appendCrewStatus("generation", "SHOT UPDATE", event.description);
   } else if (event.type === "done") {
     state.project = event.project;
+    if (event.job_status && state.project?.job) state.project.job.status = event.job_status;
+    state.job = state.project?.job || null;
     state.rendering = false;
     rememberCrewEvent("generation", { status: "done" });
     appendCrewStatus("generation", "DONE", `${event.project.storyboard?.length || 0}/${event.project.storyboard?.length || 0} shots ready`);
@@ -3725,6 +3804,7 @@ function handleRenderEvent(event) {
     const failure = eventErrorMessage(event);
     if (event.project) {
       state.project = event.project;
+      if (event.job_status && state.project.job) state.project.job.status = event.job_status;
       applyProjectSnapshot(event.project);
     }
     els.renderRec.classList.remove("live");
@@ -3768,6 +3848,7 @@ async function startRender() {
     els.btnRender.textContent = "提交 Spark 真实生成";
     els.monitorDesc.textContent = `生成中断：${error.message}`;
     toast(`渲染失败：${error.message}`, true);
+    if (state.project?.project_id) refreshJobStatus(state.project.project_id, { poll: true });
   }
 }
 
@@ -3782,6 +3863,8 @@ function handleEditEvent(event) {
     appendCrewStatus("editor", "PROGRESS", event.description || "AI Edit working");
   } else if (event.type === "done") {
     state.project = event.project;
+    if (event.job_status && state.project?.job) state.project.job.status = event.job_status;
+    state.job = state.project?.job || null;
     state.editing = false;
     rememberCrewEvent("editor", { status: "done" });
     appendCrewStatus("editor", "ROUGH CUT READY", "Rough Cut assembled · screening pass open");
@@ -3797,6 +3880,7 @@ function handleEditEvent(event) {
     const failure = eventErrorMessage(event);
     if (event.project) {
       state.project = event.project;
+      if (event.job_status && state.project.job) state.project.job.status = event.job_status;
       applyProjectSnapshot(event.project);
     }
     state.editing = false;
@@ -3849,6 +3933,7 @@ async function startAiEdit() {
     setBrowserActivity("idle", state.project);
     if (els.editStatus) els.editStatus.textContent = `AI Edit 中断：${error.message}`;
     toast(`AI Edit 失败：${error.message}`, true);
+    if (state.project?.project_id) refreshJobStatus(state.project.project_id, { poll: true });
   } finally {
     if (els.btnAiEdit && state.project) renderMonitor(state.project, false);
   }

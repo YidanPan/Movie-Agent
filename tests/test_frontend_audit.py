@@ -219,3 +219,13 @@ def test_frontend_consumes_backend_pipeline_state_and_saved_event():
     assert "function canonicalProjectState" in APP
     assert 'event.type === "project_saved"' in APP
     assert 'appendCrewStatus("system", "SAVED"' in APP
+
+
+def test_disconnect_safe_job_ledger_is_visible_without_replacing_sse():
+    assert 'id="crew-recovery-readout"' in INDEX
+    assert 'id="export-preflight"' in INDEX
+    assert "function refreshJobStatus" in APP
+    assert "function scheduleJobPolling" in APP
+    assert "/api/projects/${encodeURIComponent(requestedProject)}/job" in APP
+    assert "RESUME AVAILABLE" in APP
+    assert "p5-20260904" in INDEX

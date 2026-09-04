@@ -5851,6 +5851,10 @@ body[data-design="archive-console"] .crew-recovery-readout.is-attention {
   color: var(--danger, #c27b5b);
 }
 
+body[data-design="archive-console"] .crew-recovery-readout.is-live {
+  color: var(--ok, #87b58c);
+}
+
 body[data-design="archive-console"] .crew-flow-legend i {
   width: 8px;
   height: 8px;

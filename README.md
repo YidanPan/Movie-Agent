@@ -42,6 +42,12 @@ Deliver 页是 Final Cut Screening Room：项目未剪辑时显示项目摘要�
 
 导出前可调用 `GET /api/projects/<project_id>/delivery-preflight`（支持 `resolution`、`aspect`、`subtitle_mode` 查询参数）查看阻塞项和警告。视频导出接口会在编码前执行同一预检：只有已批准的 Final Cut、当前 Final Master、锁定台词本、通过质检的镜头和足够的目标分辨率才能进入编码；Proxy、Screening Preview、过期资产或低清母版不会被悄悄提升为交付源。前端会把失败原因和可恢复动作显示在 Crew Assembly 状态行中。
 
+### P5 断线可恢复任务
+
+渲染、AI Edit 和创作流现在都有持久化 `Job Ledger`。SSE 只是实时视图，任务事件会以脱敏后的游标记录到项目目录；浏览器刷新、SSH 隧道短暂断开或重新打开项目时，可通过 `GET /api/projects/<project_id>/job?after=<cursor>` 读取最近进度。相同项目的重复提交会返回 `409 JOB_ALREADY_RUNNING`，不会并行启动两个互相覆盖的任务。
+
+任务完成或失败后仍保留最近事件、阶段、进度、错误码和恢复状态；服务重启后如果发现旧任务停在 `running`，会标记为 `orphaned / RESUME AVAILABLE`，允许用户按当前项目状态重新提交。Job Ledger 只保存类型、Agent、镜头号、计数和短描述，不保存 Prompt、媒体路径、Token 或项目完整内容。
+
 ### 双主题工作状态
 
 顶栏的 `SCREENING / DESK` 切换对应两种制作状态，并不是简单的黑白反转：
@@ -248,6 +254,22 @@ master that meets the requested dimensions may enter delivery encoding. A
 Proxy, Screening Preview, stale asset, or low-resolution source is never
 silently promoted to a delivery file. The frontend surfaces the next safe
 action and the latest redacted failure beside the Crew Assembly status.
+
+### P5 Disconnect-Safe Job Ledger
+
+Planning, Spark rendering, and AI Edit now write a durable `Job Ledger` for
+each project. SSE remains the low-latency view, while the redacted event cursor
+is persisted under the ignored project directory. After a browser refresh or a
+short SSH-tunnel interruption, clients can call
+`GET /api/projects/<project_id>/job?after=<cursor>` to recover recent progress.
+Submitting the same project twice while a job is active returns
+`409 JOB_ALREADY_RUNNING` instead of starting competing workers.
+
+The ledger keeps terminal status, stage, progress, safe error metadata, and a
+bounded recent event history. If the service restarts while a job was marked
+`running`, the next read reports `orphaned / RESUME AVAILABLE`; retrying from
+the current project contract is then explicit. It stores no prompts, media
+paths, tokens, or full project payloads.
 
 ### Theme system
 
