@@ -190,3 +190,15 @@ def test_final_cut_workspace_is_clipped_two_column_inspector_and_progressive():
     assert "contain: paint;" in CSS
     assert "const canStartAiEdit = showSummary" in APP
     assert 'if (finalApproved) states.deliver = "done";' in APP
+
+
+def test_light_screening_room_keeps_content_sharp_and_monitor_readable():
+    assert 'html[data-theme="light"] body[data-design="archive-console"] .screening-panel' in CSS
+    assert ".screening-panel .rough-cut-placeholder" in CSS
+    assert "background: var(--desk-monitor-surface)" in CSS
+    assert "background-image: none" in CSS
+    assert "filter: none" in CSS
+    assert "backdrop-filter: none" in CSS
+    assert "text-shadow: none" in CSS
+    assert "FINAL CUT NOT GENERATED" in INDEX
+    assert "screening-sharp-20260904" in INDEX

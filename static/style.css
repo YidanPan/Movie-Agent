@@ -6695,6 +6695,142 @@ body[data-design="archive-console"] .screening-panel .final-look-panel {
   border-color: var(--audit-border);
 }
 
+/* Screening Room clarity pass · Production Desk
+   Keep the cinema atmosphere behind the workbench, never on top of readable
+   information. This scoped layer intentionally wins over older Deliver
+   gradients and shadow recipes without changing the global theme tokens. */
+html[data-theme="light"] body[data-design="archive-console"] .screening-panel {
+  background: var(--surface-1);
+  border-color: var(--line-token);
+  box-shadow: none;
+  filter: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+html[data-theme="light"] body[data-design="archive-console"] .screening-panel .deliver-room,
+html[data-theme="light"] body[data-design="archive-console"] .screening-panel .deliver-stage-head,
+html[data-theme="light"] body[data-design="archive-console"] .screening-panel .deliver-summary,
+html[data-theme="light"] body[data-design="archive-console"] .screening-panel .deliver-work-progress,
+html[data-theme="light"] body[data-design="archive-console"] .screening-panel .deliver-rough-console,
+html[data-theme="light"] body[data-design="archive-console"] .screening-panel .audio-design-console,
+html[data-theme="light"] body[data-design="archive-console"] .screening-panel .deliver-audio-panel,
+html[data-theme="light"] body[data-design="archive-console"] .screening-panel .deliver-final,
+html[data-theme="light"] body[data-design="archive-console"] .screening-panel .final-cut-workspace,
+html[data-theme="light"] body[data-design="archive-console"] .screening-panel .tech-summary,
+html[data-theme="light"] body[data-design="archive-console"] .screening-panel .shot-timeline-section {
+  filter: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  opacity: 1;
+  text-shadow: none;
+}
+
+html[data-theme="light"] body[data-design="archive-console"] .screening-panel .deliver-summary,
+html[data-theme="light"] body[data-design="archive-console"] .screening-panel .deliver-work-progress,
+html[data-theme="light"] body[data-design="archive-console"] .screening-panel .deliver-rough-console,
+html[data-theme="light"] body[data-design="archive-console"] .screening-panel .audio-design-console,
+html[data-theme="light"] body[data-design="archive-console"] .screening-panel .deliver-audio-panel,
+html[data-theme="light"] body[data-design="archive-console"] .screening-panel .final-look-panel,
+html[data-theme="light"] body[data-design="archive-console"] .screening-panel .tech-summary {
+  background: var(--surface-2);
+  background-image: none;
+  border-color: var(--line-token);
+  box-shadow: none;
+}
+
+html[data-theme="light"] body[data-design="archive-console"] .screening-panel :is(
+  h2, h3, h4, p, span, strong, small, b, i, dt, dd, label, summary, button,
+  .deliver-state-badge, .deliver-progress-state, .final-look-status,
+  .final-not-generated, .rough-cut-placeholder
+) {
+  text-shadow: none;
+}
+
+/* The missing-media state is a monitor readout, not a fogged placeholder. */
+html[data-theme="light"] body[data-design="archive-console"] .screening-panel .rough-cut-stage,
+html[data-theme="light"] body[data-design="archive-console"] .screening-panel .final-player-shell {
+  background: var(--desk-monitor-surface-deep);
+  border-color: var(--desk-monitor-border);
+  box-shadow: inset 0 0 0 1px rgba(241, 232, 217, 0.08);
+}
+
+html[data-theme="light"] body[data-design="archive-console"] .screening-panel .rough-cut-placeholder {
+  color: var(--desk-monitor-text-muted);
+  background: var(--desk-monitor-surface);
+  opacity: 1;
+}
+
+html[data-theme="light"] body[data-design="archive-console"] .screening-panel .rough-cut-placeholder span {
+  color: var(--desk-monitor-progress);
+  font-weight: 700;
+}
+
+html[data-theme="light"] body[data-design="archive-console"] .screening-panel .rough-cut-placeholder strong {
+  color: var(--desk-monitor-text);
+  font-size: 1.22rem;
+  letter-spacing: 0.045em;
+}
+
+html[data-theme="light"] body[data-design="archive-console"] .screening-panel .rough-cut-placeholder small {
+  color: var(--desk-monitor-text-muted);
+  font-size: 0.82rem;
+  line-height: 1.65;
+}
+
+html[data-theme="light"] body[data-design="archive-console"] .screening-panel .deliver-state-badge[data-state="missing"] {
+  color: var(--desk-monitor-status-failed);
+  border-color: color-mix(in srgb, var(--desk-monitor-status-failed) 58%, transparent);
+}
+
+html[data-theme="light"] body[data-design="archive-console"] .screening-panel .deliver-state-badge[data-state="editing"],
+html[data-theme="light"] body[data-design="archive-console"] .screening-panel .deliver-state-badge[data-state="rough"] {
+  color: var(--desk-monitor-progress);
+  border-color: color-mix(in srgb, var(--desk-monitor-progress) 66%, transparent);
+}
+
+html[data-theme="light"] body[data-design="archive-console"] .screening-panel .deliver-state-badge[data-state="complete"] {
+  color: var(--desk-monitor-status-ready);
+  border-color: color-mix(in srgb, var(--desk-monitor-status-ready) 66%, transparent);
+}
+
+html[data-theme="light"] body[data-design="archive-console"] .screening-panel .deliver-stage-head h3,
+html[data-theme="light"] body[data-design="archive-console"] .screening-panel .deliver-summary-main h4,
+html[data-theme="light"] body[data-design="archive-console"] .screening-panel .deliver-progress-head h4,
+html[data-theme="light"] body[data-design="archive-console"] .screening-panel .audio-console-head h4,
+html[data-theme="light"] body[data-design="archive-console"] .screening-panel .deliver-audio-head h4,
+html[data-theme="light"] body[data-design="archive-console"] .screening-panel .final-look-head h4 {
+  color: var(--desk-text-strong);
+}
+
+html[data-theme="light"] body[data-design="archive-console"] .screening-panel .deliver-stage-head p,
+html[data-theme="light"] body[data-design="archive-console"] .screening-panel .deliver-summary-main > p,
+html[data-theme="light"] body[data-design="archive-console"] .screening-panel .readiness-note,
+html[data-theme="light"] body[data-design="archive-console"] .screening-panel .final-not-generated span,
+html[data-theme="light"] body[data-design="archive-console"] .screening-panel .final-look-description,
+html[data-theme="light"] body[data-design="archive-console"] .screening-panel .audio-track-main > p {
+  color: var(--desk-text-body);
+  opacity: 1;
+}
+
+html[data-theme="light"] body[data-design="archive-console"] .screening-panel .deliver-ready-line strong,
+html[data-theme="light"] body[data-design="archive-console"] .screening-panel .deliver-progress-percent,
+html[data-theme="light"] body[data-design="archive-console"] .screening-panel .final-player-topline,
+html[data-theme="light"] body[data-design="archive-console"] .screening-panel .final-not-generated strong {
+  color: var(--desk-text-strong);
+  opacity: 1;
+}
+
+html[data-theme="light"] body[data-design="archive-console"] .screening-panel .deliver-summary-specs,
+html[data-theme="light"] body[data-design="archive-console"] .screening-panel .deliver-summary-specs > div,
+html[data-theme="light"] body[data-design="archive-console"] .screening-panel .deliver-progress-step,
+html[data-theme="light"] body[data-design="archive-console"] .screening-panel .audio-track,
+html[data-theme="light"] body[data-design="archive-console"] .screening-panel .final-look-preset,
+html[data-theme="light"] body[data-design="archive-console"] .screening-panel .tech-summary-brief,
+html[data-theme="light"] body[data-design="archive-console"] .screening-panel .tech-summary-details {
+  box-shadow: none;
+}
+
 /* Inspector content remains a readable tool surface rather than a dim modal. */
 body[data-design="archive-console"] .drawer-backdrop {
   background: color-mix(in srgb, var(--surface-deep) 22%, transparent);
