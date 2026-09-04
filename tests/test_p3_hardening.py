@@ -72,6 +72,8 @@ def test_project_store_recovers_from_a_corrupt_primary_snapshot():
         store.save(recovered)
         target.write_text("{ still corrupt", encoding="utf-8")
         assert "new mutation" not in store.load(project.project_id).logs
+        target.write_text(json.dumps({"project_id": project.project_id}), encoding="utf-8")
+        assert "new mutation" not in store.load(project.project_id).logs
 
 
 def test_delivery_export_never_promotes_a_rough_cut_to_master():

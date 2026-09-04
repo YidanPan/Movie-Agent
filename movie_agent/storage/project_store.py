@@ -62,23 +62,27 @@ class ProjectStore:
         target = project_dir / "project.json"
         if not target.exists():
             raise FileNotFoundError(f"找不到项目 {project_id}。")
+
+        def read_snapshot(path: Path) -> MovieProject:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(payload, dict):
+                raise ValueError("snapshot root must be an object")
+            return MovieProject.from_dict(payload)
+
         try:
-            payload = json.loads(target.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, UnicodeDecodeError) as primary_error:
+            return read_snapshot(target)
+        except (json.JSONDecodeError, UnicodeDecodeError, KeyError, TypeError, ValueError, AttributeError) as primary_error:
             backup = project_dir / "project.json.bak"
             if not backup.is_file():
                 raise RuntimeError(
                     f"项目 {project_id} 的 project.json 已损坏，且没有可恢复的备份。"
                 ) from primary_error
             try:
-                payload = json.loads(backup.read_text(encoding="utf-8"))
-            except (json.JSONDecodeError, UnicodeDecodeError) as backup_error:
+                return read_snapshot(backup)
+            except (json.JSONDecodeError, UnicodeDecodeError, KeyError, TypeError, ValueError, AttributeError) as backup_error:
                 raise RuntimeError(
                     f"项目 {project_id} 的 project.json 与备份均已损坏，无法恢复。"
                 ) from backup_error
-        if not isinstance(payload, dict):
-            raise RuntimeError(f"项目 {project_id} 的快照格式无效。")
-        return MovieProject.from_dict(payload)
 
     def list_project_ids(self) -> list[str]:
         """Return saved projects newest first without loading every project file."""
