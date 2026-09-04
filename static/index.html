@@ -17,16 +17,16 @@
   })();
 </script>
 <link id="favicon" rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%2315110b'/%3E%3Crect x='6' y='12' width='5' height='8' fill='%23c28a3e'/%3E%3Crect x='14' y='12' width='5' height='8' fill='%23c28a3e' opacity='.55'/%3E%3Crect x='22' y='12' width='5' height='8' fill='%23c28a3e' opacity='.3'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="/static/style.css?v=media-quality-20260904-p3">
-<link rel="stylesheet" href="/static/css/tokens.css?v=p3-20260904">
-<link rel="stylesheet" href="/static/css/reset.css?v=p3-20260904">
-<link rel="stylesheet" href="/static/css/layout.css?v=p3-20260904">
-<link rel="stylesheet" href="/static/css/components.css?v=p3-20260904">
-<link rel="stylesheet" href="/static/css/home.css?v=p3-20260904">
-<link rel="stylesheet" href="/static/css/crew.css?v=p3-20260904">
-<link rel="stylesheet" href="/static/css/storyboard.css?v=p3-20260904">
-<link rel="stylesheet" href="/static/css/sound.css?v=p3-20260904">
-<link rel="stylesheet" href="/static/css/deliver.css?v=p3-20260904">
+<link rel="stylesheet" href="/static/style.css?v=media-quality-20260904-p4">
+<link rel="stylesheet" href="/static/css/tokens.css?v=p4-20260904">
+<link rel="stylesheet" href="/static/css/reset.css?v=p4-20260904">
+<link rel="stylesheet" href="/static/css/layout.css?v=p4-20260904">
+<link rel="stylesheet" href="/static/css/components.css?v=p4-20260904">
+<link rel="stylesheet" href="/static/css/home.css?v=p4-20260904">
+<link rel="stylesheet" href="/static/css/crew.css?v=p4-20260904">
+<link rel="stylesheet" href="/static/css/storyboard.css?v=p4-20260904">
+<link rel="stylesheet" href="/static/css/sound.css?v=p4-20260904">
+<link rel="stylesheet" href="/static/css/deliver.css?v=p4-20260904">
 </head>
 <body data-view="landing" data-design="archive-console">
 <div class="theme-transition-wash" id="theme-transition-wash" aria-hidden="true"></div>
@@ -256,7 +256,7 @@
           <p class="act-phase mono type-system-meta">CREW ASSEMBLY / PHASE 02</p>
           <h2>剧组集结</h2>
         </div>
-        <p class="act-meta type-status"><span class="act-meta-label mono type-system-meta">STATUS</span><span id="crew-meta">READY / STANDBY</span></p>
+        <p class="act-meta type-status"><span class="act-meta-label mono type-system-meta">STATUS</span><span id="crew-meta">READY / STANDBY</span><span class="crew-recovery-readout type-system-meta" id="crew-recovery-readout" aria-live="polite"></span></p>
       </div>
       <div class="crew-flow-head">
         <span class="type-system-meta">PRODUCTION ROUTE / INPUT → HANDOFF → OUTPUT</span>
@@ -561,7 +561,7 @@
       <fieldset class="export-option-group"><legend class="deliver-label mono">FRAME / 画幅</legend><div class="export-option-grid"><button type="button" class="export-option is-selected" data-export-field="aspect" data-export-value="16:9"><b>16:9</b><small>横屏影院</small></button><button type="button" class="export-option" data-export-field="aspect" data-export-value="9:16"><b>9:16</b><small>竖屏短片</small></button><button type="button" class="export-option" data-export-field="aspect" data-export-value="1:1"><b>1:1</b><small>方形社媒</small></button></div></fieldset>
       <fieldset class="export-option-group"><legend class="deliver-label mono">SUBTITLE / 字幕</legend><div class="export-option-grid"><button type="button" class="export-option is-selected" data-export-field="subtitle_mode" data-export-value="burned"><b>烧录</b><small>画面内嵌</small></button><button type="button" class="export-option" data-export-field="subtitle_mode" data-export-value="soft"><b>软字幕</b><small>可切换轨道</small></button><button type="button" class="export-option" data-export-field="subtitle_mode" data-export-value="none"><b>无字幕</b><small>纯画面</small></button></div></fieldset>
     </div>
-    <footer class="export-sheet-foot"><p class="export-selection mono" id="export-selection">MP4 · H.264 · 1080P · 16:9 · BURNED</p><button class="cta" id="btn-export-run" type="button">开始导出 <span class="cta-arrow" aria-hidden="true">→</span></button></footer>
+    <footer class="export-sheet-foot"><div><p class="export-selection mono" id="export-selection">MP4 · H.264 · 1080P · 16:9 · BURNED</p><p class="export-preflight type-status" id="export-preflight" aria-live="polite"></p></div><button class="cta" id="btn-export-run" type="button">开始导出 <span class="cta-arrow" aria-hidden="true">→</span></button></footer>
   </div>
 </div>
 
@@ -583,7 +583,7 @@
 
 <div class="toast mono" id="toast" role="status"></div>
 
-<script type="module" src="/static/js/app.js?v=p3-20260904"></script>
-<script src="/static/app.js?v=media-quality-20260904-p3"></script>
+<script type="module" src="/static/js/app.js?v=p4-20260904"></script>
+<script src="/static/app.js?v=media-quality-20260904-p4"></script>
 </body>
 </html>

@@ -2642,6 +2642,10 @@ main {
 .export-option.is-selected small { color: var(--dim); }
 .export-sheet-foot { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding-top: 18px; border-top: 1px solid var(--line); }
 .export-selection { color: var(--amber); font-size: 0.6rem; letter-spacing: 0.1em; }
+.export-preflight { min-height: 18px; margin-top: 7px; color: var(--dim); font-size: 12px; letter-spacing: .02em; }
+.export-preflight[data-state="ready"] { color: var(--ok); }
+.export-preflight[data-state="blocked"] { color: var(--danger, #c27b5b); }
+.export-preflight[data-state="checking"], .export-preflight[data-state="unknown"] { color: var(--meta); }
 .export-sheet-foot .cta { flex: 0 0 auto; padding-inline: 23px; }
 
 /* ── Inspector：镜头 / 剧组详情 ───────────────────────────── */
@@ -5827,6 +5831,24 @@ body[data-design="archive-console"] .crew-flow-legend {
   font-size: 12px;
   font-weight: 600;
   letter-spacing: .08em;
+}
+
+/* P4: a compact, truthful recovery signal sits beside the stage status. */
+body[data-design="archive-console"] .crew-recovery-readout {
+  display: inline-block;
+  margin-left: 10px;
+  color: var(--amber);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .06em;
+}
+
+body[data-design="archive-console"] .crew-recovery-readout:empty {
+  display: none;
+}
+
+body[data-design="archive-console"] .crew-recovery-readout.is-attention {
+  color: var(--danger, #c27b5b);
 }
 
 body[data-design="archive-console"] .crew-flow-legend i {

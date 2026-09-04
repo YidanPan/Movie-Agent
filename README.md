@@ -36,6 +36,12 @@ Deliver 页是 Final Cut Screening Room：项目未剪辑时显示项目摘要�
 
 媒体交付也遵循 fail-closed：Final Cut 播放器只解析当前、未过期的 `Final Master`，Shot 播放器拒绝 stale revision，Rough Cut 只在真实 Rough Cut 状态下提供。导出接口不再把 Rough Cut、Screening Preview 或 Working Proxy 提升为母版；没有有效 Final Master 时明确拒绝导出，避免低清或旧版本素材被误交付。
 
+### P4 可恢复性与交付预检
+
+`movie_agent/pipeline/diagnostics.py` 提供统一的项目诊断快照：它以持久化项目状态为准，汇总镜头通过/失败/过期数量、台词锁定版本、Source/Proxy/Screening/Final Master 可用性、最近片场日志、脱敏错误和下一步动作。快照不包含媒体路径或凭据，可通过 `GET /api/projects/<project_id>/diagnostics` 查询；普通项目读取也会在 `diagnostics` 字段中携带同一份信息，因此刷新页面后仍能恢复现场，而不是回到空白等待态。
+
+导出前可调用 `GET /api/projects/<project_id>/delivery-preflight`（支持 `resolution`、`aspect`、`subtitle_mode` 查询参数）查看阻塞项和警告。视频导出接口会在编码前执行同一预检：只有已批准的 Final Cut、当前 Final Master、锁定台词本、通过质检的镜头和足够的目标分辨率才能进入编码；Proxy、Screening Preview、过期资产或低清母版不会被悄悄提升为交付源。前端会把失败原因和可恢复动作显示在 Crew Assembly 状态行中。
+
 ### 双主题工作状态
 
 顶栏的 `SCREENING / DESK` 切换对应两种制作状态，并不是简单的黑白反转：
@@ -221,6 +227,27 @@ playback requires a real Rough Cut state. The export endpoint never promotes a
 Rough Cut, Screening Preview, or Working Proxy to a delivery master; without a
 valid Final Master it rejects the request instead of exporting an old or
 low-resolution file.
+
+### P4 Resumability, Diagnostics, and Delivery Preflight
+
+`movie_agent/pipeline/diagnostics.py` now provides one truthful, JSON-safe
+project snapshot. It reports canonical pipeline state, shot pass/fail/stale
+counts, dialogue-lock revision, Source/Proxy/Screening/Final Master
+availability, recent activity, redacted failures, and ordered next actions.
+The snapshot contains no media paths or credentials and is available through
+`GET /api/projects/<project_id>/diagnostics`; the normal project payload also
+includes it, so a browser refresh can restore the production context instead
+of showing a blank waiting state.
+
+`GET /api/projects/<project_id>/delivery-preflight` accepts `resolution`,
+`aspect`, and `subtitle_mode` query parameters and explains export blockers and
+warnings before a long encode starts. The video export endpoint runs the same
+preflight contract before invoking FFmpeg: only an approved Final Cut, a
+current Final Master, a locked dialogue revision, QC-passed shots, and a
+master that meets the requested dimensions may enter delivery encoding. A
+Proxy, Screening Preview, stale asset, or low-resolution source is never
+silently promoted to a delivery file. The frontend surfaces the next safe
+action and the latest redacted failure beside the Crew Assembly status.
 
 ### Theme system
 

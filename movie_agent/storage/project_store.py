@@ -60,8 +60,7 @@ class ProjectStore:
     def load(self, project_id: str) -> MovieProject:
         project_dir = self._project_dir(project_id)
         target = project_dir / "project.json"
-        if not target.exists():
-            raise FileNotFoundError(f"找不到项目 {project_id}。")
+        backup = project_dir / "project.json.bak"
 
         def read_snapshot(path: Path) -> MovieProject:
             payload = json.loads(path.read_text(encoding="utf-8"))
@@ -69,17 +68,30 @@ class ProjectStore:
                 raise ValueError("snapshot root must be an object")
             return MovieProject.from_dict(payload)
 
+        if not target.exists():
+            # A process or disk interruption can happen between the atomic
+            # rename and a subsequent backup repair.  If the last known-good
+            # snapshot is still present, recover it instead of pretending the
+            # project never existed.
+            if not backup.is_file():
+                raise FileNotFoundError(f"找不到项目 {project_id}。")
+            try:
+                return read_snapshot(backup)
+            except (OSError, json.JSONDecodeError, UnicodeDecodeError, KeyError, TypeError, ValueError, AttributeError) as backup_error:
+                raise RuntimeError(
+                    f"项目 {project_id} 的主快照缺失且备份也已损坏，无法恢复。"
+                ) from backup_error
+
         try:
             return read_snapshot(target)
-        except (json.JSONDecodeError, UnicodeDecodeError, KeyError, TypeError, ValueError, AttributeError) as primary_error:
-            backup = project_dir / "project.json.bak"
+        except (OSError, json.JSONDecodeError, UnicodeDecodeError, KeyError, TypeError, ValueError, AttributeError) as primary_error:
             if not backup.is_file():
                 raise RuntimeError(
                     f"项目 {project_id} 的 project.json 已损坏，且没有可恢复的备份。"
                 ) from primary_error
             try:
                 return read_snapshot(backup)
-            except (json.JSONDecodeError, UnicodeDecodeError, KeyError, TypeError, ValueError, AttributeError) as backup_error:
+            except (OSError, json.JSONDecodeError, UnicodeDecodeError, KeyError, TypeError, ValueError, AttributeError) as backup_error:
                 raise RuntimeError(
                     f"项目 {project_id} 的 project.json 与备份均已损坏，无法恢复。"
                 ) from backup_error

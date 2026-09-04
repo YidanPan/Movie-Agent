@@ -31,6 +31,7 @@ from movie_agent.orchestrator import MovieOrchestrator
 from movie_agent.services.errors import error_info, record_failure
 from movie_agent.services.subtitles import render_srt, render_vtt, script_subtitle_track
 from movie_agent.services.media_quality import best_master_path, best_screening_path, quality_snapshot
+from movie_agent.pipeline.diagnostics import delivery_preflight, diagnostics_snapshot
 
 settings = Settings.from_env()
 orchestrator = MovieOrchestrator(settings)
@@ -255,7 +256,7 @@ def structured_error_response(error: BaseException, *, status_code: int, stage: 
 
 
 def serialized_project(project) -> dict[str, Any]:
-    """Expose persisted data plus a fresh, read-only media quality view."""
+    """Expose persisted data plus fresh, read-only quality and recovery views."""
 
     payload = project.to_dict()
     # Audio providers persist an absolute media path for the editor, while
@@ -265,6 +266,20 @@ def serialized_project(project) -> dict[str, Any]:
             track.setdefault("preview_url", f"/api/projects/{project.project_id}/audio/tracks/{key}")
     payload["video_quality"] = quality_snapshot(project, settings.ffprobe_bin)
     payload["screening_preview_url"] = f"/api/projects/{project.project_id}/screening-preview"
+    # Diagnostics contain only status, counts, redacted errors and media
+    # availability.  Paths and prompts remain inside the project payload's
+    # existing compatibility fields and are never copied into this view.
+    payload["diagnostics"] = diagnostics_snapshot(
+        project,
+        ffprobe_bin=settings.ffprobe_bin,
+        outputs_dir=settings.outputs_dir,
+    )
+    payload["delivery_preflight"] = delivery_preflight(
+        project,
+        ffmpeg_ready=_binary_ready(settings.ffmpeg_bin),
+        ffprobe_bin=settings.ffprobe_bin,
+        outputs_dir=settings.outputs_dir,
+    )
     return payload
 
 
@@ -392,6 +407,53 @@ def get_project(project_id: str) -> dict:
         return invalid_project_id(error)  # type: ignore[return-value]
     except RuntimeError as error:
         return structured_error_response(error, status_code=503, stage="storage")  # type: ignore[return-value]
+
+
+@app.get("/api/projects/{project_id}/diagnostics")
+def get_project_diagnostics(project_id: str) -> dict:
+    """Return a resumability snapshot without exposing project media paths."""
+
+    try:
+        project = orchestrator.store.load(project_id)
+    except FileNotFoundError:
+        return project_not_found(project_id)  # type: ignore[return-value]
+    except ValueError as error:
+        return invalid_project_id(error)  # type: ignore[return-value]
+    except RuntimeError as error:
+        return structured_error_response(error, status_code=503, stage="storage")  # type: ignore[return-value]
+    return diagnostics_snapshot(
+        project,
+        ffprobe_bin=settings.ffprobe_bin,
+        outputs_dir=settings.outputs_dir,
+    )
+
+
+@app.get("/api/projects/{project_id}/delivery-preflight")
+def get_delivery_preflight(
+    project_id: str,
+    resolution: Literal["720p", "1080p"] = "1080p",
+    aspect: Literal["16:9", "9:16", "1:1"] = "16:9",
+    subtitle_mode: Literal["none", "soft", "burned"] = "burned",
+) -> dict:
+    """Explain export blockers before the user starts a long encode."""
+
+    try:
+        project = orchestrator.store.load(project_id)
+    except FileNotFoundError:
+        return project_not_found(project_id)  # type: ignore[return-value]
+    except ValueError as error:
+        return invalid_project_id(error)  # type: ignore[return-value]
+    except RuntimeError as error:
+        return structured_error_response(error, status_code=503, stage="storage")  # type: ignore[return-value]
+    return delivery_preflight(
+        project,
+        resolution=resolution,
+        aspect=aspect,
+        subtitle_mode=subtitle_mode,
+        ffmpeg_ready=_binary_ready(settings.ffmpeg_bin),
+        ffprobe_bin=settings.ffprobe_bin,
+        outputs_dir=settings.outputs_dir,
+    )
 
 
 @app.post("/api/projects/stream")
@@ -918,8 +980,27 @@ async def export_video(project_id: str, request: Request):
             return invalid_payload(error)
         return JSONResponse({"error": "Request must be valid JSON."}, status_code=400)
     try:
-        project = orchestrator.store.load(project_id)
         with project_lock(project_id):
+            project = orchestrator.store.load(project_id)
+            preflight = delivery_preflight(
+                project,
+                resolution=payload.resolution,
+                aspect=payload.aspect,
+                subtitle_mode=payload.subtitle_mode,
+                ffmpeg_ready=_binary_ready(settings.ffmpeg_bin),
+                ffprobe_bin=settings.ffprobe_bin,
+                outputs_dir=settings.outputs_dir,
+            )
+            if not preflight["ready"]:
+                return JSONResponse(
+                    {
+                        "error": "Delivery preflight blocked export.",
+                        "error_code": "DELIVERY_NOT_READY",
+                        "stage": "export",
+                        "preflight": preflight,
+                    },
+                    status_code=409,
+                )
             path = orchestrator.editor.export_variant(project, **payload.model_dump())
     except FileNotFoundError:
         return project_not_found(project_id)

@@ -38,6 +38,19 @@ PORT=7860
 - 无 API Key 时仍可切换为 mock 模式演示。
 - 视频能力未就绪时，页面明确标注为 mock 视频流程，不能将占位路径宣传为真实成片。
 
+### P4 运行诊断与交付预检
+
+部署后可用下面两个只读接口检查一个项目是否能安全继续：
+
+```text
+GET /api/projects/<project_id>/diagnostics
+GET /api/projects/<project_id>/delivery-preflight?resolution=1080p&aspect=16:9&subtitle_mode=burned
+```
+
+`diagnostics` 返回规范化阶段、镜头通过/失败/过期计数、最近日志、脱敏错误和下一步恢复动作；不会返回媒体路径、Token 或主机信息。刷新项目时普通 `GET /api/projects/<project_id>` 也会携带同一份快照。
+
+`delivery-preflight` 会在导出前检查 Final Cut 是否批准、当前 Final Master 是否存在且未过期、台词本是否锁定、镜头是否全部通过质检、目标分辨率是否满足以及 FFmpeg 是否可用。导出接口会重复执行这份检查，失败时返回 `409 DELIVERY_NOT_READY` 和可读的 `blocking_reasons`，避免把 Proxy、Screening Preview 或低清素材误当成交付母版。
+
 ## 5. Spark 视频模式
 
 将验证过的 ComfyUI 服务限定为 `127.0.0.1:8188`，由 Movie-Agent 后端调用。前端创空间不直接暴露 Spark 的 ComfyUI 端口或任何凭据。

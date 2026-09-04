@@ -53,6 +53,7 @@ const els = {
   crewFlow: $("#crew-flow"),
   crewFlowProgress: $("#crew-flow-progress"),
   crewMeta: $("#crew-meta"),
+  crewRecoveryReadout: $("#crew-recovery-readout"),
   crewRadioWrap: $(".crew-radio-wrap"),
   crewRadioToggle: $("#crew-radio-toggle"),
   crewRadioSummary: $("#crew-radio-summary"),
@@ -189,6 +190,7 @@ const els = {
   btnExportClose: $("#btn-export-close"),
   btnExportRun: $("#btn-export-run"),
   exportSelection: $("#export-selection"),
+  exportPreflight: $("#export-preflight"),
   posterTitle: $("#poster-title"),
   posterMeta: $("#poster-meta"),
   exportJson: $("#export-json"),
@@ -361,6 +363,8 @@ const state = {
   deliverShotPreviewMedia: {},
   filmstripDragging: false,
   audioTimelineDuration: 0,
+  diagnostics: null,
+  exportPreflightRun: 0,
 };
 
 let manualTypingRun = 0;
@@ -1069,11 +1073,36 @@ function eventErrorMessage(event) {
   return `${code}${event.error_message || event.message || "服务暂时不可用"}`;
 }
 
+function renderProjectDiagnostics(project = state.project) {
+  const diagnostics = project?.diagnostics;
+  state.diagnostics = diagnostics || null;
+  const readout = els.crewRecoveryReadout;
+  if (!readout) return;
+  readout.classList.remove("is-attention");
+  if (!diagnostics) {
+    readout.textContent = "";
+    return;
+  }
+  const projectError = diagnostics.errors?.project;
+  if (projectError) {
+    readout.classList.add("is-attention");
+    readout.textContent = `${projectError.error_code || "ERROR"} · ${diagnostics.recoverability?.next_action || "OPEN LOG"}`;
+    readout.title = projectError.error_message || "项目需要处理";
+    return;
+  }
+  const progress = diagnostics.progress || {};
+  const next = diagnostics.recoverability?.next_action;
+  const ready = `${progress.shots_ready || 0}/${progress.shots_total || 0} SHOTS`;
+  readout.textContent = next ? `${ready} · NEXT ${next}` : ready;
+  readout.title = (diagnostics.activity?.recent || []).at(-1) || "项目诊断已同步";
+}
+
 function syncHistoricalCrew(project) {
   state.workingAgent = null;
   state.crewDetails = {};
   syncCrewBoard(project, { silent: true });
   hydrateCrewRadio(project);
+  renderProjectDiagnostics(project);
 }
 
 /* ── 第三幕 · 工作区渲染 ───────────────────────────────────── */
@@ -2769,6 +2798,32 @@ function renderDelivery(project) {
   }
 }
 
+async function refreshExportPreflight() {
+  if (!state.project || !els.exportPreflight) return;
+  const run = ++state.exportPreflightRun;
+  const params = new URLSearchParams({
+    resolution: state.exportOptions.resolution,
+    aspect: state.exportOptions.aspect,
+    subtitle_mode: state.exportOptions.subtitle_mode,
+  });
+  els.exportPreflight.dataset.state = "checking";
+  els.exportPreflight.textContent = "PREFLIGHT · CHECKING DELIVERY CONTRACT…";
+  try {
+    const response = await fetch(`/api/projects/${encodeURIComponent(state.project.project_id)}/delivery-preflight?${params.toString()}`);
+    const payload = await response.json().catch(() => ({}));
+    if (run !== state.exportPreflightRun) return;
+    const blocked = !response.ok || payload.ready === false;
+    els.exportPreflight.dataset.state = blocked ? "blocked" : "ready";
+    els.exportPreflight.textContent = blocked
+      ? `PREFLIGHT · BLOCKED · ${payload.blocking_reasons?.[0] || payload.error || "请先完成交付检查"}`
+      : `PREFLIGHT · PASS · ${payload.output?.width || 1920}×${payload.output?.height || 1080} MASTER READY`;
+  } catch {
+    if (run !== state.exportPreflightRun) return;
+    els.exportPreflight.dataset.state = "unknown";
+    els.exportPreflight.textContent = "PREFLIGHT · UNAVAILABLE · 导出时仍会再次检查";
+  }
+}
+
 function updateExportSelection() {
   const options = state.exportOptions;
   const subtitle = options.subtitle_mode === "soft" ? "SOFT" : options.subtitle_mode === "none" ? "NONE" : "BURNED";
@@ -2790,6 +2845,7 @@ function openExportSheet() {
   show(els.exportSheet);
   els.exportSheet?.classList.add("is-open");
   updateExportSelection();
+  refreshExportPreflight();
   els.btnExportRun?.focus();
 }
 
@@ -2872,6 +2928,7 @@ function updatePipelineForProject(project) {
 
 function renderWorkspace(project, options = {}) {
   show(els.actWorkspace);
+  renderProjectDiagnostics(project);
   renderFilmstrip(project, options.entranceFrom);
   renderTimeline(project);
   renderShotMap(project);
@@ -2901,6 +2958,7 @@ function renderWorkspace(project, options = {}) {
 
 function applyProjectSnapshot(project) {
   state.project = project;
+  renderProjectDiagnostics(project);
   if (els.crewFlow) syncCrewBoard(project, { silent: true });
   renderFilmstrip(project);
   renderTimeline(project);
@@ -3551,6 +3609,12 @@ function handleCreateEvent(event) {
     setTimeout(() => els.actWorkspace.scrollIntoView({ behavior: "smooth", block: "start" }), 350);
   } else if (event.type === "error") {
     const failure = eventErrorMessage(event);
+    if (event.project) {
+      state.project = event.project;
+      renderProjectDiagnostics(event.project);
+      syncCrewBoard(event.project, { silent: true });
+      renderLogFeed(event.project);
+    }
     els.crewMeta.textContent = "INTERRUPTED · RETRY AVAILABLE";
     failWorkingAgent();
     appendCrewStatus("system", "FAILED", `Crew run interrupted · ${failure}`);
@@ -3659,6 +3723,10 @@ function handleRenderEvent(event) {
     toast(`${event.project.storyboard?.length || 0}/${event.project.storyboard?.length || 0} SHOTS READY，当前阶段已推进到 DELIVER；请启动 AI Edit 粗剪。`);
   } else if (event.type === "error") {
     const failure = eventErrorMessage(event);
+    if (event.project) {
+      state.project = event.project;
+      applyProjectSnapshot(event.project);
+    }
     els.renderRec.classList.remove("live");
     stopProjectorHum();
     setBrowserActivity("idle", state.project);
@@ -3727,6 +3795,10 @@ function handleEditEvent(event) {
     els.editConsole?.scrollIntoView({ behavior: REDUCED_MOTION ? "auto" : "smooth", block: "center" });
   } else if (event.type === "error") {
     const failure = eventErrorMessage(event);
+    if (event.project) {
+      state.project = event.project;
+      applyProjectSnapshot(event.project);
+    }
     state.editing = false;
     rememberCrewEvent("editor", { status: "failed" });
     appendCrewStatus("editor", "FAILED", failure);
@@ -4838,6 +4910,7 @@ function init() {
     if (!option) return;
     state.exportOptions[option.dataset.exportField] = option.dataset.exportValue;
     updateExportSelection();
+    refreshExportPreflight();
   });
   els.btnMoreExport?.addEventListener("click", () => {
     const isOpen = !els.moreExportMenu?.classList.contains("hidden");
