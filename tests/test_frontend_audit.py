@@ -174,3 +174,17 @@ def test_production_desk_monitor_is_embedded_hardware_with_collapsed_activity():
     assert 'lines.slice(-3).join("\\n")' in APP
     assert ".cta--render:disabled" in CSS
     assert "pointer-events: none" in CSS
+
+
+def test_final_cut_workspace_is_clipped_two_column_inspector_and_progressive():
+    assert 'class="final-preview final-compare"' in INDEX
+    assert 'class="final-look-step final-look-disclosure"' in INDEX
+    assert 'id="final-look-fine-tune"' in INDEX
+    assert 'id="final-look-fine-tune" open' not in INDEX
+    assert "grid-template-columns: minmax(0, 1.7fr) minmax(300px, 1fr);" in CSS
+    assert "gap: clamp(24px, 2.2vw, 32px);" in CSS
+    assert ".final-preview {" in CSS
+    assert "aspect-ratio: 16 / 9;" in CSS
+    assert "contain: paint;" in CSS
+    assert "const canStartAiEdit = showSummary" in APP
+    assert 'if (finalApproved) states.deliver = "done";' in APP

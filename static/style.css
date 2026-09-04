@@ -202,7 +202,20 @@
   --theme-media-mark: var(--media-mark-token);
   --theme-shadow-card: var(--shadow-card-token);
   --theme-shadow-panel: var(--shadow-panel-token);
-  --theme-transition-ms: 520ms;
+
+  /* Theme switch choreography: "片场工作灯 ⇄ 放映室" is a single light
+     cue, not a skin swap. Every surface class transitions its tokens at its
+     own speed so the room dims / warms as a whole instead of flipping
+     element-by-element. Content text, buttons and metadata always stay
+     sharp: only colors interpolate, never transforms or blur. */
+  --theme-ms-toggle: 110ms;
+  --theme-ms-background: 370ms;
+  --theme-ms-surface: 300ms;
+  --theme-ms-text: 210ms;
+  --theme-ms-ambient: 460ms;
+  --theme-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --theme-ambient-light: radial-gradient(130% 92% at 76% -18%, rgba(232, 196, 138, 0.22), rgba(222, 192, 146, 0.1) 38%, transparent 72%), radial-gradient(110% 88% at 8% 26%, rgba(214, 176, 120, 0.12), transparent 64%);
+  --theme-ambient-dark: radial-gradient(130% 92% at 76% -18%, rgba(194, 138, 62, 0.13), rgba(194, 138, 62, 0.055) 42%, transparent 74%), radial-gradient(120% 100% at 14% 22%, rgba(122, 74, 55, 0.1), transparent 66%);
 
   /* Vertical rhythm: compact within a production stage, deliberate between
      the major acts of the console. */
@@ -255,22 +268,26 @@ html[data-theme="light"] {
   --media-mark-token: var(--desk-media-mark);
   --shadow-card-token: var(--desk-shadow-card);
   --shadow-panel-token: var(--desk-shadow-panel);
-  --theme-transition-wash: rgba(255, 248, 235, 0.74);
+  --theme-ambient: var(--theme-ambient-light);
 }
 
 html[data-theme="dark"] {
   --shadow-card-token: var(--screening-shadow-card);
   --shadow-panel-token: var(--screening-shadow-panel);
-  --theme-transition-wash: rgba(13, 10, 7, 0.76);
+  --theme-ambient: var(--theme-ambient-dark);
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
-html { color-scheme: dark; }
+html {
+  color-scheme: dark;
+  background-color: var(--surface-0);
+  transition: background-color var(--theme-ms-background) var(--theme-ease);
+}
 
 body {
   min-height: 100vh;
-  background: var(--theme-page-glow), var(--bg);
+  background: transparent;
   color: var(--text);
   font-family: var(--sans);
   font-size: 16px;
@@ -287,6 +304,18 @@ body {
 ::selection { background: rgba(232, 163, 76, 0.32); color: #fff8ec; }
 
 :focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; border-radius: 2px; }
+
+/* ── 环境光层（主题切换的“开灯 / 关灯”语义）─────────────
+   The desk lamp light lives behind the content so surfaces stay sharp;
+   only its warm gradient fades in / out during a theme switch. */
+.ambient-glow {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: var(--theme-ambient, transparent);
+  transition: opacity var(--theme-ms-ambient) var(--theme-ease);
+}
 
 /* ── 胶片颗粒与暗角 ─────────────────────────────────────────── */
 
@@ -4704,26 +4733,11 @@ body.low-performance[data-design="archive-console"] .landing-reveal-grain { disp
   * { transition-duration: 0.01ms !important; }
 }
 
-/* ── Theme switch chrome and the 520ms light cue ───────────── */
-.theme-transition-wash {
-  position: fixed;
-  inset: 0;
-  z-index: 94;
-  pointer-events: none;
-  opacity: 0;
-  background: var(--theme-transition-wash, transparent);
-  transition: opacity var(--theme-transition-ms) cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.theme-transition-wash[data-to="light"] {
-  background: radial-gradient(ellipse at 50% -12%, rgba(255, 248, 235, 0.84), rgba(244, 233, 214, 0.64) 56%, rgba(222, 204, 176, 0.34) 100%);
-}
-
-.theme-transition-wash[data-to="dark"] {
-  background: radial-gradient(ellipse at 50% 112%, rgba(13, 10, 7, 0.9), rgba(19, 14, 9, 0.76) 58%, rgba(39, 27, 14, 0.44) 100%);
-}
-
-.theme-transition-wash.is-active { opacity: 0.86; }
+/* ── Theme switch: 片场工作灯 ⇄ 放映室 ───────────────────────
+   No full-page wash / inversion. The room itself changes: background and
+   ambient light move at their own tempo while surfaces, borders and text
+   follow slightly behind, so the switch reads as one light cue instead of
+   a mechanical repaint. */
 
 .theme-toggle {
   display: inline-flex;
@@ -4739,7 +4753,7 @@ body.low-performance[data-design="archive-console"] .landing-reveal-grain { disp
   letter-spacing: 0.13em;
   cursor: pointer;
   white-space: nowrap;
-  transition: background-color 0.25s ease, border-color 0.25s ease, color 0.25s ease, box-shadow 0.25s ease;
+  transition: background-color var(--theme-ms-surface) var(--theme-ease), border-color var(--theme-ms-surface) var(--theme-ease), color var(--theme-ms-text) var(--theme-ease), box-shadow var(--theme-ms-surface) var(--theme-ease);
 }
 
 .theme-toggle:hover,
@@ -4749,24 +4763,67 @@ body.low-performance[data-design="archive-console"] .landing-reveal-grain { disp
   box-shadow: 0 0 0 1px var(--amber-glow);
 }
 
+/* A small film-equipment control, not an iOS switch: a 30px rail with a
+   13px brass dot that glides 10px and shifts its color temperature. */
 .theme-toggle-icon {
   position: relative;
   display: inline-block;
+  width: 30px;
+  height: 13px;
+  flex: 0 0 30px;
+  border-radius: 999px;
+}
+
+.theme-toggle-knob {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: block;
   width: 13px;
   height: 13px;
-  flex: 0 0 13px;
   border: 1px solid var(--amber-light);
   border-radius: 50%;
   background: var(--amber);
-  box-shadow: inset -4px 0 0 var(--surface-1), 0 0 7px var(--amber-glow);
-  transition: background-color 0.45s ease, border-color 0.45s ease, box-shadow 0.45s ease, transform 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: inset -3px 0 0 rgba(21, 17, 11, 0.28), 0 0 7px var(--amber-glow);
+  transition: transform var(--theme-ms-toggle) var(--theme-ease), background-color var(--theme-ms-toggle) var(--theme-ease), border-color var(--theme-ms-toggle) var(--theme-ease), box-shadow var(--theme-ms-toggle) var(--theme-ease);
 }
 
-.theme-toggle-icon.is-sun {
+html[data-theme="light"] .theme-toggle-knob {
+  transform: translateX(17px);
   background: var(--amber-light);
   border-color: var(--amber);
-  box-shadow: 0 0 8px var(--amber-glow), 0 0 0 2px var(--amber-glow);
-  transform: rotate(45deg);
+  box-shadow: inset -2px 0 0 rgba(36, 23, 12, 0.14), 0 0 10px var(--amber-glow), 0 0 0 1px var(--glow-token);
+}
+
+/* Click feedback: the knob pre-slides toward the target side before the
+   global theme flips, so the control answers instantly. */
+.theme-toggle[data-theme-action="light"] .theme-toggle-knob {
+  transform: translateX(24px);
+  background: var(--amber-light);
+  border-color: var(--amber);
+  box-shadow: 0 0 12px var(--glow-token), 0 0 0 1px var(--glow-token);
+  transition-duration: var(--theme-ms-toggle);
+}
+
+.theme-toggle[data-theme-action="dark"] .theme-toggle-knob {
+  transform: translateX(0);
+  background: var(--amber-deep);
+  border-color: var(--amber);
+  box-shadow: inset -3px 0 0 rgba(21, 17, 11, 0.34), 0 0 5px var(--amber-glow);
+  transition-duration: var(--theme-ms-toggle);
+}
+
+html[data-theme="light"] .theme-toggle[data-theme-action="dark"] .theme-toggle-knob {
+  transform: translateX(-4px);
+  background: var(--amber-deep);
+  border-color: var(--amber);
+  box-shadow: inset -3px 0 0 rgba(21, 17, 11, 0.34);
+}
+
+/* The toggle itself snaps into its new position the moment the theme
+   token flips; only its surface colors follow the room. */
+html[data-theme="light"] .theme-toggle[data-theme-action="light"] .theme-toggle-knob {
+  transform: translateX(21px);
 }
 
 .theme-toggle-label { line-height: 1; }
@@ -4774,9 +4831,44 @@ body.low-performance[data-design="archive-console"] .landing-reveal-grain { disp
 html.theme-transitioning,
 html.theme-transitioning body,
 html.theme-transitioning body * {
-  transition-property: background-color, background, border-color, color, box-shadow, fill, stroke, opacity;
-  transition-duration: var(--theme-transition-ms);
-  transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+  transition-property: background-color, background, border-color, color, box-shadow, text-shadow, translate, fill, stroke;
+  transition-duration: var(--theme-ms-text) !important;
+  transition-timing-function: var(--theme-ease);
+}
+
+html.theme-transitioning body,
+html.theme-transitioning body .topbar {
+  transition-duration: var(--theme-ms-background) !important;
+}
+
+html.theme-transitioning body .panel,
+html.theme-transitioning body .slate,
+html.theme-transitioning body .crew-card,
+html.theme-transitioning body .shot-card,
+html.theme-transitioning body .audio-track,
+html.theme-transitioning body .final-look-preset,
+html.theme-transitioning body .export-option,
+html.theme-transitioning body .drawer,
+html.theme-transitioning body .premiere-card,
+html.theme-transitioning body .export-sheet-card,
+html.theme-transitioning body .crew-radio-wrap {
+  transition-duration: var(--theme-ms-surface) !important;
+}
+
+html.theme-transitioning body .panel-head,
+html.theme-transitioning body .slate-header,
+html.theme-transitioning body .crew-radio-head,
+html.theme-transitioning body .dialogue-book,
+html.theme-transitioning body .shot-nav,
+html.theme-transitioning body .manual-summary,
+html.theme-transitioning body .tabs,
+html.theme-transitioning body .deliver-section {
+  transition-duration: var(--theme-ms-surface) !important;
+}
+
+html.theme-transitioning body .theme-toggle,
+html.theme-transitioning body .theme-toggle-knob {
+  transition-duration: var(--theme-ms-toggle) !important;
 }
 
 /* ── Production Desk: warm ivory archive surface ───────────── */
@@ -4790,7 +4882,7 @@ html[data-theme="light"] body[data-design="archive-console"] {
   --reader-secondary: var(--text-muted);
   --reader-meta: var(--text-meta);
   --reader-ornament: var(--text-ornament);
-  background: var(--theme-page-glow), var(--bg);
+  background: transparent;
   color: var(--text);
 }
 
@@ -7853,6 +7945,112 @@ html[data-theme="light"] body[data-design="archive-console"] .audio-track.is-sel
 @media (prefers-reduced-motion: reduce) {
   body[data-design="archive-console"] .audio-timeline.is-playing .audio-waveform i,
   body[data-design="archive-console"] .audio-track-inspector { animation: none; }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Final Cut workspace lock
+   The viewer and Color Finish Inspector are two explicit columns. The
+   preview owns every comparison layer and clips it at its 16:9 boundary;
+   nothing in the media stack can participate in the grid outside that box.
+   ───────────────────────────────────────────────────────────── */
+body[data-design="archive-console"] .final-cut-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(300px, 1fr);
+  align-items: start;
+  gap: clamp(24px, 2.2vw, 32px);
+  width: 100%;
+}
+
+body[data-design="archive-console"] .final-cut-screening,
+body[data-design="archive-console"] .final-player-shell,
+body[data-design="archive-console"] .final-preview {
+  width: 100%;
+  min-width: 0;
+}
+
+body[data-design="archive-console"] .final-player-shell {
+  aspect-ratio: auto;
+  overflow: hidden;
+}
+
+body[data-design="archive-console"] .final-preview {
+  inset: auto;
+  position: relative;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  isolation: isolate;
+  contain: paint;
+}
+
+body[data-design="archive-console"] .final-preview > video,
+body[data-design="archive-console"] .final-preview .final-compare-after,
+body[data-design="archive-console"] .final-preview .final-compare-divider,
+body[data-design="archive-console"] .final-preview .final-compare-label {
+  max-width: 100%;
+}
+
+body[data-design="archive-console"] .final-look-panel {
+  align-self: start;
+  min-width: 0;
+  width: 100%;
+  box-shadow: none;
+}
+
+body[data-design="archive-console"] .final-look-disclosure {
+  gap: 0;
+  border-top: 1px solid var(--line-soft);
+}
+
+body[data-design="archive-console"] .final-look-disclosure-head {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  align-items: center;
+  min-height: 48px;
+  margin: 0;
+  padding: 12px 0;
+  cursor: pointer;
+  list-style: none;
+}
+
+body[data-design="archive-console"] .final-look-disclosure-head::-webkit-details-marker { display: none; }
+body[data-design="archive-console"] .final-look-disclosure-head .activity-chevron {
+  display: inline-block;
+  color: var(--text-muted);
+  font-size: 14px;
+  transform: rotate(0deg);
+  transition: transform .22s ease, color .22s ease;
+}
+body[data-design="archive-console"] .final-look-disclosure[open] .final-look-disclosure-head .activity-chevron {
+  color: var(--accent-token);
+  transform: rotate(180deg);
+}
+body[data-design="archive-console"] .final-look-disclosure .final-look-controls {
+  padding: 2px 0 16px 30px;
+}
+
+body[data-design="archive-console"] .final-look-actions .ghost {
+  min-height: 38px;
+  color: var(--text-body);
+}
+
+html[data-theme="light"] body[data-design="archive-console"] .final-look-panel,
+html[data-theme="light"] body[data-design="archive-console"] .final-look-panel * {
+  text-shadow: none;
+}
+html[data-theme="light"] body[data-design="archive-console"] .final-look-panel .final-look-intro,
+html[data-theme="light"] body[data-design="archive-console"] .final-look-panel .final-look-description,
+html[data-theme="light"] body[data-design="archive-console"] .final-look-panel .final-look-range > span,
+html[data-theme="light"] body[data-design="archive-console"] .final-look-panel .final-look-note {
+  color: var(--text-body);
+  opacity: 1;
+}
+
+@media (max-width: 960px) {
+  body[data-design="archive-console"] .final-cut-workspace {
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
+  body[data-design="archive-console"] .final-look-panel { position: relative; top: auto; }
 }
 
 /* ─────────────────────────────────────────────────────────────

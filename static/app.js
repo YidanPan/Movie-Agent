@@ -83,8 +83,6 @@ const els = {
   finalVideoAfter: $("#final-video-after"),
   finalCompareAfter: $("#final-compare-after"),
   finalCompareDivider: $("#final-compare-divider"),
-  editConsole: $("#edit-console"),
-  editConsoleState: $("#edit-console-state"),
   editConsoleNote: $("#edit-console-note"),
   audioDesignConsole: $("#audio-design-console"),
   audioDesignState: $("#audio-design-state"),
@@ -105,8 +103,13 @@ const els = {
   roughCutStage: $("#rough-cut-stage"),
   roughCutVideo: $("#rough-cut-video"),
   subtitleMode: $("#subtitle-mode"),
+  subtitleModeControl: $("#subtitle-mode-control"),
   btnRecut: $("#btn-recut"),
   btnApproveEdit: $("#btn-approve-edit"),
+  btnSoundSettings: $("#btn-sound-settings"),
+  soundSummary: $("#sound-summary"),
+  soundSummaryChips: $("#sound-summary-chips"),
+  soundSummaryLabel: $("[data-sound-summary-label]"),
   btnReedit: $("#btn-reedit"),
   btnEditSubtitles: $("#btn-edit-subtitles"),
   btnExportFinal: $("#btn-export-final"),
@@ -340,6 +343,7 @@ const state = {
   finalLookDraft: null,
   finalLookDirty: false,
   finalLookSplit: 50,
+  deliverShotPreviewMedia: {},
   filmstripDragging: false,
   audioTimelineDuration: 0,
 };
@@ -632,7 +636,10 @@ function pipelineFromProject(project, hasVideo) {
   } else if (allReady || status.startsWith("editing_") || status === "rough_cut_ready" || finalApproved) {
     states.render = "done";
   }
-  if (finalApproved) states.deliver = historical ? "archived" : "done";
+  // A verified Final Cut is a completed deliverable even when the user is
+  // viewing an older project. Historical context belongs in the project
+  // metadata, not in the active production-stage label.
+  if (finalApproved) states.deliver = "done";
   else if (status === "ready_for_ai_edit") states.deliver = historical ? "ready" : "active";
   else if (allReady || status === "editing_rough_cut" || status === "rough_cut_ready") states.deliver = "active";
   if (historical && status.startsWith("completed") && !finalApproved) states.deliver = "archived";
@@ -2337,14 +2344,18 @@ function renderDeliverProgress(project, description = "") {
   const percent = roughReady ? 100 : Math.round((activeIndex / stageCount) * 100);
   if (els.deliverProgressPercent) els.deliverProgressPercent.textContent = `${percent}%`;
   if (els.deliverProgressBar) els.deliverProgressBar.style.width = `${percent}%`;
-  if (els.editConsoleState) els.editConsoleState.textContent = roughReady ? "ROUGH CUT READY" : editing ? "EDITING" : "READY TO EDIT";
+  const preApproval = editing || roughReady || editReady;
   if (els.editConsoleNote) {
     els.editConsoleNote.textContent = project?.script?.dialogue_locked
       ? "AI Edit 会严格读取已锁定的台词本与字幕轨。"
       : "请先在“剧本与旁白”页锁定台词本，剪辑才能继续。";
   }
-  if (els.btnApproveEdit) els.btnApproveEdit.disabled = state.editing || !roughReady;
-  if (els.btnRecut) els.btnRecut.disabled = state.editing;
+  if (els.btnApproveEdit) {
+    els.btnApproveEdit.classList.toggle("hidden", !roughReady);
+    els.btnApproveEdit.disabled = state.editing || !roughReady;
+  }
+  if (els.btnRecut) els.btnRecut.classList.toggle("hidden", !preApproval);
+  if (els.subtitleModeControl) els.subtitleModeControl.classList.toggle("hidden", !preApproval);
 }
 
 function updateFinalVideoMetadata() {
@@ -2370,7 +2381,7 @@ function renderDeliverTimeline(project) {
       const start = offset;
       offset += duration;
       const stateInfo = shotWorkflowState(shot.status);
-      return `<button class="deliver-timeline-shot type-control ${stateInfo.key}" type="button" role="listitem" data-deliver-start="${start}" style="--shot-duration:${duration};" aria-label="跳转到镜头 ${shot.number}"><span class="type-system-meta">SHOT ${String(shot.number).padStart(2, "0")}</span><small class="type-system-meta">${compactDuration(start)} · ${compactDuration(start + duration)}</small><i class="type-status">${duration}s</i></button>`;
+      return `<button class="deliver-timeline-shot type-control ${stateInfo.key}" type="button" role="listitem" data-deliver-start="${start}" data-deliver-duration="${duration}" data-deliver-shot="${shot.number}" style="--shot-duration:${duration};" aria-label="跳转到镜头 ${shot.number}"><span class="type-system-meta">SHOT ${String(shot.number).padStart(2, "0")}</span><small class="type-system-meta">${compactDuration(start)} · ${compactDuration(start + duration)}</small><i class="type-status">${duration}s</i><span class="deliver-shot-preview" aria-hidden="true"><i class="deliver-shot-preview-frame"></i><b class="type-system-meta">SHOT ${String(shot.number).padStart(2, "0")} · ${compactDuration(start)}</b></span></button>`;
     }).join("")
     : '<p class="empty-note">镜头生成后，这里会出现可跳转的时间线。</p>';
   els.deliverShotTimeline.querySelectorAll("[data-deliver-start]").forEach((button) => {
@@ -2381,8 +2392,82 @@ function renderDeliverTimeline(project) {
       els.finalVideo.play().catch(() => {});
       els.deliverShotTimeline.querySelectorAll(".is-selected").forEach((item) => item.classList.remove("is-selected"));
       button.classList.add("is-selected");
+      syncShotTimelinePlayhead(start);
     });
+    button.addEventListener("mouseenter", () => ensureDeliverShotPreview(project, button));
+    button.addEventListener("focus", () => ensureDeliverShotPreview(project, button));
+    button.addEventListener("mouseleave", pauseDeliverShotPreview);
+    button.addEventListener("blur", pauseDeliverShotPreview);
   });
+}
+
+/* 悬停镜头时惰性探测单镜媒体，命中才挂载缩略预览视频。 */
+function ensureDeliverShotPreview(project, button) {
+  const frame = button.querySelector(".deliver-shot-preview-frame");
+  if (!frame || !project || frame.querySelector("video")) return;
+  const shotNumber = Number(button.dataset.deliverShot || 0);
+  if (!shotNumber) return;
+  const key = `${project.project_id}:${shotNumber}`;
+  if (state.deliverShotPreviewMedia[key] === null) return;
+  const url = `/api/projects/${encodeURIComponent(project.project_id)}/shots/${shotNumber}/video`;
+  const mediaMap = state.deliverShotPreviewMedia;
+  fetch(url, { method: "HEAD" }).then((response) => {
+    if (!response.ok) {
+      mediaMap[key] = null;
+      return;
+    }
+    mediaMap[key] = url;
+    if (!frame.isConnected || frame.querySelector("video")) return;
+    const video = document.createElement("video");
+    video.src = url;
+    video.muted = true;
+    video.loop = true;
+    video.playsInline = true;
+    video.preload = "metadata";
+    frame.appendChild(video);
+    if (button.matches(":hover")) video.play().catch(() => {});
+  }).catch(() => {});
+}
+
+function pauseDeliverShotPreview(event) {
+  event.currentTarget.querySelectorAll(".deliver-shot-preview-frame video").forEach((video) => {
+    video.pause();
+    video.currentTime = 0;
+  });
+}
+
+/* 播放头同步：高亮当前镜头并保持其在横向时间线内可见。 */
+function syncShotTimelinePlayhead(currentTime) {
+  const box = els.deliverShotTimeline;
+  if (!box) return;
+  const shots = Array.from(box.querySelectorAll("[data-deliver-start]"));
+  if (!shots.length) return;
+  const time = Number(currentTime) || 0;
+  let active = null;
+  for (const node of shots) {
+    const start = Number(node.dataset.deliverStart || 0);
+    const end = start + Number(node.dataset.deliverDuration || 1);
+    const isCurrent = time >= start && time < end;
+    node.classList.toggle("is-current", isCurrent);
+    if (isCurrent) active = node;
+  }
+  if (!active && time > 0) {
+    const last = shots[shots.length - 1];
+    if (time >= Number(last.dataset.deliverStart || 0)) {
+      last.classList.add("is-current");
+      active = last;
+    }
+  }
+  if (!active) return;
+  const target = active.offsetLeft;
+  const viewStart = box.scrollLeft;
+  const viewEnd = viewStart + box.clientWidth;
+  if (target < viewStart + 12 || target + active.offsetWidth > viewEnd - 12) {
+    box.scrollTo({
+      left: Math.max(0, target - box.clientWidth / 2 + active.offsetWidth / 2),
+      behavior: REDUCED_MOTION ? "auto" : "smooth",
+    });
+  }
 }
 
 async function renderScreening(project) {
@@ -2393,7 +2478,8 @@ async function renderScreening(project) {
   // prevents a previous project's player from flashing while a new HEAD check
   // is in flight.
   els.deliverSummary?.classList.remove("hidden");
-  els.deliverFinal?.classList.add("hidden");
+  els.screen?.classList.add("hidden");
+  els.roughCutStage?.classList.add("hidden");
   els.finalVideo?.removeAttribute("src");
   els.finalVideo?.load();
   els.finalVideoAfter?.removeAttribute("src");
@@ -2449,8 +2535,16 @@ async function renderScreening(project) {
     els.deliverStateBadge.dataset.state = resolvedState.key;
   }
   const showFinal = finalStatus && state.hasFinalVideo;
-  const showPlaceholder = !state.hasFinalVideo;
-  if (els.deliverSummary) els.deliverSummary.classList.toggle("hidden", !showPlaceholder);
+  const roughPhase = ["editing", "rough"].includes(resolvedState.key);
+  const progressPhase = ["editing", "rough", "ready"].includes(resolvedState.key);
+  const showSummary = !state.hasFinalVideo && !roughPhase;
+  if (els.deliverSummary) els.deliverSummary.classList.toggle("hidden", !showSummary);
+  els.screen?.classList.toggle("hidden", !showFinal);
+  els.roughCutStage?.classList.toggle("hidden", !roughPhase);
+  els.deliverFinal?.classList.toggle("hidden", !project);
+  if (els.audioDesignConsole) els.audioDesignConsole.classList.toggle("hidden", !progressPhase);
+  if (els.deliverAudioPanel) els.deliverAudioPanel.classList.toggle("hidden", !showFinal);
+  if (els.subtitleModeControl) els.subtitleModeControl.classList.toggle("hidden", !progressPhase);
   if (els.deliverFinal) els.deliverFinal.classList.toggle("hidden", !showFinal);
   if (els.finalNotGenerated) els.finalNotGenerated.classList.add("hidden");
   if (els.screen) els.screen.classList.toggle("has-video", state.hasFinalVideo);
@@ -2463,7 +2557,7 @@ async function renderScreening(project) {
   if (els.deliverMetaVoiceover) els.deliverMetaVoiceover.textContent = project?.script?.dialogue_locked ? "LOCKED TRACK" : "LOCK REQUIRED";
   if (els.deliverMetaAudio) els.deliverMetaAudio.textContent = project?.script?.dialogue_locked ? "VOICE · MUSIC · SFX · ATMOS" : "LOCK REQUIRED";
   if (els.btnAiEdit) {
-    const canStartAiEdit = showPlaceholder && !["rough", "editing"].includes(resolvedState.key);
+    const canStartAiEdit = showSummary && !["rough", "editing"].includes(resolvedState.key);
     els.btnAiEdit.classList.toggle("hidden", !canStartAiEdit);
     els.btnAiEdit.disabled = state.editing || !((project?.storyboard || []).length && (project.storyboard || []).every((shot) => String(shot.status || "").startsWith("approved")));
     els.btnAiEdit.innerHTML = state.editing ? "AI Edit 粗剪中…" : 'AI 剪辑成片 <span class="cta-arrow" aria-hidden="true">→</span>';
