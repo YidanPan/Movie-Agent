@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import datetime, timezone
 from threading import RLock
 from pathlib import Path
 
@@ -26,6 +27,11 @@ class ProjectStore:
         target_dir = self._project_dir(project.project_id)
         with self._lock:
             target_dir.mkdir(parents=True, exist_ok=True)
+            now = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+            if not getattr(project, "created_at", ""):
+                project.created_at = now
+            project.updated_at = now
+            project.schema_version = max(2, int(getattr(project, "schema_version", 2) or 2))
             target = target_dir / "project.json"
             temporary = target.with_suffix(".json.tmp")
             temporary.write_text(json.dumps(project.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")

@@ -111,6 +111,9 @@ class EditorAgent:
         """Persist proxy/screening/master records for the current cut."""
 
         assets: dict[str, dict[str, Any]] = {}
+        revision = max((int(getattr(shot, "revision", 1) or 1) for shot in project.storyboard), default=1)
+        provider = "ffmpeg"
+        model = str(self.settings.ffmpeg_bin or "ffmpeg")
         proxy = self._derive_preview(project, source, tier="working_proxy", resolution="720p")
         screening = self._derive_preview(
             project,
@@ -125,6 +128,10 @@ class EditorAgent:
                 ffprobe_bin=self.settings.ffprobe_bin,
                 target_resolution=project.target_resolution,
                 source="cut",
+                revision=revision,
+                provider=provider,
+                model=model,
+                qc_status="PASSED_PIPELINE",
             )
         if screening:
             assets["screening_preview"] = asset_record(
@@ -133,6 +140,10 @@ class EditorAgent:
                 ffprobe_bin=self.settings.ffprobe_bin,
                 target_resolution=project.target_resolution,
                 source="cut",
+                revision=revision,
+                provider=provider,
+                model=model,
+                qc_status="PASSED_PIPELINE",
             )
         if include_master and source.is_file():
             assets["final_master"] = asset_record(
@@ -141,6 +152,10 @@ class EditorAgent:
                 ffprobe_bin=self.settings.ffprobe_bin,
                 target_resolution=project.target_resolution,
                 source="final_cut",
+                revision=revision,
+                provider=provider,
+                model=model,
+                qc_status="PASSED_PIPELINE",
             )
         project.video_assets = assets
 
@@ -202,6 +217,12 @@ class EditorAgent:
                 target_resolution=resolution,
                 source="resolution_normalize",
                 normalized=True,
+                revision=int(getattr(shot, "revision", 1) or 1),
+                prompt_hash=str(getattr(shot, "prompt_hash", "") or ""),
+                provider="ffmpeg",
+                model=str(self.settings.ffmpeg_bin or "ffmpeg"),
+                seed=getattr(shot, "seed", None) or getattr(shot, "generation_seed", None),
+                qc_status="PASSED_PIPELINE",
             )
             record["original_path"] = str(source)
             source_asset = shot.media_assets.get("source") if isinstance(shot.media_assets, dict) else None
@@ -212,10 +233,20 @@ class EditorAgent:
                     ffprobe_bin=self.settings.ffprobe_bin,
                     target_resolution=resolution,
                     source="comfyui_original",
+                    revision=int(getattr(shot, "revision", 1) or 1),
+                    prompt_hash=str(getattr(shot, "prompt_hash", "") or ""),
+                    provider=str(getattr(shot, "provider", "") or "comfyui"),
+                    model=str(getattr(shot, "model", "") or "verified-comfyui-workflow"),
+                    seed=getattr(shot, "seed", None) or getattr(shot, "generation_seed", None),
+                    qc_status=str(getattr(shot, "qc_status", "PASSED_PIPELINE") or "PASSED_PIPELINE"),
                 )
             shot.media_assets["source"] = source_asset
             shot.media_assets["final_master"] = record
             shot.output_placeholder = str(output)
+            shot.source_resolution = record.get("source_resolution")
+            shot.source_fps = record.get("source_fps")
+            shot.source_duration = record.get("source_duration")
+            shot.stale = False
             changed += 1
         if not changed:
             raise RuntimeError("No real shot media is available for Resolution Normalize. Generate the shots first.")
@@ -885,6 +916,10 @@ class EditorAgent:
             ffprobe_bin=self.settings.ffprobe_bin,
             target_resolution=project.target_resolution,
             source="final_look",
+            revision=int((look or {}).get("revision", 1) or 1),
+            provider="ffmpeg",
+            model=str(self.settings.ffmpeg_bin or "ffmpeg"),
+            qc_status="PASSED_PIPELINE",
         )
         return output
 

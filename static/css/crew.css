@@ -1,0 +1,3 @@
+/* Crew Assembly extraction seam. */
+:where(.p2-crew) { isolation: isolate; }
+

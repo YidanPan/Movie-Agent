@@ -1,0 +1,3 @@
+/* Sound Design extraction seam. */
+:where(.p2-sound) { isolation: isolate; }
+

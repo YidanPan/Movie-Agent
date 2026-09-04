@@ -33,7 +33,18 @@ settings = Settings.from_env()
 orchestrator = MovieOrchestrator(settings)
 
 STATIC_DIR = Path(__file__).parent / "static"
-render_lock = threading.Lock()
+# Rendering and media mutation is serialized per project, not globally.  A
+# long ComfyUI job for one film must not block an unrelated project's edit.
+project_locks: dict[str, threading.Lock] = {}
+project_locks_guard = threading.Lock()
+
+
+def project_lock(project_id: str) -> threading.Lock:
+    """Return the stable lock for one project (kept process-local for MVP)."""
+
+    key = str(project_id)
+    with project_locks_guard:
+        return project_locks.setdefault(key, threading.Lock())
 
 app = FastAPI(title="Movie-Agent · AI Film Studio")
 
@@ -74,8 +85,27 @@ class UpdateShotPayload(BaseModel):
     sound_design: str | None = Field(default=None, min_length=1, max_length=2_000)
     generation_mode: str | None = Field(default=None, min_length=1, max_length=20)
     prompt: str | None = Field(default=None, min_length=1, max_length=12_000)
+    narrative_purpose: str | None = Field(default=None, min_length=1, max_length=1_000)
+    starting_state: str | None = Field(default=None, min_length=1, max_length=1_000)
+    main_action: str | None = Field(default=None, min_length=1, max_length=2_000)
+    character_reaction: str | None = Field(default=None, min_length=1, max_length=1_000)
+    ending_state: str | None = Field(default=None, min_length=1, max_length=1_000)
+    transition_hook: str | None = Field(default=None, min_length=1, max_length=1_000)
 
-    @field_validator("framing", "image_description", "action", "sound_design", "generation_mode", "prompt")
+    @field_validator(
+        "framing",
+        "image_description",
+        "action",
+        "sound_design",
+        "generation_mode",
+        "prompt",
+        "narrative_purpose",
+        "starting_state",
+        "main_action",
+        "character_reaction",
+        "ending_state",
+        "transition_hook",
+    )
     @classmethod
     def strip_optional_text(cls, value: str | None) -> str | None:
         if value is None:
@@ -268,11 +298,12 @@ async def update_script(project_id: str, request: Request):
             return invalid_payload(error)
         return JSONResponse({"error": "Request must be valid JSON."}, status_code=400)
     try:
-        project = orchestrator.update_dialogue(
-            project_id,
-            dialogue_book=payload.dialogue_book,
-            subtitle_track=payload.subtitle_track,
-        )
+        with project_lock(project_id):
+            project = orchestrator.update_dialogue(
+                project_id,
+                dialogue_book=payload.dialogue_book,
+                subtitle_track=payload.subtitle_track,
+            )
     except FileNotFoundError:
         return project_not_found(project_id)
     except ValueError as error:
@@ -283,7 +314,8 @@ async def update_script(project_id: str, request: Request):
 @app.post("/api/projects/{project_id}/script/lock")
 def lock_script(project_id: str):
     try:
-        project = orchestrator.lock_dialogue(project_id)
+        with project_lock(project_id):
+            project = orchestrator.lock_dialogue(project_id)
     except FileNotFoundError:
         return project_not_found(project_id)
     except ValueError as error:
@@ -294,7 +326,8 @@ def lock_script(project_id: str):
 @app.post("/api/projects/{project_id}/script/unlock")
 def unlock_script(project_id: str):
     try:
-        project = orchestrator.unlock_dialogue(project_id)
+        with project_lock(project_id):
+            project = orchestrator.unlock_dialogue(project_id)
     except FileNotFoundError:
         return project_not_found(project_id)
     except ValueError as error:
@@ -317,7 +350,7 @@ async def create_rough_cut_stream(project_id: str, request: Request) -> Streamin
         return invalid_project_id(error)
 
     def work(emit: Callable[[dict], None]) -> None:
-        with render_lock:
+        with project_lock(project_id):
             def on_progress(description: str) -> None:
                 try:
                     snapshot = serialized_project(orchestrator.store.load(project_id))
@@ -349,15 +382,16 @@ async def update_audio_design(project_id: str, request: Request):
             return invalid_payload(error)
         return JSONResponse({"error": "Request must be valid JSON."}, status_code=400)
     try:
-        project = orchestrator.set_audio_design(
-            project_id,
-            music_mode=payload.music_mode,
-            music_intensity=payload.music_intensity,
-            smart_ducking=payload.smart_ducking,
-            music_asset_name=payload.music_asset_name,
-            track_enabled=payload.track_enabled,
-            track_params=payload.track_params,
-        )
+        with project_lock(project_id):
+            project = orchestrator.set_audio_design(
+                project_id,
+                music_mode=payload.music_mode,
+                music_intensity=payload.music_intensity,
+                smart_ducking=payload.smart_ducking,
+                music_asset_name=payload.music_asset_name,
+                track_enabled=payload.track_enabled,
+                track_params=payload.track_params,
+            )
     except FileNotFoundError:
         return project_not_found(project_id)
     except ValueError as error:
@@ -374,7 +408,7 @@ async def update_final_look(project_id: str, request: Request):
             return invalid_payload(error)
         return JSONResponse({"error": "Request must be valid JSON."}, status_code=400)
     try:
-        with render_lock:
+        with project_lock(project_id):
             project = orchestrator.set_final_look(
                 project_id,
                 preset=payload.preset,
@@ -397,7 +431,8 @@ async def update_final_look(project_id: str, request: Request):
 @app.post("/api/projects/{project_id}/audio/tracks/{track_key}/regenerate")
 def regenerate_audio_track(project_id: str, track_key: str):
     try:
-        project = orchestrator.regenerate_audio_track(project_id, track_key)
+        with project_lock(project_id):
+            project = orchestrator.regenerate_audio_track(project_id, track_key)
     except FileNotFoundError:
         return project_not_found(project_id)
     except ValueError as error:
@@ -410,7 +445,7 @@ def generate_voice_track(project_id: str):
     """Generate one continuous English voice asset from the locked script."""
 
     try:
-        with render_lock:
+        with project_lock(project_id):
             project = orchestrator.generate_voice_track(project_id)
     except FileNotFoundError:
         return project_not_found(project_id)
@@ -431,33 +466,34 @@ async def upload_music(project_id: str, request: Request):
     """
 
     try:
-        project = orchestrator.store.load(project_id)
+        with project_lock(project_id):
+            project = orchestrator.store.load(project_id)
+            filename = Path(request.headers.get("x-filename", "uploaded-score")).name
+            filename = re.sub(r"[^\w.\- ]+", "_", filename).strip(" .") or "uploaded-score"
+            if len(filename) > 120:
+                filename = filename[-120:]
+            body = await request.body()
+            if not body:
+                return JSONResponse({"error": "Upload file is empty."}, status_code=400)
+            if len(body) > 120 * 1024 * 1024:
+                return JSONResponse({"error": "Audio file must not exceed 120 MB."}, status_code=413)
+            audio_dir = settings.outputs_dir / project_id / "audio"
+            audio_dir.mkdir(parents=True, exist_ok=True)
+            target = audio_dir / filename
+            target.write_bytes(body)
+            project = orchestrator.set_audio_design(
+                project_id,
+                music_mode="upload",
+                smart_ducking=bool((project.smart_ducking or {}).get("enabled", True)),
+                music_asset_name=filename,
+            )
+            project.audio_tracks.setdefault("music", {})["preview_url"] = f"/api/projects/{project_id}/audio/tracks/music"
+            project.audio_tracks["music"]["media_path"] = str(target)
+            project.audio_tracks["music"]["status"] = "FILE READY"
+            project.logs.append(f"Sound Design Agent: Received uploaded score {filename}.")
+            orchestrator.store.save(project)
     except FileNotFoundError:
         return project_not_found(project_id)
-    filename = Path(request.headers.get("x-filename", "uploaded-score")).name
-    filename = re.sub(r"[^\w.\- ]+", "_", filename).strip(" .") or "uploaded-score"
-    if len(filename) > 120:
-        filename = filename[-120:]
-    body = await request.body()
-    if not body:
-        return JSONResponse({"error": "Upload file is empty."}, status_code=400)
-    if len(body) > 120 * 1024 * 1024:
-        return JSONResponse({"error": "Audio file must not exceed 120 MB."}, status_code=413)
-    audio_dir = settings.outputs_dir / project_id / "audio"
-    audio_dir.mkdir(parents=True, exist_ok=True)
-    target = audio_dir / filename
-    target.write_bytes(body)
-    project = orchestrator.set_audio_design(
-        project_id,
-        music_mode="upload",
-        smart_ducking=bool((project.smart_ducking or {}).get("enabled", True)),
-        music_asset_name=filename,
-    )
-    project.audio_tracks.setdefault("music", {})["preview_url"] = f"/api/projects/{project_id}/audio/tracks/music"
-    project.audio_tracks["music"]["media_path"] = str(target)
-    project.audio_tracks["music"]["status"] = "FILE READY"
-    project.logs.append(f"Sound Design Agent: Received uploaded score {filename}.")
-    orchestrator.store.save(project)
     return serialized_project(project)
 
 
@@ -470,7 +506,8 @@ async def approve_edit(project_id: str, request: Request):
             return invalid_payload(error)
         return JSONResponse({"error": "Request must be valid JSON."}, status_code=400)
     try:
-        project = orchestrator.approve_edit(project_id, payload.subtitle_mode)
+        with project_lock(project_id):
+            project = orchestrator.approve_edit(project_id, payload.subtitle_mode)
     except FileNotFoundError:
         return project_not_found(project_id)
     except ValueError as error:
@@ -491,7 +528,7 @@ async def normalize_media_resolution(project_id: str, request: Request):
             return invalid_payload(error)
         return JSONResponse({"error": "Request must be valid JSON."}, status_code=400)
     try:
-        with render_lock:
+        with project_lock(project_id):
             project = orchestrator.normalize_resolution(project_id, payload.resolution)
             if payload.method == "ai_upscale":
                 project.logs.append("Media Pipeline: AI Upscale requested; deterministic Resolution Normalize used until an upscaler is configured.")
@@ -520,7 +557,7 @@ async def render_project_stream(project_id: str, request: Request) -> StreamingR
         return invalid_project_id(error)
 
     def work(emit: Callable[[dict], None]) -> None:
-        with render_lock:
+        with project_lock(project_id):
             def on_progress(completed: int, total: int, description: str) -> None:
                 try:
                     snapshot = serialized_project(orchestrator.store.load(project_id))
@@ -545,7 +582,8 @@ async def render_project_stream(project_id: str, request: Request) -> StreamingR
 @app.post("/api/projects/{project_id}/shots/{shot_number}/regenerate")
 def regenerate_shot(project_id: str, shot_number: int):
     try:
-        project = orchestrator.regenerate_shot(project_id, shot_number)
+        with project_lock(project_id):
+            project = orchestrator.regenerate_shot(project_id, shot_number)
     except FileNotFoundError:
         return project_not_found(project_id)
     except ValueError as error:
@@ -563,23 +601,8 @@ async def update_shot(project_id: str, shot_number: int, request: Request):
         return JSONResponse({"error": "Request must be valid JSON."}, status_code=400)
     try:
         updates = payload.model_dump(exclude_unset=True)
-        timing_requested = "duration_seconds" in updates or "desired_duration" in updates or "timing_mode" in updates
-        project = orchestrator.store.load(project_id)
-        if timing_requested:
-            project = orchestrator.update_shot_timing(
-                project_id,
-                shot_number,
-                desired_duration=updates.pop("desired_duration", updates.pop("duration_seconds", None)),
-                timing_mode=updates.pop("timing_mode", None),
-            )
-        if updates:
-            if not 1 <= shot_number <= len(project.storyboard):
-                raise ValueError(f"Shot number must be between 1 and {len(project.storyboard)}.")
-            shot = project.storyboard[shot_number - 1]
-            for key, value in updates.items():
-                setattr(shot, key, value)
-            project.logs.append(f"Script Supervisor: Saved Inspector edits for shot {shot_number}.")
-            orchestrator.store.save(project)
+        with project_lock(project_id):
+            project = orchestrator.update_shot(project_id, shot_number, updates)
     except FileNotFoundError:
         return project_not_found(project_id)
     except ValueError as error:
@@ -595,7 +618,7 @@ def render_single_shot(project_id: str, shot_number: int):
             status_code=400,
         )
     try:
-        with render_lock:
+        with project_lock(project_id):
             project = orchestrator.render_shot(project_id, shot_number)
     except FileNotFoundError:
         return project_not_found(project_id)
@@ -737,7 +760,7 @@ async def export_video(project_id: str, request: Request):
         return JSONResponse({"error": "Request must be valid JSON."}, status_code=400)
     try:
         project = orchestrator.store.load(project_id)
-        with render_lock:
+        with project_lock(project_id):
             path = orchestrator.editor.export_variant(project, **payload.model_dump())
     except FileNotFoundError:
         return project_not_found(project_id)

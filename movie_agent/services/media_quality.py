@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -144,8 +145,20 @@ def asset_record(
     target_resolution: str = "1080p",
     source: str = "original",
     normalized: bool = False,
+    revision: int = 1,
+    prompt_hash: str = "",
+    provider: str = "",
+    model: str = "",
+    seed: int | None = None,
+    created_at: str | None = None,
+    qc_status: str = "PENDING",
+    stale: bool = False,
 ) -> dict[str, Any]:
     metadata = probe_media(path, ffprobe_bin)
+    timestamp = created_at or datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    source_resolution = None
+    if isinstance(metadata.get("width"), int) and isinstance(metadata.get("height"), int):
+        source_resolution = f"{metadata['width']}x{metadata['height']}"
     return {
         **metadata,
         "tier": tier,
@@ -153,6 +166,17 @@ def asset_record(
         "quality": quality_label(metadata, target_resolution),
         "normalized": bool(normalized),
         "is_low_res": quality_label(metadata, target_resolution) == "LOW RES SOURCE",
+        "revision": max(1, int(revision or 1)),
+        "prompt_hash": str(prompt_hash or ""),
+        "provider": str(provider or ""),
+        "model": str(model or ""),
+        "seed": int(seed) if seed is not None else None,
+        "created_at": timestamp,
+        "qc_status": str(qc_status or "PENDING"),
+        "source_resolution": source_resolution,
+        "source_fps": metadata.get("fps"),
+        "source_duration": metadata.get("duration_seconds"),
+        "stale": bool(stale),
     }
 
 
@@ -160,11 +184,20 @@ def best_master_path(project: Any) -> Path | None:
     """Resolve only a master-derived path for export; never choose a proxy."""
 
     assets = getattr(project, "video_assets", {}) or {}
+    has_master_record = isinstance(assets, dict) and "final_master" in assets
     master = assets.get("final_master") if isinstance(assets, dict) else None
     if isinstance(master, dict):
-        path = Path(str(master.get("path") or ""))
-        if path.is_file():
-            return path
+        if master.get("stale"):
+            return None
+        else:
+            path = Path(str(master.get("path") or ""))
+            if path.is_file():
+                return path
+    if has_master_record:
+        # A present-but-invalid record is still a current master contract;
+        # never fall back to a legacy placeholder that may point at an older
+        # cut or a proxy.
+        return None
     fallback = Path(str(getattr(project, "final_output_placeholder", "") or ""))
     return fallback if fallback.is_file() else None
 
@@ -173,13 +206,20 @@ def best_screening_path(project: Any) -> Path | None:
     """Resolve a viewer copy, preferring a 720p/1080p screening asset."""
 
     assets = getattr(project, "video_assets", {}) or {}
+    has_screening_contract = isinstance(assets, dict) and any(
+        key in assets for key in ("screening_preview", "final_master", "working_proxy")
+    )
     if isinstance(assets, dict):
-        for key in ("screening_preview", "final_master"):
+        for key in ("screening_preview", "final_master", "working_proxy"):
             record = assets.get(key)
             if isinstance(record, dict):
+                if record.get("stale"):
+                    continue
                 path = Path(str(record.get("path") or ""))
                 if path.is_file():
                     return path
+    if has_screening_contract:
+        return None
     for candidate in (
         getattr(project, "rough_cut_placeholder", None),
         getattr(project, "final_output_placeholder", None),

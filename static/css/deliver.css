@@ -1,0 +1,3 @@
+/* Deliver / Final Cut extraction seam. */
+:where(.p2-deliver) { isolation: isolate; }
+

@@ -46,6 +46,20 @@ class Shot:
     # for review/debugging without overwriting the editorial prompt.
     compiled_generation_prompt: str = ""
     generation_seed: int | None = None
+    # P2 revision contract: every shot and derived asset can be audited after
+    # a re-plan instead of silently pointing at an older render.
+    revision: int = 1
+    prompt_hash: str = ""
+    provider: str = ""
+    model: str = ""
+    seed: int | None = None
+    created_at: str = ""
+    qc_status: str = "PENDING"
+    source_resolution: str | None = None
+    source_fps: float | None = None
+    source_duration: float | None = None
+    stale: bool = False
+    asset_history: list[dict[str, Any]] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if self.source_duration_seconds <= 0:
@@ -105,6 +119,15 @@ class MovieProject:
     target_resolution: str = "1080p"
     target_fps: int = 24
     video_assets: dict[str, dict[str, Any]] = field(default_factory=dict)
+    # Historical pointers are deliberately retained when an upstream edit
+    # invalidates a cut.  Media files remain available for rollback/comparison
+    # while current resolvers ignore records marked ``stale``.
+    video_asset_history: list[dict[str, Any]] = field(default_factory=list)
+    edit_plan_history: list[dict[str, Any]] = field(default_factory=list)
+    invalidation_events: list[dict[str, Any]] = field(default_factory=list)
+    schema_version: int = 2
+    created_at: str = ""
+    updated_at: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
@@ -157,6 +180,12 @@ class MovieProject:
             target_resolution=str(data.get("target_resolution") or "1080p").lower(),
             target_fps=int(data.get("target_fps") or 24),
             video_assets=data.get("video_assets") or {},
+            video_asset_history=data.get("video_asset_history") or [],
+            edit_plan_history=data.get("edit_plan_history") or [],
+            invalidation_events=data.get("invalidation_events") or [],
+            schema_version=max(1, int(data.get("schema_version") or 1)),
+            created_at=str(data.get("created_at") or ""),
+            updated_at=str(data.get("updated_at") or ""),
         )
         # Older project JSON files predate the sound department. Migrate them
         # in memory so the next save exposes the same audio contract.
@@ -174,6 +203,9 @@ class MovieProject:
         ensure_final_look(project)
         if not project.continuity_lock:
             project.continuity_lock = build_continuity_lock(project.visual_bible, project.film_language)
+        from movie_agent.services.revisions import ensure_project_revision_metadata
+
+        ensure_project_revision_metadata(project)
         return project
 
     def brief_as_markdown(self) -> str:

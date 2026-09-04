@@ -1,0 +1,3 @@
+/* Scoped reset seam; no global selector overrides the established console. */
+:where(.p2-module-surface) { box-sizing: border-box; }
+

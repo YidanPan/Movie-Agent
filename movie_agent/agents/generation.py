@@ -11,6 +11,7 @@ from movie_agent.models import Shot
 from movie_agent.services.comfyui import ComfyUIClient, ComfyUIError, WorkflowOverrides, load_verified_workflow
 from movie_agent.services.media_quality import asset_record
 from movie_agent.services.continuity import derive_shot_seed
+from movie_agent.services.revisions import ensure_shot_metadata, hash_shot_prompt, utc_now
 
 
 def _field(value: object, fallback: str = "Not specified") -> str:
@@ -77,7 +78,12 @@ class GenerationAgent:
         self.client = client or ComfyUIClient(settings.comfy_base_url, settings.comfy_timeout_seconds)
 
     def generate_mock(self, shot: Shot) -> str:
+        ensure_shot_metadata(shot, provider="mock", model="mock-rule-engine")
+        if shot.status == "approved_mock" and not shot.stale:
+            return f"Generation Agent: Shot {shot.number} already has an approved mock result; reusing current revision {shot.revision}."
         shot.status = "generating_mock"
+        shot.stale = False
+        shot.qc_status = "PENDING"
         shot.attempts += 1
         return f"Generation Agent: Shot {shot.number} entered the mock generation queue."
 
@@ -97,7 +103,7 @@ class GenerationAgent:
                 f"Shot {shot.number} is marked as {shot.generation_mode}, but the current MiniMax-H3 workflow only supports T2V."
             )
         existing_output = Path(shot.output_placeholder)
-        if shot.status == "approved_comfyui" and existing_output.is_file():
+        if shot.status == "approved_comfyui" and not shot.stale and existing_output.is_file():
             return f"Generation Agent: Shot {shot.number} already has an approved result; skipping duplicate generation."
         template_path = self.settings.workflows_dir / self.settings.comfy_workflow_template
         if not template_path.is_file():
@@ -106,6 +112,8 @@ class GenerationAgent:
             raise ComfyUIError("ComfyUI service is unavailable; please check the local Spark service.")
 
         shot.status = "generating_comfyui"
+        shot.stale = False
+        shot.qc_status = "PENDING"
         shot.attempts += 1
         visual_context = visual_bible or {}
         reference_seed = str(visual_context.get("reference_seed") or "42")
@@ -118,6 +126,13 @@ class GenerationAgent:
             film_language=film_language,
         )
         shot.generation_seed = seed
+        shot.seed = seed
+        ensure_shot_metadata(
+            shot,
+            provider="comfyui",
+            model=self.settings.comfy_workflow_template or "verified-comfyui-workflow",
+            seed=seed,
+        )
         shot.compiled_generation_prompt = continuity_prompt
         workflow = load_verified_workflow(
             template_path,
@@ -144,14 +159,28 @@ class GenerationAgent:
         shot.output_placeholder = str(destination)
         # The model output is the immutable source.  It must not be labelled a
         # Final Master until normalization/edit approval has produced one.
+        # A regenerated source invalidates any normalized per-shot master;
+        # the previous record remains in ``asset_history`` for comparison.
+        shot.media_assets.pop("final_master", None)
         shot.media_assets["source"] = asset_record(
             destination,
             tier="source",
             ffprobe_bin=self.settings.ffprobe_bin,
             target_resolution=target_resolution,
             source="comfyui_original",
+            revision=shot.revision,
+            prompt_hash=shot.prompt_hash or hash_shot_prompt(shot),
+            provider="comfyui",
+            model=self.settings.comfy_workflow_template or "verified-comfyui-workflow",
+            seed=shot.seed,
+            created_at=utc_now(),
+            qc_status="PENDING",
         )
-        shot.media_assets.pop("final_master", None)
+        source_record = shot.media_assets.get("source") or {}
+        shot.source_resolution = source_record.get("source_resolution")
+        shot.source_fps = source_record.get("source_fps")
+        shot.source_duration = source_record.get("source_duration")
+        shot.stale = False
         shot.status = "generated_comfyui"
         return f"Generation Agent: Shot {shot.number} completed (ComfyUI task {prompt_id})."
 

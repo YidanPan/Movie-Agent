@@ -29,12 +29,21 @@ from movie_agent.services.audio import (
 )
 from movie_agent.services.voice import ContinuousVoiceService, mark_voice_alignment_stale
 from movie_agent.services.final_look import ensure_final_look, normalise_final_look, reset_final_look
+from movie_agent.services.revisions import (
+    ensure_project_revision_metadata,
+    ensure_shot_metadata,
+    hash_shot_prompt,
+    invalidate_downstream,
+    mark_shot_stale,
+)
 from movie_agent.services.subtitles import (
     align_script_to_shots,
     ensure_dialogue_assets,
     normalise_subtitle_mode,
     shot_count_for_duration,
 )
+from movie_agent.pipeline.rendering import shot_render_context
+from movie_agent.pipeline.editing import edit_output_exists
 
 
 class MovieOrchestrator:
@@ -199,8 +208,8 @@ class MovieOrchestrator:
                 "from": "writer",
                 "to": "visual_bible",
                 "message": (
-                    "The story needs a restrained but warm visual tone. "
-                    "The protagonist's space should contrast aged metal with warm tungsten light."
+                    "Translate the writer's emotional turn into a repeatable visual language. "
+                    f"Keep the palette and camera choices subordinate to the brief: {str(brief.get('theme') or brief.get('主题') or 'the central conflict')[:120]}."
                 ),
             }
         )
@@ -210,7 +219,11 @@ class MovieOrchestrator:
                 "type": "artifact",
                 "agent": "visual_bible",
                 "title": "Material Samples",
-                "content": "Aged metal, glass reflections, and a single warm light source enter the visual candidates; awaiting script confirmation of emotional direction.",
+                "content": (
+                    "Visual candidates extracted from the locked bible: "
+                    f"{visual_style} / {str(brief.get('theme') or brief.get('主题') or 'the central conflict')[:120]}. "
+                    "Awaiting script confirmation of emotional direction."
+                ),
             }
         )
         visual_bible = self.visual_bible_agent.create(visual_style, brief, script)
@@ -222,8 +235,8 @@ class MovieOrchestrator:
                 "agent": "visual_bible",
                 "title": "Mood Board",
                 "content": (
-                    f"{visual_style}-led. Aged metal, tungsten lamps, cool grey walls; "
-                    "the only warm source is the device in the protagonist's hand."
+                    f"{visual_style}-led. Palette: {str(visual_bible.get('palette') or visual_bible.get('style_card') or 'locked style')[:120]}; "
+                    f"lighting: {str(visual_bible.get('lighting') or visual_bible.get('cinematography_lock') or 'locked cinematography')[:120]}."
                 ),
             }
         )
@@ -367,6 +380,11 @@ class MovieOrchestrator:
                 "strategy": "continuous_voice_track",
             },
         )
+        ensure_project_revision_metadata(
+            project,
+            provider="modelscope" if self.using_creative_llm else "mock",
+            model=self.settings.modelscope_model if self.using_creative_llm else "mock-rule-engine",
+        )
         # Prepare the sound department as soon as the shot rhythm exists. The
         # brief is reviewable before AI Edit, while actual media remains a
         # later renderer concern.
@@ -447,21 +465,20 @@ class MovieOrchestrator:
                 "Please re-plan those shots before submitting for real generation."
             )
         project.status = "rendering_comfyui"
-        project.final_output_placeholder = None
-        project.rough_cut_placeholder = None
-        project.video_assets = {}
-        project.edit_plan = {}
+        self._invalidate_edit_outputs(project, reason="render_started", source="shot_media")
         project.logs.append("Generation Agent: Submitting Spark ComfyUI per-shot tasks.")
         self.store.save(project)
         total_shots = len(project.storyboard)
-        for index, shot in enumerate(project.storyboard, start=1):
-            if shot.status == "approved_comfyui" and Path(shot.output_placeholder).is_file():
+        for index, _shot in enumerate(project.storyboard, start=1):
+            render_context = shot_render_context(project, index)
+            shot = render_context["shot"]
+            if shot.status == "approved_comfyui" and not shot.stale and Path(shot.output_placeholder).is_file():
                 project.logs.append(f"Generation Agent: Shot {shot.number} already complete; skipping on resume.")
                 if progress_callback:
                     progress_callback(index, total_shots, f"Shot {shot.number} already complete; skipping")
                 continue
             last_error: Exception | None = None
-            previous_shot = project.storyboard[index - 2] if index > 1 else None
+            previous_shot = render_context["previous_shot"]
             for attempt in range(1, self.settings.comfy_max_retries + 1):
                 try:
                     project.logs.append(self.generation_agent.generate(
@@ -514,22 +531,22 @@ class MovieOrchestrator:
         project = self.store.load(project_id)
         if not 1 <= shot_number <= len(project.storyboard):
             raise ValueError(f"Shot number must be between 1 and {len(project.storyboard)}.")
-        shot = project.storyboard[shot_number - 1]
+        render_context = shot_render_context(project, shot_number)
+        shot = render_context["shot"]
         ensure_continuity_lock(project)
         if shot.generation_mode != "T2V":
             raise ValueError(
                 f"Shot {shot.number} is marked as {shot.generation_mode}, but the current MiniMax-H3 workflow only supports T2V."
             )
 
+        if not shot.stale:
+            mark_shot_stale(shot, f"shot_{shot_number}_render_requested")
         shot.status = "replanned"
         project.status = "rendering_comfyui"
-        project.final_output_placeholder = None
-        project.rough_cut_placeholder = None
-        project.video_assets = {}
-        project.edit_plan = {}
+        self._invalidate_edit_outputs(project, reason=f"shot_{shot_number}_render_started", source="shot_media")
         project.logs.append(f"Generation Agent: Inspector submitted shot {shot_number} for single-shot regeneration.")
         self.store.save(project)
-        previous_shot = project.storyboard[shot_number - 2] if shot_number > 1 else None
+        previous_shot = render_context["previous_shot"]
         try:
             project.logs.append(self.generation_agent.generate(
                 project.project_id, shot,
@@ -551,11 +568,7 @@ class MovieOrchestrator:
             self.store.save(project)
             raise
 
-        project.status = (
-            "ready_for_ai_edit"
-            if all(str(item.status).startswith("approved") for item in project.storyboard)
-            else "ready_for_comfyui_render"
-        )
+        project.status = "ready_for_ai_edit" if self._shots_ready(project) else "ready_for_comfyui_render"
         project.logs.append(f"QC Agent: Shot {shot_number} passed single-shot inspection; ready to continue assembling the full film.")
         self.store.save(project)
         return project
@@ -566,21 +579,29 @@ class MovieOrchestrator:
             raise ValueError("Please review and lock the dialogue book / subtitle track in the writing stage first.")
 
     @staticmethod
-    def _invalidate_edit_outputs(project: MovieProject) -> None:
-        """Drop stale rough/final media whenever an upstream asset changes."""
+    def _shots_ready(project: MovieProject) -> bool:
+        """Return true only for currently approved, non-stale shot revisions."""
 
-        project.final_output_placeholder = None
-        project.rough_cut_placeholder = None
-        project.video_assets = {}
-        project.edit_plan = {}
-        reset_final_look(project)
-        shots_ready = bool(project.storyboard) and all(
-            str(shot.status).startswith("approved") for shot in project.storyboard
+        shots = list(getattr(project, "storyboard", []) or [])
+        return bool(shots) and all(
+            str(getattr(shot, "status", "")).startswith("approved")
+            and not bool(getattr(shot, "stale", False))
+            for shot in shots
         )
-        if shots_ready:
-            project.status = "ready_for_ai_edit"
-        elif str(project.status).startswith("completed"):
-            project.status = "ready_for_comfyui_render"
+
+    @staticmethod
+    def _invalidate_edit_outputs(
+        project: MovieProject,
+        *,
+        reason: str = "upstream_changed",
+        source: str = "pipeline",
+        shot: Any | None = None,
+    ) -> dict[str, Any]:
+        """Mark downstream derivatives stale without deleting prior media."""
+
+        event = invalidate_downstream(project, source, reason, shot=shot)
+        reset_final_look(project)
+        return event
 
     def update_dialogue(
         self,
@@ -604,7 +625,7 @@ class MovieOrchestrator:
         script["dialogue_revision"] = int(script.get("dialogue_revision", 1)) + 1
         project.script = align_script_to_shots(script, project.storyboard)
         mark_voice_alignment_stale(project, "dialogue_revision_changed")
-        self._invalidate_edit_outputs(project)
+        self._invalidate_edit_outputs(project, reason="dialogue_revision_changed", source="dialogue")
         ensure_audio_design(project)
         project.logs.append("Script Supervisor: Saved dialogue book and subtitle track draft; not yet locked.")
         self.store.save(project)
@@ -638,7 +659,7 @@ class MovieOrchestrator:
         if not bool((project.script or {}).get("dialogue_locked")):
             return project
         project.script["dialogue_locked"] = False
-        self._invalidate_edit_outputs(project)
+        self._invalidate_edit_outputs(project, reason="dialogue_unlocked", source="dialogue")
         ensure_audio_design(project)
         project.logs.append("Script Supervisor: Dialogue book unlocked; edits allowed, then re-review and re-lock.")
         self.store.save(project)
@@ -689,14 +710,75 @@ class MovieOrchestrator:
         project.script = align_script_to_shots(project.script, project.storyboard)
         mark_voice_alignment_stale(project, "shot_timeline_changed")
         ensure_audio_design(project)
-        self._invalidate_edit_outputs(project)
-        project.status = "ready_for_ai_edit" if all(
-            str(item.status).startswith("approved") for item in project.storyboard
-        ) else "ready_for_comfyui_render"
+        self._invalidate_edit_outputs(project, reason="shot_timeline_changed", source="shot_timing")
+        project.status = "ready_for_ai_edit" if self._shots_ready(project) else "ready_for_comfyui_render"
         project.logs.append(
             f"Editor Agent: Shot {shot_number} timing updated to {shot.duration_seconds}s ({mode.upper()}); downstream cut invalidated."
         )
         self.store.save(project)
+        return project
+
+    def update_shot(self, project_id: str, shot_number: int, updates: dict[str, Any]) -> MovieProject:
+        """Apply Inspector edits through one domain boundary.
+
+        The HTTP layer must not mutate ``Shot`` fields directly: visual edits
+        create a new shot revision and invalidate dependent media, while a
+        timeline-only edit preserves the original source render.
+        """
+
+        incoming = {str(key): value for key, value in (updates or {}).items() if value is not None}
+        timing_keys = {"duration_seconds", "desired_duration", "timing_mode"}
+        editable = {
+            "framing",
+            "image_description",
+            "action",
+            "sound_design",
+            "generation_mode",
+            "prompt",
+            "narrative_purpose",
+            "starting_state",
+            "main_action",
+            "character_reaction",
+            "ending_state",
+            "transition_hook",
+        }
+        unknown = sorted(set(incoming) - timing_keys - editable)
+        if unknown:
+            raise ValueError(f"Unsupported shot fields: {', '.join(unknown)}.")
+        timing_updates = {key: incoming.pop(key) for key in list(incoming) if key in timing_keys}
+        project = self.store.load(project_id)
+        if not 1 <= shot_number <= len(project.storyboard):
+            raise ValueError(f"Shot number must be between 1 and {len(project.storyboard)}.")
+        if timing_updates:
+            # Reuse the public timing validator and reload its atomic result;
+            # visual edits below are then applied against the newest snapshot.
+            project = self.update_shot_timing(
+                project_id,
+                shot_number,
+                desired_duration=timing_updates.get(
+                    "desired_duration", timing_updates.get("duration_seconds")
+                ),
+                timing_mode=timing_updates.get("timing_mode"),
+            )
+        if not incoming:
+            return project
+        project = self.store.load(project_id)
+        if not 1 <= shot_number <= len(project.storyboard):
+            raise ValueError(f"Shot number must be between 1 and {len(project.storyboard)}.")
+        shot = project.storyboard[shot_number - 1]
+        changed = False
+        for key, value in incoming.items():
+            value = str(value).strip() if isinstance(value, str) else value
+            if getattr(shot, key) != value:
+                setattr(shot, key, value)
+                changed = True
+        if changed:
+            mark_shot_stale(shot, "shot_fields_changed")
+            self._invalidate_edit_outputs(project, reason="shot_fields_changed", source="shot", shot=shot)
+            project.logs.append(
+                f"Script Supervisor: Saved Inspector edits for Shot {shot_number}; revision {shot.revision} is stale until regenerated."
+            )
+            self.store.save(project)
         return project
 
     def create_rough_cut(
@@ -713,14 +795,12 @@ class MovieOrchestrator:
     ) -> MovieProject:
         project = self.store.load(project_id)
         self._require_dialogue_locked(project)
-        if not project.storyboard or not all(str(shot.status).startswith("approved") for shot in project.storyboard):
+        if not self._shots_ready(project):
             raise ValueError("All shots must pass QC before AI Edit can start.")
         # A completed cut can be sent back through AI Edit for a new rough cut
         # without touching the locked dialogue or regenerating shots.
         if str(project.status).startswith("completed"):
-            project.final_output_placeholder = None
-            project.video_assets = {}
-            project.edit_plan = {}
+            self._invalidate_edit_outputs(project, reason="recut_requested", source="rough_cut")
         ensure_audio_design(
             project,
             music_mode=music_mode,
@@ -811,7 +891,7 @@ class MovieOrchestrator:
         """Opt-in source normalization before AI Edit / Final Cut."""
 
         project = self.store.load(project_id)
-        if not project.storyboard or not all(str(shot.status).startswith("approved") for shot in project.storyboard):
+        if not self._shots_ready(project):
             raise ValueError("All shots must pass QC before Resolution Normalize can run.")
         self.editor.normalize_resolution(project, resolution)
         if project.status not in {"ready_for_ai_edit", "ready_for_comfyui_render"}:
@@ -868,9 +948,7 @@ class MovieOrchestrator:
             for key in ("voice", "music", "sfx", "ambience")
         }
         had_edit_output = bool(
-            project.final_output_placeholder
-            or project.rough_cut_placeholder
-            or (project.edit_plan or {}).get("approved")
+            edit_output_exists(project)
             or project.status in {"editing_rough_cut", "rough_cut_ready", "editing_final"}
             or str(project.status).startswith("completed")
         )
@@ -905,7 +983,7 @@ class MovieOrchestrator:
         }
         project.mix_state["media_mixed"] = False
         if had_edit_output and before_config != after_config:
-            self._invalidate_edit_outputs(project)
+            self._invalidate_edit_outputs(project, reason="audio_design_changed", source="audio")
             project.mix_state["stage_status"] = {stage: "queued" for stage in EDIT_AUDIO_STAGES}
             project.mix_state["active_stage"] = None
             project.mix_state["status"] = "DESIGN UPDATED · RE-CUT REQUIRED"
@@ -920,15 +998,13 @@ class MovieOrchestrator:
 
         project = self.store.load(project_id)
         had_edit_output = bool(
-            project.final_output_placeholder
-            or project.rough_cut_placeholder
-            or (project.edit_plan or {}).get("approved")
+            edit_output_exists(project)
             or project.status in {"editing_rough_cut", "rough_cut_ready", "editing_final"}
             or str(project.status).startswith("completed")
         )
         regenerate_track(project, track_key)
         if had_edit_output:
-            self._invalidate_edit_outputs(project)
+            self._invalidate_edit_outputs(project, reason=f"{track_key}_track_regenerated", source="audio")
             project.mix_state["stage_status"] = {stage: "queued" for stage in EDIT_AUDIO_STAGES}
             project.mix_state["active_stage"] = None
             project.mix_state["status"] = "DESIGN UPDATED · RE-CUT REQUIRED"
@@ -1029,9 +1105,20 @@ class MovieOrchestrator:
             raise ValueError(f"Shot number must be between 1 and {len(project.storyboard)}.")
         index = shot_number - 1
         previous_shot = project.storyboard[index - 1] if index > 0 else None
-        project.storyboard[index] = self.storyboard_agent.revise(
-            project.storyboard[index], project.visual_bible, previous_shot=previous_shot
+        current_shot = project.storyboard[index]
+        mark_shot_stale(current_shot, f"shot_{shot_number}_replanned")
+        revised_shot = self.storyboard_agent.revise(
+            current_shot, project.visual_bible, previous_shot=previous_shot
         )
+        # ``revise`` creates a new dataclass instance, so explicitly retain the
+        # revision ledger and stale media pointers from the prior instance.
+        revised_shot.revision = current_shot.revision
+        revised_shot.prompt_hash = hash_shot_prompt(revised_shot)
+        revised_shot.stale = True
+        revised_shot.qc_status = "STALE"
+        revised_shot.asset_history = list(current_shot.asset_history)
+        revised_shot.media_assets = current_shot.media_assets
+        project.storyboard[index] = revised_shot
         project.quality_report = self.quality_gate.review(
             duration_seconds=project.duration_seconds,
             script=project.script,
@@ -1053,14 +1140,13 @@ class MovieOrchestrator:
                 continuity_lock=project.continuity_lock,
             )
         )
-        project.final_output_placeholder = None
-        project.rough_cut_placeholder = None
-        project.video_assets = {}
-        project.edit_plan = {}
-        reset_final_look(project)
-        project.status = "ready_for_ai_edit" if all(
-            str(shot.status).startswith("approved") for shot in project.storyboard
-        ) else "ready_for_comfyui_render"
+        self._invalidate_edit_outputs(
+            project,
+            reason=f"shot_{shot_number}_replanned",
+            source="shot",
+            shot=revised_shot,
+        )
+        project.status = "ready_for_ai_edit" if self._shots_ready(project) else "ready_for_comfyui_render"
         project.logs.append(f"Storyboard Agent: Shot {shot_number} re-planned; duration and narrative position preserved.")
         project.logs.extend(project.quality_report)
         self.store.save(project)

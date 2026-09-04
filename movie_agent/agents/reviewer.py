@@ -10,6 +10,7 @@ from typing import Any
 from movie_agent.config import Settings
 from movie_agent.models import Shot
 from movie_agent.services.llm import ModelScopeLLM, build_vision_llm
+from movie_agent.services.revisions import ensure_shot_metadata
 
 
 class ReviewerAgent:
@@ -19,7 +20,14 @@ class ReviewerAgent:
         self._reference_frames: dict[str, Path] = {}
 
     def review_mock(self, shot: Shot) -> str:
+        ensure_shot_metadata(shot, provider="mock", model="mock-quality-gate")
         shot.status = "approved_mock"
+        shot.stale = False
+        shot.qc_status = "PASSED_MOCK"
+        record = (shot.media_assets or {}).get("source") if isinstance(shot.media_assets, dict) else None
+        if isinstance(record, dict):
+            record["qc_status"] = shot.qc_status
+            record["stale"] = False
         return f"Quality Agent: Shot {shot.number} passed mock consistency and compliance checks."
 
     def review_generated(
@@ -32,6 +40,7 @@ class ReviewerAgent:
         if shot.status != "generated_comfyui":
             raise RuntimeError(f"Shot {shot.number} has not been generated yet; cannot enter quality review.")
         video_path = Path(shot.output_placeholder)
+        ensure_shot_metadata(shot, provider="comfyui", model="verified-comfyui-workflow", seed=shot.seed or shot.generation_seed)
         duration = self._video_duration(video_path)
         # Review the native media against the length requested from the video
         # model.  Editorial timing may intentionally trim, extend, hold, or
@@ -49,6 +58,12 @@ class ReviewerAgent:
         if self.vision_llm is None:
             shot.qc_flags = []
             shot.status = "approved_comfyui"
+            shot.stale = False
+            shot.qc_status = "PASSED_MANUAL_REVIEW_REQUIRED"
+            source_record = (shot.media_assets or {}).get("source") if isinstance(shot.media_assets, dict) else None
+            if isinstance(source_record, dict):
+                source_record["qc_status"] = shot.qc_status
+                source_record["stale"] = False
             return (
                 f"Quality Agent: Shot {shot.number} integrity passed ({duration:.2f}s), "
                 f"{len(frames)} keyframes archived; no vision model configured; manual character/scene consistency review pending."
@@ -82,6 +97,12 @@ class ReviewerAgent:
             )
         self._reference_frames.setdefault(project_id, frames[len(frames) // 2])
         shot.status = "approved_comfyui"
+        shot.stale = False
+        shot.qc_status = "PASSED_VISION"
+        source_record = (shot.media_assets or {}).get("source") if isinstance(shot.media_assets, dict) else None
+        if isinstance(source_record, dict):
+            source_record["qc_status"] = shot.qc_status
+            source_record["stale"] = False
         review_note = str(review.get("review_note", "Visual review completed.")).strip()
         return (
             f"Quality Agent: Shot {shot.number} integrity and visual review passed ({duration:.2f}s, "

@@ -22,6 +22,12 @@ Deliver 页是 Final Cut Screening Room：项目未剪辑时显示项目摘要�
 
 视频质量按三层资产管理：`Source` 是模型原始镜头，`Working Proxy` 只服务分镜浏览和编辑响应，`Screening Preview` 用于 Deliver 放映室并优先选择 720P 或 1080P，`Final Master` 是唯一允许进入最终导出的来源。播放器不会通过 CSS scale、blur 或低质量 canvas 二次放大；如果源文件低于目标分辨率，界面会明确显示 `LOW RES SOURCE`。真实镜头进入 Rough Cut 前会自动执行 `Resolution / FPS / SAR / Pixel Format / 48kHz` 标准化（mock 或无法探测的媒体会明确 DEFERRED），保留原始 Source 记录，最终导出仍只读取 Master，不会把 Proxy 当成母版。
 
+### P2 管线可靠性
+
+上游内容现在通过 `movie_agent/services/revisions.py` 做显式依赖失效传播。修改 Shot 的 Prompt、动作、景别或叙事字段会创建新的 Shot revision、计算 `prompt_hash`，并将旧的 Source/QC/Cut/Final Look/Export 指针标记为 `STALE`；旧文件和元数据进入历史记录，不会被直接删除。仅修改时间线时保留原始 Source，重新计算字幕、旁白、情绪曲线和剪辑衍生物。Shot 与 Asset 记录包含 revision、provider、model、seed、created_at、qc_status、source_resolution、source_fps、source_duration 和 stale，便于追溯“哪一次生成导致了变化”。Project JSON 同时记录 `schema_version`、`created_at`、`updated_at` 与失效事件。
+
+服务端渲染和媒体写入使用按项目隔离的锁：同一项目串行，不同项目可并行，不需要额外队列服务。`movie_agent/pipeline/` 提供 planning / rendering / editing / state 的渐进式边界；旧的 `MovieOrchestrator` 与 API 保持兼容。零构建前端继续由 `static/app.js` 提供入口，同时加载 `static/js/` ES Module registry 与 `static/css/` 语义模块，方便后续逐步抽离而不破坏 Spark 直接托管。Crew Radio 只从后端日志和 SSE 事件构造 Agent 名称、时间与状态，不再注入与当前项目无关的固定剧情文案。
+
 ### 双主题工作状态
 
 顶栏的 `SCREENING / DESK` 切换对应两种制作状态，并不是简单的黑白反转：
@@ -160,6 +166,27 @@ Editorial timing is separate from native generation timing. Each shot stores `so
 Deliver also includes a dedicated `FINAL LOOK / COLOR FINISH` inspector after Final Cut preview and before export. It offers six whole-film presets — Original, Film Narrative, Cool Gray Future, Dream Surreal, Documentary Desat, and Cyber Night — plus intensity, grain, vignette, and highlight-softening controls. Clicking a preset immediately auditions a browser preview; only an explicit Apply action persists the look. Real media is rendered by FFmpeg into a revisioned master, while mock mode stores the reproducible export plan without inventing a video file. Whole-film scope is the default; current-shot/current-scene scope is reserved for a future advanced mode.
 
 Video media follows explicit `Source → Working Proxy → Screening Preview → Final Master` tiers. Working Proxy is disposable and optimized for storyboard/edit responsiveness. Screening Preview is the Deliver viewer copy and prefers 720p or 1080p without silently upscaling a smaller source. Final Master is the only source accepted by the export endpoint, so a proxy can never become a delivery master. The player avoids CSS scaling, blur, and low-quality canvas resizing. Real shot media is normalized to the project resolution, fps, SAR, pixel format, and 48 kHz audio before Rough Cut; when the source is below target, Deliver shows `LOW RES SOURCE` and keeps the original path alongside the normalized master. Final export always reads the master contract.
+
+### P2 Pipeline Reliability
+
+Upstream edits now pass through `movie_agent/services/revisions.py`. Changing a
+shot prompt, action, framing, or narrative field creates a new Shot revision
+and `prompt_hash`, marks the old Source/QC/Cut/Final Look/Export pointers as
+`STALE`, and keeps their files in history for rollback or comparison. A timing
+only edit preserves the source render while recalculating subtitle, voice,
+emotional-arc, and editorial derivatives. Shot and asset records expose
+revision, provider, model, seed, created_at, qc_status, source_resolution,
+source_fps, source_duration, and stale metadata. Project JSON records
+`schema_version`, `created_at`, `updated_at`, and invalidation events.
+
+Media mutations use one process-local lock per project: tasks for the same film
+remain serialized while unrelated projects can run in parallel. The
+`movie_agent/pipeline/` package provides incremental planning, rendering,
+editing, and state seams without replacing the JSON store or adding a queue
+service. The zero-build frontend keeps `static/app.js` as its compatibility
+entry point while loading the `static/js/` ES-module registry and `static/css/`
+semantic module boundaries. Crew Radio is derived from backend logs and SSE
+events, so it cannot display fixed story copy from another project.
 
 ### Theme system
 

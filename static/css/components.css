@@ -1,0 +1,4 @@
+/* Shared component seam.  Component-specific styles remain in style.css
+   until their DOM is moved to modules without changing the shipped UI. */
+:where(.p2-component) { min-width: 0; }
+

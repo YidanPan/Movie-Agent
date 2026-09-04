@@ -5,6 +5,10 @@
 
 "use strict";
 
+// P2 ES-module registry is optional so the legacy entry point stays usable
+// when a browser has module loading disabled.
+const MovieAgentModules = window.MovieAgentModules || {};
+
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
@@ -181,8 +185,6 @@ const els = {
   soundSummaryToggle: $("#sound-summary-toggle"),
   soundSummaryBody: $("#sound-summary-body"),
   soundSummaryStatus: $("#sound-summary-status"),
-  soundSummary: $("#sound-summary"),
-  btnSoundSettings: $("#btn-sound-settings"),
   exportSheet: $("#export-sheet"),
   btnExportClose: $("#btn-export-close"),
   btnExportRun: $("#btn-export-run"),
@@ -240,7 +242,7 @@ const AGENT_DEFS = [
     input: "QC PASS", output: "SHOT MEDIA",
     summarize: (d) => {
       const shots = d.storyboard || [];
-      const approved = shots.filter((shot) => String(shot.status || "").startsWith("approved")).length;
+      const approved = shots.filter(isShotReady).length;
       return shots.length ? `SHOTS / ${approved}/${shots.length} READY · ${approved === shots.length ? "QUEUE CLEAR" : "RENDER QUEUE"}` : "SHOTS / QUEUE NOT RELEASED";
     } },
   { id: "editor", index: "07", name: "剪辑", en: "EDITOR", role: "粗剪 · 合片 · 交付",
@@ -254,6 +256,10 @@ const AGENT_DEFS = [
       return "EDIT / WAITING FOR SHOT LOCK";
     } },
 ];
+
+function isShotReady(shot) {
+  return String(shot?.status || "").startsWith("approved") && shot?.stale !== true;
+}
 
 const AGENT_STATUS_COPY = {
   director: { idle: "WAITING FOR BRIEF", next: "READY · DIRECTOR", working: "DIRECTING", done: "BRIEF LOCKED" },
@@ -649,7 +655,7 @@ function pipelineFromProject(project, hasVideo) {
   if ((project.storyboard || []).length > 0) states.previs = "done";
   const status = project.status || "";
   const shots = project.storyboard || [];
-  const allReady = shots.length > 0 && shots.every((shot) => String(shot.status || "").startsWith("approved"));
+  const allReady = shots.length > 0 && shots.every(isShotReady);
   // A completed status is not enough to call Deliver finished: mock runs may
   // only contain a placeholder path. The pipeline is complete only after the
   // browser has verified a playable final media asset.
@@ -954,7 +960,7 @@ function crewAssetReady(agentId, project) {
   if (agentId === "visual_bible") return Boolean(project.visual_bible && Object.keys(project.visual_bible).length);
   if (agentId === "storyboard") return Boolean(project.storyboard?.length);
   if (agentId === "quality") return Boolean(project.quality_report?.length);
-  if (agentId === "generation") return Boolean(project.storyboard?.length && project.storyboard.every((shot) => String(shot.status || "").startsWith("approved")));
+  if (agentId === "generation") return Boolean(project.storyboard?.length && project.storyboard.every(isShotReady));
   if (agentId === "editor") return ["editing_rough_cut", "rough_cut_ready", "editing_final"].includes(project.status) || String(project.status || "").startsWith("completed") || Boolean(project.rough_cut_placeholder || project.final_output_placeholder);
   return false;
 }
@@ -963,7 +969,7 @@ function deriveCrewStates(project = state.project) {
   const states = Object.fromEntries(AGENT_DEFS.map((def) => [def.id, "idle"]));
   const status = String(project?.status || "");
   const shots = project?.storyboard || [];
-  const allShotsReady = shots.length > 0 && shots.every((shot) => String(shot.status || "").startsWith("approved"));
+  const allShotsReady = shots.length > 0 && shots.every(isShotReady);
   const explicit = (agentId) => state.crewDetails[agentId]?.status;
   for (const def of AGENT_DEFS) {
     if (["working", "failed"].includes(explicit(def.id))) states[def.id] = explicit(def.id);
@@ -1036,9 +1042,24 @@ function syncCrewBoard(project = state.project, { silent = true } = {}) {
 function hydrateCrewRadio(project) {
   state.crewRadioLog = [];
   const logs = Array.isArray(project?.logs) ? project.logs.slice(-8) : [];
+  const aliases = {
+    director: ["Director Agent", "导演"],
+    writer: ["Writer Agent", "编剧", "Script Supervisor"],
+    visual_bible: ["Visual Bible Agent", "美术指导", "Art Director"],
+    storyboard: ["Storyboard Agent", "分镜师"],
+    quality: ["Quality Agent", "QC Agent", "质检"],
+    generation: ["Generation Agent", "生成调度"],
+    editor: ["Editor Agent", "剪辑"],
+  };
   logs.forEach((line) => {
-    const match = AGENT_DEFS.find((def) => String(line).includes(`${def.name} Agent`));
-    pushCrewRadio({ type: "status", agent: match?.id || "system", status: "LOG", message: String(line) });
+    const text = String(line);
+    const match = AGENT_DEFS.find((def) => (aliases[def.id] || []).some((alias) => text.includes(alias)));
+    const status = /fail|error|stale|interrupted/i.test(text)
+      ? "ATTENTION"
+      : /ready|complete|completed|passed|locked|approved|saved/i.test(text)
+        ? "DONE"
+        : "LOG";
+    pushCrewRadio({ type: "status", agent: match?.id || "system", status, message: text });
   });
 }
 
@@ -1218,7 +1239,7 @@ function renderMonitor(project, live = false) {
   els.projectIdLabel.textContent = project.project_id;
   els.renderRec.classList.toggle("live", live);
   const shots = project.storyboard || [];
-  const approved = shots.filter((s) => String(s.status || "").startsWith("approved")).length;
+  const approved = shots.filter(isShotReady).length;
   const allReady = shots.length > 0 && approved === shots.length;
   const finalDelivered = String(project.status || "").startsWith("completed");
   if (els.shotsReady) els.shotsReady.textContent = `${approved}/${shots.length} SHOTS READY`;
@@ -1663,7 +1684,7 @@ function finalVideoCandidate(project) {
 
 function renderDeliverSummary(project) {
   const shots = project?.storyboard || [];
-  const approved = shots.filter((shot) => String(shot.status || "").startsWith("approved")).length;
+  const approved = shots.filter(isShotReady).length;
   const total = deliverRuntime(project);
   const locked = Boolean(project?.script?.dialogue_locked);
   if (els.deliverProjectTitle) els.deliverProjectTitle.textContent = project ? projectTitle(project) : "等待项目进入放映室";
@@ -2694,7 +2715,7 @@ async function renderScreening(project) {
   if (els.btnAiEdit) {
     const canStartAiEdit = showSummary && !["rough", "editing"].includes(resolvedState.key);
     els.btnAiEdit.classList.toggle("hidden", !canStartAiEdit);
-    els.btnAiEdit.disabled = state.editing || !((project?.storyboard || []).length && (project.storyboard || []).every((shot) => String(shot.status || "").startsWith("approved")));
+    els.btnAiEdit.disabled = state.editing || !((project?.storyboard || []).length && (project.storyboard || []).every(isShotReady));
     els.btnAiEdit.innerHTML = state.editing ? "AI Edit 粗剪中…" : 'AI 剪辑成片 <span class="cta-arrow" aria-hidden="true">→</span>';
   }
   if (els.btnApproveEdit) {
@@ -2856,7 +2877,7 @@ function renderWorkspace(project, options = {}) {
   updatePipelineForProject(project);
   const videoMode = state.health ? state.health.video_mode : "mock";
   const shots = project.storyboard || [];
-  const allShotsReady = shots.length > 0 && shots.every((shot) => String(shot.status || "").startsWith("approved"));
+  const allShotsReady = shots.length > 0 && shots.every(isShotReady);
   if (videoMode === "comfyui") {
     els.btnRender.disabled = state.rendering || allShotsReady;
     els.renderNote.textContent = allShotsReady
@@ -2951,7 +2972,7 @@ function renderDrawerContent(markup, { swap = false, onReady } = {}) {
 }
 
 function inspectorShotPreviewMarkup(shot) {
-  const previewReady = ["approved_comfyui", "generated_comfyui"].includes(shot.status);
+  const previewReady = ["approved_comfyui", "generated_comfyui"].includes(shot.status) && shot.stale !== true;
   return `
     <section class="inspector-preview-section">
       <header class="inspector-section-head type-system-meta"><span>SHOT PREVIEW / 16:9</span><span class="inspector-preview-state type-system-meta ${previewReady ? "is-ready" : ""}">${previewReady ? "MEDIA READY" : "UNEXPOSED FRAME"}</span></header>
@@ -3107,7 +3128,7 @@ function bindShotInspector(project, shot, { initial = false } = {}) {
 }
 
 function attachInspectorPreview(project, shot) {
-  if (!["approved_comfyui", "generated_comfyui"].includes(shot.status)) return;
+  if (!["approved_comfyui", "generated_comfyui"].includes(shot.status) || shot.stale === true) return;
   const preview = els.drawer.querySelector(`[data-inspector-preview="${shot.number}"]`);
   if (!preview) return;
   const url = `/api/projects/${project.project_id}/shots/${shot.number}/video`;
@@ -3458,7 +3479,6 @@ function revealAsset(agent, event) {
   const item = mapping[agent];
   if (!item || !(item[0] in event)) return;
   state.project[item[0]] = event[item[0]];
-  state.project.logs.push(`${AGENT_DEFS.find((definition) => definition.id === agent)?.name || agent} Agent：创作资产已实时送达。`);
   // 集结期间就让第三幕工作区可见，页面随时可以往下翻看实时填充的面板。
   renderWorkspace(state.project, { tab: item[1], animateManual: true });
 }
@@ -3482,7 +3502,6 @@ function handleCreateEvent(event) {
     appendCrewStatus(event.agent, "DONE", `${crewAgentLabel(event.agent)} · deliverable locked`);
     syncCrewBoard(state.project, { silent: true });
     if (event.agent === "storyboard") {
-      state.project.logs.push("分镜师：开始逐张冲印镜头。 ");
       stageStoryboard(event.storyboard || []);
       appendCrewStatus("storyboard", "HANDOFF", "Shot list released to QC Gate");
       syncCrewBoard(state.project, { silent: true });
