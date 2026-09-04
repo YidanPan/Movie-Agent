@@ -6778,6 +6778,19 @@ html[data-theme="light"] body[data-design="archive-console"] .screening-panel .r
   line-height: 1.65;
 }
 
+html[data-theme="light"] body[data-design="archive-console"] .screening-panel .final-not-generated {
+  background: var(--desk-monitor-surface);
+  opacity: 1;
+}
+
+html[data-theme="light"] body[data-design="archive-console"] .screening-panel .final-not-generated strong {
+  color: var(--desk-monitor-status-failed);
+}
+
+html[data-theme="light"] body[data-design="archive-console"] .screening-panel .final-not-generated span {
+  color: var(--desk-monitor-text-muted);
+}
+
 html[data-theme="light"] body[data-design="archive-console"] .screening-panel .deliver-state-badge[data-state="missing"] {
   color: var(--desk-monitor-status-failed);
   border-color: color-mix(in srgb, var(--desk-monitor-status-failed) 58%, transparent);
