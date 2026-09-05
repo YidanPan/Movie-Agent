@@ -36,8 +36,24 @@ class GeneratedShotReviewerTests(unittest.TestCase):
             ):
                 log = reviewer.review_generated(shot)
 
-        self.assertEqual(shot.status, "approved_comfyui")
+        self.assertEqual(shot.status, "awaiting_visual_review")
+        self.assertEqual(shot.qc_status, "AWAITING_VISUAL_REVIEW")
+        self.assertEqual(shot.qc_details["next_action"], "APPROVE_SHOT")
         self.assertIn("5.17s", log)
+
+    def test_manual_approval_promotes_an_integrity_checked_shot(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            settings = Settings("http://127.0.0.1:8188", 900, Path("workflows"), 9071, root, True, outputs_dir=root)
+            reviewer = ReviewerAgent(settings)
+            shot = generated_shot()
+            shot.status = "awaiting_visual_review"
+            shot.qc_status = "AWAITING_VISUAL_REVIEW"
+            message = reviewer.approve_manual(shot, project_id="film-test")
+
+        self.assertEqual(shot.status, "approved_comfyui")
+        self.assertEqual(shot.qc_status, "APPROVED_MANUAL")
+        self.assertIn("manually approved", message)
 
     def test_rejects_unexpected_duration(self) -> None:
         with TemporaryDirectory() as temporary_directory:
@@ -75,3 +91,4 @@ class GeneratedShotReviewerTests(unittest.TestCase):
             self.assertEqual(shot.status, "approved_comfyui")
             self.assertIn("character 92/100", log)
             self.assertTrue((quality_dir / "review.json").is_file())
+            self.assertEqual(shot.qc_details["review_state"], "VISION_REVIEWED")

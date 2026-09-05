@@ -297,6 +297,7 @@ const SHOT_STATUS = {
   generating_mock: "生成中",
   generating_comfyui: "生成中",
   generated_comfyui: "待质检",
+  awaiting_visual_review: "人工审片",
   approved_mock: "已通过",
   approved_comfyui: "已通过",
   generation_failed: "失败",
@@ -308,6 +309,7 @@ const PROJECT_STATUS = {
   ready_for_comfyui_render: "待真实生成",
   generating_video_mock: "mock 生成中",
   rendering_comfyui: "真实生成中",
+  awaiting_visual_review: "人工视觉审片中",
   render_failed: "生成中断（可续跑）",
   ready_for_ai_edit: "SHOTS READY · 待 AI Edit",
   editing_rough_cut: "AI Edit 粗剪中",
@@ -1425,6 +1427,7 @@ function manualProductionStatus(project) {
   const status = String(project?.status || "");
   const shots = project?.storyboard || [];
   if (status.startsWith("completed")) return { key: "complete", symbol: "✓", label: "DELIVERED", copy: "成片已交付" };
+  if (status === "awaiting_visual_review") return { key: "review", symbol: "!", label: "MANUAL REVIEW", copy: "请逐镜批准视觉连续性" };
   if (status === "rough_cut_ready") return { key: "active", symbol: "●", label: "ROUGH CUT READY", copy: "待批准成片" };
   if (status === "editing_rough_cut") return { key: "active", symbol: "●", label: "AI EDITING", copy: "正在生成粗剪" };
   if (status === "ready_for_ai_edit") return { key: "active", symbol: "●", label: "DELIVER / AI EDIT", copy: "镜头已就绪" };
@@ -1503,6 +1506,7 @@ function shotSceneNumber(number, total) {
 function shotWorkflowState(status) {
   const value = String(status || "planned");
   if (["approved_mock", "approved_comfyui"].includes(value)) return { key: "complete", symbol: "✓", label: "COMPLETE" };
+  if (value === "awaiting_visual_review") return { key: "review", symbol: "!", label: "REVIEW" };
   if (["generating_mock", "generating_comfyui", "generated_comfyui"].includes(value)) return { key: "active", symbol: "●", label: "ACTIVE" };
   if (value === "generation_failed") return { key: "failed", symbol: "!", label: "FAILED" };
   return { key: "queued", symbol: "○", label: "QUEUED" };
@@ -1525,10 +1529,11 @@ function shotChecks(shot) {
   const stateInfo = shotWorkflowState(shot.status);
   const complete = stateInfo.key === "complete";
   const failed = stateInfo.key === "failed";
+  const review = stateInfo.key === "review";
   const promptReady = String(shot.prompt || "").trim().length >= 20;
   return [
-    { label: "CHARACTER CONSISTENCY", status: failed ? "FAILED" : complete ? "COMPLETE" : "QUEUED", symbol: failed ? "!" : complete ? "✓" : "○" },
-    { label: "SCENE CONSISTENCY", status: failed ? "FAILED" : complete ? "COMPLETE" : "QUEUED", symbol: failed ? "!" : complete ? "✓" : "○" },
+    { label: "CHARACTER CONSISTENCY", status: failed ? "FAILED" : review ? "REVIEW" : complete ? "COMPLETE" : "QUEUED", symbol: failed || review ? "!" : complete ? "✓" : "○" },
+    { label: "SCENE CONSISTENCY", status: failed ? "FAILED" : review ? "REVIEW" : complete ? "COMPLETE" : "QUEUED", symbol: failed || review ? "!" : complete ? "✓" : "○" },
     { label: "PROMPT INTEGRITY", status: promptReady ? "COMPLETE" : "QUEUED", symbol: promptReady ? "✓" : "○" },
     { label: "IP / COPYRIGHT CHECK", status: complete ? "COMPLETE" : "QUEUED", symbol: complete ? "✓" : "○" },
   ];
@@ -1657,7 +1662,7 @@ function renderShotSheet(project) {
         <div class="shot-facts"><div><span class="manual-label type-ui-label">DURATION</span><strong>${active.duration_seconds}s</strong></div><div><span class="manual-label type-ui-label">FRAMING</span><strong>${esc(active.framing)}</strong></div><div><span class="manual-label type-ui-label">CAMERA</span><strong>${esc(shotCameraAngle(active))}</strong></div><div><span class="manual-label type-ui-label">MOVEMENT</span><strong>${esc(shotMovement(active))}</strong></div></div>
         <div class="shot-detail-grid"><section><span class="manual-label type-ui-label">ACTION / 动作</span><p class="manual-type type-helper">${esc(active.action)}</p></section><section><span class="manual-label type-ui-label">SOUND / 声音</span><p class="manual-type type-helper">${esc(active.sound_design)}</p></section></div>
         <section class="shot-prompt"><header><span class="manual-label type-ui-label">VISUAL PROMPT / 最终提示词</span><span class="type-system-meta">${esc(active.generation_mode)}</span></header><p class="manual-type type-helper">${esc(active.prompt)}</p></section>
-        <section class="shot-qc"><header><span class="manual-label type-ui-label">QC GATE / 质检门</span><span class="type-system-meta">${active.attempts ? `TAKE ${active.attempts}` : "TAKE 01"}</span></header><div class="shot-qc-grid">${qc.map((item) => `<div class="shot-qc-item ${item.status === "COMPLETE" ? "complete" : item.status === "FAILED" ? "failed" : "queued"}"><i>${item.symbol}</i><span>${item.label}</span><b class="type-status">${item.status}</b></div>`).join("")}</div></section>
+         <section class="shot-qc"><header><span class="manual-label type-ui-label">QC GATE / 质检门</span><span class="type-system-meta">${active.attempts ? `TAKE ${active.attempts}` : "TAKE 01"}</span></header><div class="shot-qc-grid">${qc.map((item) => `<div class="shot-qc-item ${item.status === "COMPLETE" ? "complete" : item.status === "FAILED" ? "failed" : item.status === "REVIEW" ? "review" : "queued"}"><i>${item.symbol}</i><span>${item.label}</span><b class="type-status">${item.status}</b></div>`).join("")}</div></section>
       </article>
     </div>`;
 }
@@ -3106,7 +3111,7 @@ function renderDrawerContent(markup, { swap = false, onReady } = {}) {
 }
 
 function inspectorShotPreviewMarkup(shot) {
-  const previewReady = ["approved_comfyui", "generated_comfyui"].includes(shot.status) && shot.stale !== true;
+  const previewReady = ["approved_comfyui", "generated_comfyui", "awaiting_visual_review"].includes(shot.status) && shot.stale !== true;
   return `
     <section class="inspector-preview-section">
       <header class="inspector-section-head type-system-meta"><span>SHOT PREVIEW / 16:9</span><span class="inspector-preview-state type-system-meta ${previewReady ? "is-ready" : ""}">${previewReady ? "MEDIA READY" : "UNEXPOSED FRAME"}</span></header>
@@ -3212,8 +3217,9 @@ function buildShotInspectorMarkup(project, shot) {
 
       <div class="inspector-output"><span class="inspector-label type-ui-label">OUTPUT PATH</span><span class="type-system-meta">${esc(output)}</span></div>
 
-      <footer class="inspector-actions">
-        <button class="ghost type-control" data-inspector-action="replan" type="button">↻ 重新规划</button>
+       <footer class="inspector-actions">
+         ${shot.status === "awaiting_visual_review" ? '<button class="cta inspector-action-primary" data-inspector-action="approve" type="button">APPROVE SHOT <span aria-hidden="true">✓</span></button>' : ""}
+         <button class="ghost type-control" data-inspector-action="replan" type="button">↻ 重新规划</button>
         <button class="cta inspector-action-primary" data-inspector-action="regenerate" type="button">重新生成素材 <span aria-hidden="true">→</span></button>
       </footer>
     </div>`;
@@ -3256,13 +3262,14 @@ function bindShotInspector(project, shot, { initial = false } = {}) {
   });
   els.drawer.querySelector('[data-inspector-action="replan"]')?.addEventListener("click", () => regenerateShot(shot.number, "replan"));
   els.drawer.querySelector('[data-inspector-action="regenerate"]')?.addEventListener("click", () => renderSingleShot(shot.number));
+  els.drawer.querySelector('[data-inspector-action="approve"]')?.addEventListener("click", () => approveShot(shot.number));
   els.drawer.querySelector("[data-save-shot]")?.addEventListener("click", () => saveShotEdits(shot.number));
   attachInspectorPreview(project, shot);
   if (initial) closeButton?.focus({ preventScroll: true });
 }
 
 function attachInspectorPreview(project, shot) {
-  if (!["approved_comfyui", "generated_comfyui"].includes(shot.status) || shot.stale === true) return;
+  if (!["approved_comfyui", "generated_comfyui", "awaiting_visual_review"].includes(shot.status) || shot.stale === true) return;
   const preview = els.drawer.querySelector(`[data-inspector-preview="${shot.number}"]`);
   if (!preview) return;
   const url = `/api/projects/${project.project_id}/shots/${shot.number}/video`;
@@ -3551,6 +3558,32 @@ async function renderSingleShot(shotNumber) {
     if (button) {
       button.disabled = false;
       button.innerHTML = "重新生成素材 <span aria-hidden=\"true\">→</span>";
+    }
+  }
+}
+
+async function approveShot(shotNumber) {
+  if (!state.project) return;
+  const button = els.drawer.querySelector('[data-inspector-action="approve"]');
+  if (button) {
+    button.disabled = true;
+    button.textContent = "审批中…";
+  }
+  try {
+    const response = await fetch(
+      `/api/projects/${state.project.project_id}/shots/${shotNumber}/approve`,
+      { method: "POST" },
+    );
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    refreshWorkspaceAfterShotUpdate(payload);
+    openDrawer(payload, shotNumber);
+    toast(`镜头 ${shotNumber} 已完成人工视觉批准。`);
+  } catch (error) {
+    toast(`镜头批准失败：${error.message}`, true);
+    if (button) {
+      button.disabled = false;
+      button.textContent = "APPROVE SHOT ✓";
     }
   }
 }

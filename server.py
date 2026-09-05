@@ -912,6 +912,20 @@ def render_single_shot(project_id: str, shot_number: int):
     return serialized_project(project)
 
 
+@app.post("/api/projects/{project_id}/shots/{shot_number}/approve")
+def approve_single_shot(project_id: str, shot_number: int):
+    """Explicitly approve a shot after the no-vision manual review gate."""
+
+    try:
+        with project_lock(project_id):
+            project = orchestrator.approve_shot(project_id, shot_number)
+    except FileNotFoundError:
+        return project_not_found(project_id)
+    except ValueError as error:
+        return JSONResponse({"error": str(error)}, status_code=400)
+    return serialized_project(project)
+
+
 @app.get("/api/projects/{project_id}/export/json")
 def export_json(project_id: str):
     try:

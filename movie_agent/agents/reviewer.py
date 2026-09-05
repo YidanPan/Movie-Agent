@@ -11,13 +11,14 @@ from movie_agent.config import Settings
 from movie_agent.models import Shot
 from movie_agent.services.llm import ModelScopeLLM, build_vision_llm
 from movie_agent.services.revisions import ensure_shot_metadata
+from movie_agent.storage.reference_bank import ReferenceBankStore
 
 
 class ReviewerAgent:
     def __init__(self, settings: Settings, vision_llm: ModelScopeLLM | None = None) -> None:
         self.settings = settings
         self.vision_llm = vision_llm or build_vision_llm(settings)
-        self._reference_frames: dict[str, Path] = {}
+        self.reference_bank = ReferenceBankStore(settings.outputs_dir)
 
     def review_mock(self, shot: Shot) -> str:
         ensure_shot_metadata(shot, provider="mock", model="mock-quality-gate")
@@ -55,21 +56,43 @@ class ReviewerAgent:
         if project_id is None:
             project_id = "ad-hoc-review"
         frames = self._extract_keyframes(project_id, shot, video_path, duration)
+        reference_inputs = self.reference_bank.qc_reference_paths(project_id, shot.number)
+        reference_strategy = {
+            key: [str(path) for path in paths]
+            for key, paths in reference_inputs.items()
+        }
         if self.vision_llm is None:
+            self._archive_review_frames(project_id, shot, frames, approved=False)
             shot.qc_flags = []
-            shot.status = "approved_comfyui"
+            shot.qc_flags = ["MANUAL_VISUAL_REVIEW"]
+            shot.qc_details = {
+                "review_state": "MEDIA_INTEGRITY_PASSED",
+                "next_action": "APPROVE_SHOT",
+                "reference_strategy": reference_strategy,
+            }
+            shot.status = "awaiting_visual_review"
             shot.stale = False
-            shot.qc_status = "PASSED_MANUAL_REVIEW_REQUIRED"
+            shot.qc_status = "AWAITING_VISUAL_REVIEW"
             source_record = (shot.media_assets or {}).get("source") if isinstance(shot.media_assets, dict) else None
             if isinstance(source_record, dict):
                 source_record["qc_status"] = shot.qc_status
                 source_record["stale"] = False
             return (
                 f"Quality Agent: Shot {shot.number} integrity passed ({duration:.2f}s), "
-                f"{len(frames)} keyframes archived; no vision model configured; manual character/scene consistency review pending."
+                f"{len(frames)} keyframes persisted; no vision model configured; MANUAL VISUAL REVIEW required before approval."
             )
 
-        review = self._review_visual_consistency(project_id, shot, visual_bible or {}, frames)
+        review = self._review_visual_consistency(
+            project_id,
+            shot,
+            visual_bible or {},
+            frames,
+            reference_paths=[
+                *reference_inputs["character_hero"],
+                *reference_inputs["current_scene"],
+                *reference_inputs["previous_approved_shot_ending_frame"],
+            ],
+        )
         self._write_visual_review(project_id, shot.number, review)
         verdict = str(review.get("verdict", "")).strip().lower()
         character_score = self._score(review.get("character_consistency"))
@@ -80,6 +103,13 @@ class ReviewerAgent:
             if str(flag).strip().upper() in {"STYLE_DRIFT", "CHARACTER_DRIFT", "SCENE_DRIFT"}
         ]
         shot.qc_flags = drift_flags
+        shot.qc_details = {
+            "review_state": "VISION_REVIEWED",
+            "reference_strategy": reference_strategy,
+            "dimensions": review.get("dimensions") or {},
+            "drift_details": review.get("drift_details") or {},
+            "copyright_risk": review.get("copyright_risk"),
+        }
         copyright_risk = str(review.get("copyright_risk", "")).strip().lower()
         if (
             verdict == "fail"
@@ -95,7 +125,7 @@ class ReviewerAgent:
                 f"Shot {shot.number} visual quality check failed: character consistency {character_score}/100, "
                 f"scene consistency {scene_score}/100, copyright risk {copyright_risk or 'unknown'}, flags {flag_text}."
             )
-        self._reference_frames.setdefault(project_id, frames[len(frames) // 2])
+        self._archive_review_frames(project_id, shot, frames, approved=True)
         shot.status = "approved_comfyui"
         shot.stale = False
         shot.qc_status = "PASSED_VISION"
@@ -108,6 +138,48 @@ class ReviewerAgent:
             f"Quality Agent: Shot {shot.number} integrity and visual review passed ({duration:.2f}s, "
             f"character {character_score}/100, scene {scene_score}/100). {review_note}"
         )
+
+    def approve_manual(self, shot: Shot, *, project_id: str) -> str:
+        """Approve a media-integrity-passed shot after an explicit human review."""
+
+        if shot.status != "awaiting_visual_review" or shot.qc_status != "AWAITING_VISUAL_REVIEW":
+            raise ValueError(f"Shot {shot.number} is not waiting for manual visual review.")
+        promoted = self.reference_bank.promote_shot_references(
+            project_id,
+            shot.number,
+            int(getattr(shot, "revision", 1) or 1),
+        )
+        shot.qc_flags = []
+        shot.qc_details = {
+            **(shot.qc_details or {}),
+            "review_state": "APPROVED",
+            "approved_by": "manual",
+            "next_action": "READY_FOR_EDIT",
+        }
+        shot.status = "approved_comfyui"
+        shot.qc_status = "APPROVED_MANUAL"
+        shot.stale = False
+        source_record = (shot.media_assets or {}).get("source") if isinstance(shot.media_assets, dict) else None
+        if isinstance(source_record, dict):
+            source_record["qc_status"] = shot.qc_status
+            source_record["stale"] = False
+        return f"Quality Agent: Shot {shot.number} manually approved; {promoted} review references promoted to the persistent bank."
+
+    def _archive_review_frames(self, project_id: str, shot: Shot, frames: list[Path], *, approved: bool) -> None:
+        for index, frame in enumerate(frames, start=1):
+            if not Path(frame).is_file():
+                continue
+            self.reference_bank.register_file(
+                project_id,
+                Path(frame),
+                kind="approved_keyframe" if approved else "review_keyframe",
+                source="continuity_qc",
+                approved=approved,
+                shot_number=shot.number,
+                revision=int(getattr(shot, "revision", 1) or 1),
+                name=f"shot-{shot.number:02d}-rev-{int(getattr(shot, 'revision', 1) or 1):02d}-frame-{index:02d}",
+                metadata={"role": "late_keyframe" if index == len(frames) else "qc_keyframe"},
+            )
 
     def _extract_keyframes(self, project_id: str, shot: Shot, video_path: Path, duration: float) -> list[Path]:
         output_dir = self.settings.outputs_dir / project_id / "quality" / f"shot-{shot.number:02d}"
@@ -147,10 +219,15 @@ class ReviewerAgent:
         shot: Shot,
         visual_bible: dict[str, str],
         frames: list[Path],
+        reference_paths: list[Path] | None = None,
     ) -> dict[str, Any]:
-        reference = self._reference_frames.get(project_id)
-        images = ([reference] if reference else []) + frames
-        reference_note = "The first image is a previously approved character/scene reference frame; subsequent images are keyframes from the current shot." if reference else "All images are keyframes from the current shot."
+        approved_references = [path for path in (reference_paths or []) if Path(path).is_file()]
+        images = approved_references + frames
+        reference_note = (
+            "The first images are persistent approved character, scene, and previous-shot references; subsequent images are keyframes from the current shot."
+            if approved_references
+            else "No persistent approved reference exists yet; judge the current shot against the locked visual specifications and choose review when uncertain."
+        )
         cinematography_lock = visual_bible.get("cinematography_lock", "")
         character_lock = visual_bible.get("character_lock", "")
         scene_lock = visual_bible.get("scene_lock", "")
@@ -161,6 +238,8 @@ class ReviewerAgent:
             "Review this shot and return only JSON: "
             '{"verdict":"pass|review|fail","character_consistency":0,"scene_consistency":0,'
             '"camera_style_consistency":0,"color_consistency":0,"lighting_consistency":0,'
+            '"dimensions":{"character_identity":0,"costume":0,"face_hair":0,"scene_geometry":0,"props":0,"palette":0,"lighting":0,"camera_language":0,"film_texture":0},'
+            '"drift_details":{"STYLE_DRIFT":[],"CHARACTER_DRIFT":[],"SCENE_DRIFT":[]},'
             '"copyright_risk":"low|medium|high","review_note":"Brief English conclusion",'
             '"drift_flags":["STYLE_DRIFT","CHARACTER_DRIFT","SCENE_DRIFT"] or []}.\n'
             f"Shot {shot.number}: {shot.image_description}; action: {shot.action}.\n"

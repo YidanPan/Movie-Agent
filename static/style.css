@@ -1778,6 +1778,7 @@ main {
 .shot-detail-status i { font-style: normal; font-size: 0.8rem; }
 .manual-project-status.complete, .shot-detail-status.complete { color: var(--ok); }
 .manual-project-status.active, .shot-detail-status.active { color: var(--amber); }
+.manual-project-status.review, .shot-detail-status.review { color: var(--amber); }
 .manual-project-status.failed, .shot-detail-status.failed { color: var(--err); }
 
 .manual-stats {
@@ -1958,6 +1959,7 @@ main {
 .shot-nav-state { display: grid; place-items: center; font-size: 0.76rem; }
 .shot-nav-state.complete { color: var(--ok); }
 .shot-nav-state.active { color: var(--amber); text-shadow: 0 0 10px rgba(215, 166, 74, 0.7); }
+.shot-nav-state.review { color: var(--amber); }
 .shot-nav-state.queued { color: var(--faint); }
 .shot-nav-state.failed { color: var(--err); }
 
@@ -1986,6 +1988,7 @@ main {
 .shot-qc-item.complete i, .shot-qc-item.complete b { color: var(--ok); }
 .shot-qc-item.queued i, .shot-qc-item.queued b { color: var(--faint); }
 .shot-qc-item.failed i, .shot-qc-item.failed b { color: var(--err); }
+.shot-qc-item.review i, .shot-qc-item.review b { color: var(--amber); }
 
 .agent-activity { margin-top: 28px; border-top: 1px solid var(--line-soft); }
 .agent-activity summary { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 14px; padding: 16px 0 5px; color: var(--dim); cursor: pointer; list-style: none; }
@@ -2719,6 +2722,7 @@ main {
 .inspector-status.complete { color: var(--ok); }
 .inspector-status.active { color: var(--amber); }
 .inspector-status.failed { color: var(--err); }
+.inspector-status.review { color: var(--amber); }
 .inspector-status.queued { color: var(--faint); }
 
 .inspector-head-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 8px; }

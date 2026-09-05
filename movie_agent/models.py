@@ -38,6 +38,7 @@ class Shot:
     source_duration_seconds: int = 0
     timing_mode: str = "native"
     qc_flags: list[str] = field(default_factory=list)
+    qc_details: dict[str, Any] = field(default_factory=dict)
     # Media contracts stay attached to the shot so the UI can distinguish a
     # disposable proxy from a viewer copy and the original/master source.
     media_assets: dict[str, Any] = field(default_factory=dict)

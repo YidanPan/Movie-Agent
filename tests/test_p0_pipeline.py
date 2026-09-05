@@ -101,7 +101,9 @@ class ContinuityPipelineTests(unittest.TestCase):
                 reviewer, "_extract_keyframes", return_value=[root / "frame.jpg"]
             ):
                 reviewer.review_generated(shot)
-            self.assertEqual(shot.status, "approved_comfyui")
+            self.assertEqual(shot.status, "awaiting_visual_review")
+            self.assertEqual(shot.qc_status, "AWAITING_VISUAL_REVIEW")
+            self.assertEqual(shot.qc_details["next_action"], "APPROVE_SHOT")
 
     def test_subtitle_export_never_emits_three_lines_and_splits_long_cue(self) -> None:
         long_text = (

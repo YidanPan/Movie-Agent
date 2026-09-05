@@ -537,9 +537,13 @@ class MovieOrchestrator:
                 raise RuntimeError(f"Shot {shot.number} failed after multiple attempts: {safe_message}") from last_error
             clear_failure(project)
 
-        project.status = "ready_for_ai_edit"
-        project.logs.append(f"Generation Agent: {len(project.storyboard)}/{len(project.storyboard)} SHOTS READY; stage advanced to DELIVER.")
-        project.logs.append("Editor Agent: Awaiting user to start AI Edit; Rough Cut first, then approve final cut.")
+        if self._shots_ready(project):
+            project.status = "ready_for_ai_edit"
+            project.logs.append(f"Generation Agent: {len(project.storyboard)}/{len(project.storyboard)} SHOTS READY; stage advanced to DELIVER.")
+            project.logs.append("Editor Agent: Awaiting user to start AI Edit; Rough Cut first, then approve final cut.")
+        else:
+            project.status = "awaiting_visual_review"
+            project.logs.append("QC Agent: Media integrity passed, but one or more shots require explicit MANUAL VISUAL REVIEW before SHOTS READY.")
         self.store.save(project)
         if progress_callback:
             progress_callback(
@@ -603,8 +607,27 @@ class MovieOrchestrator:
             self.store.save(project)
             raise
 
-        project.status = "ready_for_ai_edit" if self._shots_ready(project) else "ready_for_comfyui_render"
-        project.logs.append(f"QC Agent: Shot {shot_number} passed single-shot inspection; ready to continue assembling the full film.")
+        project.status = "ready_for_ai_edit" if self._shots_ready(project) else "awaiting_visual_review"
+        if project.status == "awaiting_visual_review":
+            project.logs.append(f"QC Agent: Shot {shot_number} integrity passed; MANUAL VISUAL REVIEW is required before it can enter SHOTS READY.")
+        else:
+            project.logs.append(f"QC Agent: Shot {shot_number} passed single-shot inspection; ready to continue assembling the full film.")
+        self.store.save(project)
+        return project
+
+    def approve_shot(self, project_id: str, shot_number: int) -> MovieProject:
+        """Record an explicit human visual approval for one generated shot."""
+
+        project = self.store.load(project_id)
+        if not 1 <= shot_number <= len(project.storyboard):
+            raise ValueError(f"Shot number must be between 1 and {len(project.storyboard)}.")
+        shot = project.storyboard[shot_number - 1]
+        project.logs.append(self.reviewer.approve_manual(shot, project_id=project.project_id))
+        if self._shots_ready(project):
+            project.status = "ready_for_ai_edit"
+            project.logs.append("QC Agent: All current shot revisions are explicitly approved; SHOTS READY.")
+        else:
+            project.status = "awaiting_visual_review"
         self.store.save(project)
         return project
 
