@@ -1,7 +1,7 @@
 /**
- * P2 module registry.  The legacy static/app.js remains the browser entry
- * point for backwards compatibility; these ES modules provide stable seams
- * for incremental extraction without introducing a build step.
+ * P2 module registry and browser bootstrap.  The domain modules register
+ * first, then the DOM adapter is loaded dynamically so it cannot observe a
+ * partially populated registry.
  */
 import { moduleApi } from "./api.js";
 import { moduleState } from "./state.js";
@@ -28,4 +28,8 @@ Object.assign(window.MovieAgentModules || (window.MovieAgentModules = {}), {
 });
 
 window.dispatchEvent(new CustomEvent("movie-agent:modules-ready"));
+
+// Keep one browser entry point.  A classic script tag would execute before
+// this deferred module and race the registry initialization.
+await import("../app.js?v=ui-20260905-p2");
 

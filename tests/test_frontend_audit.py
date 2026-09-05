@@ -125,7 +125,7 @@ def test_production_bible_is_a_quiet_reading_workspace():
 def test_frontend_assets_are_versioned_and_not_cached():
     server = (ROOT / "server.py").read_text(encoding="utf-8")
     assert "/static/style.css?v=" in INDEX
-    assert "/static/app.js?v=" in INDEX
+    assert "/static/js/app.js?v=" in INDEX
     assert "prevent_stale_frontend_cache" in server
     assert 'response.headers["Cache-Control"] = "no-store, max-age=0"' in server
 
@@ -262,6 +262,8 @@ def test_frontend_domain_modules_own_migrated_logic_and_legacy_waits_for_them():
     assert "MovieAgentModules.theme.createThemeController" in APP
     assert "MovieAgentModules.api.requestJSON" in APP
     assert "document.addEventListener(\"DOMContentLoaded\", init" in APP
+    assert 'await import("../app.js?v=ui-20260905-p2")' in (ROOT / "static" / "js" / "app.js").read_text(encoding="utf-8")
+    assert '<script src="/static/app.js?v=ui-20260905-p2"></script>' not in INDEX
 
 
 def test_frontend_consumes_backend_pipeline_state_and_saved_event():
