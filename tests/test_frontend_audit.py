@@ -132,9 +132,9 @@ def test_homepage_production_route_uses_three_equal_semantic_stages():
     assert 'class="agent-route-mini"' in INDEX
     assert "delivery-output-stack" in INDEX
     assert "INPUT" in INDEX and "PROCESS" in INDEX and "OUTPUT" in INDEX
-    assert "GREENLIGHT / INPUT" in INDEX
-    assert "CREW ASSEMBLY / PROCESS" in INDEX
-    assert "DELIVERY / OUTPUT" in INDEX
+    assert "ORIGIN</span><span class=\"feature-stage-kind mono\">GREENLIGHT" in INDEX
+    assert "HANDOFF</span><span class=\"feature-stage-kind mono\">CREW ASSEMBLY" in INDEX
+    assert "MASTER</span><span class=\"feature-stage-kind mono\">DELIVERY" in INDEX
     assert INDEX.count('class="feature-card production-stage-card reveal"') == 3
     assert "marquee-group" not in INDEX
     assert "grid-template-columns: repeat(3, minmax(0, 1fr));" in CSS

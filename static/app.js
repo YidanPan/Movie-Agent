@@ -293,15 +293,15 @@ const CREW_NODE_PROGRESS = {
 };
 
 const SHOT_STATUS = {
-  planned: "待拍",
-  replanned: "已重排",
-  generating_mock: "生成中",
-  generating_comfyui: "生成中",
-  generated_comfyui: "待质检",
-  awaiting_visual_review: "人工审片",
-  approved_mock: "已通过",
-  approved_comfyui: "已通过",
-  generation_failed: "失败",
+  planned: "QUEUED",
+  replanned: "STALE",
+  generating_mock: "ACTIVE",
+  generating_comfyui: "ACTIVE",
+  generated_comfyui: "ACTIVE",
+  awaiting_visual_review: "REVIEW",
+  approved_mock: "QC PASS",
+  approved_comfyui: "QC PASS",
+  generation_failed: "FAILED",
 };
 
 const PROJECT_STATUS = {
@@ -598,13 +598,14 @@ function createPacedHandler(onEvent) {
 
 function setPipeline(states = {}) {
   const order = ["plan", "previs", "render", "deliver"];
-  const stateLabels = { active: "IN PROGRESS", ready: "READY", done: "COMPLETED", archived: "ARCHIVED", todo: "NOT STARTED" };
+  const stateLabels = { active: "ACTIVE", review: "REVIEW", failed: "FAILED", stale: "STALE", done: "✓", archived: "", todo: "" };
   const separators = $$("#pipeline .sep");
-  const hasExplicitFocus = order.some((key) => states[key] === "active" || states[key] === "ready");
+  const hasExplicitFocus = order.some((key) => ["active", "ready", "review", "failed", "stale"].includes(states[key]));
   const resolvedStates = {};
   let inferredActive = !hasExplicitFocus;
   for (const key of order) {
-    const requested = ["done", "active", "ready", "archived"].includes(states[key]) ? states[key] : "todo";
+    const requestedValue = states[key] === "ready" ? "review" : states[key];
+    const requested = ["done", "active", "review", "failed", "stale", "archived"].includes(requestedValue) ? requestedValue : "todo";
     if (requested === "todo" && inferredActive) {
       resolvedStates[key] = "active";
       inferredActive = false;
@@ -615,16 +616,22 @@ function setPipeline(states = {}) {
   for (const [index, key] of order.entries()) {
     const el = els.pipeline.querySelector(`[data-step="${key}"]`);
     const currentState = resolvedStates[key];
-    el.classList.remove("is-active", "is-done", "is-ready", "is-archived");
+    el.classList.remove("is-active", "is-done", "is-ready", "is-review", "is-failed", "is-stale", "is-archived");
     el.dataset.state = currentState;
-    el.setAttribute("aria-label", `${key.toUpperCase()} · ${stateLabels[currentState]}`);
+    el.setAttribute("aria-label", `${key.toUpperCase()} · ${stateLabels[currentState] || "QUEUED"}`);
     const stateLabel = el.querySelector(".step-state");
     if (stateLabel) stateLabel.textContent = stateLabels[currentState];
     if (currentState === "active") {
       el.classList.add("is-active");
       el.setAttribute("aria-current", "step");
-    } else if (currentState === "ready") {
-      el.classList.add("is-ready");
+    } else if (currentState === "review") {
+      el.classList.add("is-ready", "is-review");
+      el.setAttribute("aria-current", "step");
+    } else if (currentState === "failed") {
+      el.classList.add("is-failed");
+      el.setAttribute("aria-current", "step");
+    } else if (currentState === "stale") {
+      el.classList.add("is-stale");
       el.setAttribute("aria-current", "step");
     } else if (currentState === "done") {
       el.classList.add("is-done");
@@ -637,7 +644,7 @@ function setPipeline(states = {}) {
     }
     if (separators[index]) {
       const nextState = order[index + 1] ? resolvedStates[order[index + 1]] : "todo";
-      separators[index].dataset.state = currentState === "done" || currentState === "archived" ? "done" : ["active", "ready"].includes(nextState) ? "active" : "todo";
+      separators[index].dataset.state = currentState === "done" || currentState === "archived" ? "done" : ["active", "review", "failed", "stale"].includes(nextState) ? "active" : "todo";
     }
   }
 }
@@ -653,7 +660,7 @@ function pipelineFromProject(project, hasVideo) {
     const backendPipeline = project.pipeline_state?.pipeline || {};
     for (const key of Object.keys(states)) {
       const value = backendPipeline[key];
-      if (["todo", "active", "ready", "done", "archived"].includes(value)) states[key] = value;
+      if (["todo", "active", "ready", "review", "failed", "stale", "done", "archived"].includes(value)) states[key] = value;
     }
     // A completed project only becomes a delivered stage after the browser
     // verifies a playable media asset.  The backend still reports FINAL_READY
@@ -672,7 +679,7 @@ function pipelineFromProject(project, hasVideo) {
   // browser has verified a playable final media asset.
   const finalApproved = status.startsWith("completed") && hasVideo;
   if (["rendering_comfyui", "generating_video_mock", "ready_for_comfyui_render", "render_failed"].includes(status)) {
-    states.render = status === "render_failed" ? "active" : "active";
+    states.render = status === "render_failed" ? "failed" : "active";
   } else if (historical && ["planned_mock", "planned_text_ai"].includes(status)) {
     states.render = "ready";
   } else if (allReady || status.startsWith("editing_") || status === "rough_cut_ready" || finalApproved) {
@@ -1181,7 +1188,100 @@ function syncHistoricalCrew(project) {
 /* ── 第三幕 · 工作区渲染 ───────────────────────────────────── */
 
 function shotStatusInfo(status) {
-  return SHOT_STATUS[status] || status || "待拍";
+  return SHOT_STATUS[status] || status || "QUEUED";
+}
+
+function formatShotDuration(value) {
+  const seconds = Math.max(0, Number(value || 0));
+  const minutes = Math.floor(seconds / 60);
+  const remainder = (seconds % 60).toFixed(1).padStart(4, "0");
+  return `${String(minutes).padStart(2, "0")}:${remainder}`;
+}
+
+function timingModeLabel(shot = {}) {
+  const mode = String(shot.timing_mode || "native").toLowerCase();
+  return ({ native: "NATIVE", trim: "TRIM", hold_last_frame: "HOLD", slow_motion: "SLOW", extend: "EXTEND" })[mode] || mode.toUpperCase();
+}
+
+function shotReviewLabel(shot = {}) {
+  const driftDetails = shot.qc_details?.drift_details || {};
+  const flags = [ ...(shot.qc_flags || []), ...Object.keys(driftDetails) ].map((flag) => String(flag).toUpperCase());
+  if (flags.some((flag) => flag.includes("CHARACTER"))) return "CHARACTER REVIEW";
+  if (flags.some((flag) => flag.includes("SCENE"))) return "SCENE REVIEW";
+  if (flags.some((flag) => flag.includes("STYLE"))) return "STYLE REVIEW";
+  return "VISUAL REVIEW";
+}
+
+function shotStateInfo(shot = {}) {
+  const status = String(shot.status || "planned");
+  const qcStatus = String(shot.qc_status || "").toUpperCase();
+  const hasLastError = shot.last_error && typeof shot.last_error === "object"
+    ? Object.keys(shot.last_error).length > 0
+    : Boolean(shot.last_error);
+  if (shot.stale === true || qcStatus.includes("STALE")) return { key: "stale", symbol: "↻", label: "STALE" };
+  if (status === "generation_failed" || hasLastError) return { key: "failed", symbol: "×", label: "FAILED" };
+  if (status === "awaiting_visual_review" || qcStatus === "AWAITING_VISUAL_REVIEW" || (shot.qc_flags || []).some((flag) => String(flag).toUpperCase().includes("REVIEW"))) {
+    return { key: "review", symbol: "!", label: shotReviewLabel(shot) };
+  }
+  if (["approved_mock", "approved_comfyui"].includes(status)) return { key: "complete", symbol: "✓", label: "QC PASS" };
+  if (["generating_mock", "generating_comfyui", "generated_comfyui"].includes(status)) return { key: "active", symbol: "●", label: "ACTIVE" };
+  return { key: "queued", symbol: "○", label: "QUEUED" };
+}
+
+function durationRailShare(value) {
+  return `${Math.min(94, Math.max(18, Number(value || 1) / 12 * 100)).toFixed(1)}%`;
+}
+
+function bindShotDurationRail(card, project, shot) {
+  const rail = card.querySelector(".shot-duration-rail");
+  const handle = rail?.querySelector(".shot-duration-handle");
+  if (!rail || !handle) return;
+  handle.addEventListener("click", (event) => event.stopPropagation());
+  handle.addEventListener("pointerdown", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const startX = event.clientX;
+    const startDuration = Number(shot.duration_seconds || 1);
+    const pixelsPerSecond = Math.max(10, rail.getBoundingClientRect().width / 12);
+    handle.setPointerCapture?.(event.pointerId);
+    const durationValue = card.querySelector(".shot-duration-value");
+    const meta = card.querySelector(".shot-technical-meta");
+    const move = (moveEvent) => {
+      const delta = Math.round(((moveEvent.clientX - startX) / pixelsPerSecond) * 2) / 2;
+      const next = Math.max(1, Math.min(80, startDuration + delta));
+      rail.dataset.previewDuration = String(next);
+      rail.style.setProperty("--shot-duration-share", durationRailShare(next));
+      handle.setAttribute("aria-valuenow", String(next));
+      handle.setAttribute("aria-valuetext", `${next.toFixed(1)} 秒`);
+      if (durationValue) durationValue.textContent = formatShotDuration(next);
+      if (meta) meta.textContent = `REV ${String(shot.revision || 1).padStart(2, "0")} · ${String(shot.generation_mode || "T2V").toUpperCase()} · ${next.toFixed(1)}s · ${timingModeLabel({ timing_mode: next < startDuration ? "trim" : "extend" })}`;
+    };
+    const finish = async () => {
+      handle.removeEventListener("pointermove", move);
+      handle.removeEventListener("pointerup", finish);
+      handle.removeEventListener("pointercancel", finish);
+      const next = Number(rail.dataset.previewDuration || startDuration);
+      if (next === startDuration) return;
+      try {
+        const response = await fetch(`/api/projects/${project.project_id}/shots/${shot.number}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ desired_duration: next, timing_mode: next < startDuration ? "trim" : "extend" }),
+        });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+        state.project = payload;
+        renderWorkspace(payload, { tab: "storyboard" });
+        toast(`镜头 ${shot.number} 已调整为 ${next.toFixed(1)}s，字幕与配乐已重新对齐。`);
+      } catch (error) {
+        renderWorkspace(project, { tab: "storyboard" });
+        toast(`调整镜头时长失败：${error.message}`, true);
+      }
+    };
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", finish, { once: true });
+    handle.addEventListener("pointercancel", finish, { once: true });
+  });
 }
 
 function renderFilmstrip(project, entranceFrom = Number.POSITIVE_INFINITY) {
@@ -1200,12 +1300,17 @@ function renderFilmstrip(project, entranceFrom = Number.POSITIVE_INFINITY) {
     card.tabIndex = 0;
     card.setAttribute("role", "button");
     card.setAttribute("aria-label", `镜头 ${shot.number} 详情`);
+    const stateInfo = shotStateInfo(shot);
+    const duration = Number(shot.duration_seconds || 0);
+    const revision = Number(shot.revision || shot.attempts || 1);
     card.innerHTML = `
-      <header class="shot-head type-system-meta"><span>SHOT ${String(shot.number).padStart(2, "0")}</span><span>${shot.duration_seconds}s</span></header>
+      <header class="shot-head type-system-meta"><span>SHOT ${String(shot.number).padStart(2, "0")}</span><span class="shot-duration-value">${formatShotDuration(duration)}</span></header>
       <div class="shot-frame"><span class="shot-frame-lens" aria-hidden="true"><i class="shot-frame-sketch"></i><i class="shot-frame-color"></i></span><span class="film-stamp type-system-meta">${String(shot.number).padStart(2, "0")} · 24 FPS</span><span class="shot-framing type-control">${esc(shot.framing)}</span><span class="shot-mode type-system-meta">${esc(shot.generation_mode)}</span></div>
       <footer class="shot-foot type-system-meta">
-        <span class="shot-status"><i class="dot" aria-hidden="true"></i>${shotStatusInfo(shot.status)}</span>
+        <span class="shot-status" data-state="${stateInfo.key}"><span class="shot-status-symbol" aria-hidden="true">${stateInfo.symbol}</span><span>${stateInfo.label}</span></span>
         <span class="shot-attempts">${shot.attempts > 0 ? `↻${shot.attempts}` : ""}</span>
+        <span class="shot-technical-meta">REV ${String(revision).padStart(2, "0")} · ${String(shot.generation_mode || "T2V").toUpperCase()} · ${duration.toFixed(1)}s · ${timingModeLabel(shot)}</span>
+        <span class="shot-duration-rail" style="--shot-duration-share: ${durationRailShare(duration)}" aria-label="拖动修改镜头 ${shot.number} 时长"><button class="shot-duration-handle" type="button" role="slider" aria-label="镜头 ${shot.number} 时长" aria-valuemin="1" aria-valuemax="80" aria-valuenow="${duration}" aria-valuetext="${duration.toFixed(1)} 秒"></button></span>
       </footer>`;
     card.addEventListener("click", () => openDrawer(project, shot.number));
     card.addEventListener("keydown", (event) => {
@@ -1214,6 +1319,7 @@ function renderFilmstrip(project, entranceFrom = Number.POSITIVE_INFINITY) {
         openDrawer(project, shot.number);
       }
     });
+    bindShotDurationRail(card, project, shot);
     els.filmstrip.appendChild(card);
   }
   attachShotPreviews(project);
@@ -1232,9 +1338,9 @@ function renderTimeline(project) {
     segment.dataset.shot = shot.number;
     segment.dataset.status = shot.status || "planned";
     segment.style.flexGrow = String(Math.max(1, shot.duration_seconds || 1));
-    segment.title = `镜头 ${shot.number} · ${shot.duration_seconds} 秒 · ${shotStatusInfo(shot.status)}`;
+    segment.title = `镜头 ${shot.number} · ${shot.duration_seconds} 秒 · ${shotStateInfo(shot).label}`;
     segment.setAttribute("aria-label", segment.title);
-    segment.innerHTML = `<span>${String(shot.number).padStart(2, "0")}</span><i class="timeline-resize-handle" title="拖动调整镜头时长" aria-label="拖动调整镜头时长"></i>`;
+    segment.innerHTML = `<span>${String(shot.number).padStart(2, "0")}</span><span class="timeline-mode">${timingModeLabel(shot)}</span><i class="timeline-resize-handle" title="拖动调整镜头时长" aria-label="拖动调整镜头时长"></i>`;
     segment.addEventListener("click", () => openDrawer(project, shot.number));
     const handle = segment.querySelector(".timeline-resize-handle");
     handle?.addEventListener("pointerdown", (event) => {
@@ -1505,12 +1611,7 @@ function shotSceneNumber(number, total) {
 }
 
 function shotWorkflowState(status) {
-  const value = String(status || "planned");
-  if (["approved_mock", "approved_comfyui"].includes(value)) return { key: "complete", symbol: "✓", label: "COMPLETE" };
-  if (value === "awaiting_visual_review") return { key: "review", symbol: "!", label: "REVIEW" };
-  if (["generating_mock", "generating_comfyui", "generated_comfyui"].includes(value)) return { key: "active", symbol: "●", label: "ACTIVE" };
-  if (value === "generation_failed") return { key: "failed", symbol: "!", label: "FAILED" };
-  return { key: "queued", symbol: "○", label: "QUEUED" };
+  return shotStateInfo({ status });
 }
 
 function shotCameraAngle(shot) {
@@ -4378,6 +4479,43 @@ function initLandingInteractions() {
   });
 }
 
+/* Production Route：一盏共享的暖色指示灯，连接 ruler、handoff 和 stage surface。 */
+function initProductionRouteInteraction() {
+  const route = $(".production-route");
+  if (!route || REDUCED_MOTION) return;
+  const rulerStages = $$(".production-ruler-stage", route);
+  const cards = $$(".production-stage-card", route);
+  const line = $(".production-ruler-line i", route);
+  const stageNames = ["greenlight", "crew", "delivery"];
+  const reset = () => {
+    route.style.setProperty("--route-pointer-opacity", "0");
+    for (const element of [...rulerStages, ...cards]) element.classList.remove("is-route-active");
+    if (line) line.style.setProperty("--route-progress", "33.333%");
+  };
+  const update = (event) => {
+    if (event.pointerType === "touch") return;
+    const routeRect = route.getBoundingClientRect();
+    route.style.setProperty("--route-pointer-x", `${event.clientX - routeRect.left}px`);
+    route.style.setProperty("--route-pointer-y", `${event.clientY - routeRect.top}px`);
+    route.style.setProperty("--route-pointer-opacity", "1");
+    const index = rulerStages.reduce((closest, stage, stageIndex) => {
+      const rect = stage.getBoundingClientRect();
+      const distance = Math.abs(event.clientX - (rect.left + rect.width / 2));
+      const closestRect = rulerStages[closest]?.getBoundingClientRect();
+      const closestDistance = closestRect ? Math.abs(event.clientX - (closestRect.left + closestRect.width / 2)) : Number.POSITIVE_INFINITY;
+      return distance < closestDistance ? stageIndex : closest;
+    }, 0);
+    for (const [stageIndex, name] of stageNames.entries()) {
+      rulerStages[stageIndex]?.classList.toggle("is-route-active", stageIndex === index);
+      cards.find((card) => card.dataset.stage === name)?.classList.toggle("is-route-active", stageIndex === index);
+    }
+    if (line) line.style.setProperty("--route-progress", `${((index + 1) / stageNames.length) * 100}%`);
+  };
+  route.addEventListener("pointerenter", update, { passive: true });
+  route.addEventListener("pointermove", update, { passive: true });
+  route.addEventListener("pointerleave", reset, { passive: true });
+}
+
 /* 首页显影台：pointer distance -> 0..1 -> lerp -> 分层视觉状态。
    画面本身不监听 hover 状态，离开后仍会沿着物理回弹曲线退回暗房。 */
 function initLandingProximity() {
@@ -4460,8 +4598,8 @@ function initLandingProximity() {
     setVar("--reveal-light", light.toFixed(3));
     setVar("--reveal-color", color.toFixed(3));
     setVar("--reveal-final", finalFrame.toFixed(3));
-    setVar("--reveal-vignette", (0.14 + finalFrame * 0.18).toFixed(3));
-    setVar("--reveal-grain", (0.02 + finalFrame * 0.1).toFixed(3));
+    setVar("--reveal-vignette", Math.min(0.08, 0.04 + finalFrame * 0.04).toFixed(3));
+    setVar("--reveal-grain", Math.min(0.04, 0.02 + finalFrame * 0.02).toFixed(3));
     setVar("--reveal-caption", (0.34 + progress * 0.48).toFixed(3));
     setVar("--reveal-final-radius", `${(8 + finalFrame * 92).toFixed(2)}%`);
     setVar("--reveal-light-x", `${motion.lightX.toFixed(2)}%`);
@@ -4959,6 +5097,7 @@ function init() {
   els.btnPremierePlay.addEventListener("click", () => closePremiere(true));
   els.btnPremiereSkip.addEventListener("click", () => closePremiere(false));
   initLandingInteractions();
+  initProductionRouteInteraction();
   initLandingProximity();
   initFilmstripInteractions();
   initStoryboardProximity();

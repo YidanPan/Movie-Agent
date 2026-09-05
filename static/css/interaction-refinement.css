@@ -1,0 +1,207 @@
+/* UI refinement: the existing archive-console stays intact; this layer
+   makes production state, timing, and hierarchy quieter and more explicit. */
+
+/* Global pipeline: geometry stays fixed, state copy becomes sparse. */
+.pipeline .step-state {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  color: currentColor;
+  font-size: 0.52rem;
+  letter-spacing: 0.12em;
+  transform: translateY(-0.02em);
+  transition: opacity 180ms ease, color 180ms ease;
+}
+
+.pipeline .step[data-state="done"] .step-state,
+.pipeline .step[data-state="active"] .step-state,
+.pipeline .step[data-state="review"] .step-state,
+.pipeline .step[data-state="failed"] .step-state,
+.pipeline .step[data-state="stale"] .step-state,
+.pipeline .step[data-state="archived"] .step-state {
+  opacity: 0.92;
+}
+
+.pipeline .step[data-state="done"] .step-state { color: var(--ok); }
+.pipeline .step[data-state="review"] .step-state { color: var(--amber); }
+.pipeline .step[data-state="failed"] .step-state { color: var(--err); }
+.pipeline .step[data-state="stale"] .step-state { color: var(--amber); }
+.pipeline .step[data-state="todo"] { opacity: 0.42; }
+.pipeline .step[data-state="active"] { text-shadow: none; }
+
+/* Atmosphere remains present, but never competes with readable content. */
+body[data-design="archive-console"] .grain {
+  opacity: 0.024;
+  animation-duration: 3.6s;
+}
+
+body[data-design="archive-console"] .vignette {
+  background: radial-gradient(ellipse at 50% 45%, transparent 67%, rgba(0, 0, 0, 0.1) 100%);
+}
+
+body[data-design="archive-console"] .aurora {
+  opacity: 0.22;
+  filter: blur(96px);
+}
+
+body[data-design="archive-console"] .landing-hero::before { opacity: 0.36; }
+body[data-design="archive-console"] .landing-spotlight .spotlight-dust { opacity: 0.22; }
+
+/* Production Route: one shared warm pointer light, never one strong glow per card. */
+.production-route {
+  position: relative;
+  isolation: isolate;
+  --route-pointer-x: 50%;
+  --route-pointer-y: 50%;
+  --route-pointer-opacity: 0;
+}
+
+.production-route::before {
+  content: "";
+  position: absolute;
+  z-index: 5;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(210px circle at var(--route-pointer-x) var(--route-pointer-y), rgba(232, 163, 76, 0.16), rgba(232, 163, 76, 0.05) 34%, transparent 72%);
+  mix-blend-mode: screen;
+  opacity: var(--route-pointer-opacity);
+  transition: opacity 180ms ease;
+}
+
+.production-route > * { position: relative; z-index: 1; }
+
+.production-route .production-stage-card::before { opacity: 0 !important; }
+.production-route .production-ruler-line i {
+  width: var(--route-progress, 33.333%);
+  transition: width 240ms ease;
+}
+
+.production-stage-card,
+.production-ruler-stage {
+  text-shadow: none;
+}
+
+.production-stage-card:hover,
+.production-stage-card:focus-within,
+.production-stage-card.is-route-active {
+  box-shadow: var(--shadow-card-token);
+}
+
+.production-ruler-stage.is-route-active .production-ruler-node {
+  color: var(--paper-token);
+  background: var(--accent-token-deep);
+  border-color: var(--accent-token);
+}
+
+.production-route-flow { opacity: 0.58; }
+.production-stage-index { display: none; }
+
+/* Shot cards: icon + reason + compact technical metadata. */
+.shot-foot {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px 10px;
+  align-items: center;
+}
+
+.shot-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--dim);
+}
+
+.shot-status-symbol {
+  display: inline-grid;
+  place-items: center;
+  width: 1.1em;
+  height: 1.1em;
+  color: currentColor;
+  font-size: 0.9rem;
+  line-height: 1;
+}
+
+.shot-status[data-state="complete"] { color: var(--ok); }
+.shot-status[data-state="active"] { color: var(--amber); }
+.shot-status[data-state="review"] { color: var(--amber); }
+.shot-status[data-state="failed"] { color: var(--err); }
+.shot-status[data-state="stale"] { color: var(--amber); }
+
+.shot-technical-meta {
+  grid-column: 1 / -1;
+  color: var(--meta);
+  font-size: 0.54rem;
+  letter-spacing: 0.11em;
+  white-space: nowrap;
+}
+
+.shot-duration-rail {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 12px;
+  margin-top: 9px;
+  border-top: 1px solid var(--line-soft);
+  background: linear-gradient(90deg, var(--amber) 0 var(--shot-duration-share, 50%), transparent var(--shot-duration-share, 50%) 100%);
+  background-size: 100% 2px;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+.shot-duration-rail::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 5px;
+  width: var(--shot-duration-share, 50%);
+  height: 2px;
+  background: var(--amber);
+  opacity: 0.74;
+}
+
+.shot-duration-handle {
+  position: absolute;
+  right: -2px;
+  top: 1px;
+  width: 7px;
+  height: 9px;
+  padding: 0;
+  border: 0;
+  border-right: 1px solid var(--amber);
+  border-bottom: 1px solid var(--amber);
+  background: transparent;
+  cursor: ew-resize;
+  opacity: 0.78;
+}
+
+.shot-duration-handle:hover,
+.shot-duration-handle:focus-visible { opacity: 1; background: var(--amber-glow); }
+
+.timeline-segment {
+  position: relative;
+  min-width: 52px;
+}
+
+.timeline-segment .timeline-mode {
+  display: block;
+  margin-top: 2px;
+  color: currentColor;
+  font-size: 0.44rem;
+  letter-spacing: 0.08em;
+  opacity: 0.72;
+}
+
+/* Blur belongs to atmosphere. Information surfaces remain crisp. */
+.pipeline,
+.shot-card,
+.timeline-segment,
+.production-route,
+.production-stage-card,
+.crew-card,
+.panel { backdrop-filter: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  body[data-design="archive-console"] .grain { animation: none; }
+}

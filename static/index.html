@@ -27,6 +27,7 @@
 <link rel="stylesheet" href="/static/css/storyboard.css?v=p5-20260904">
 <link rel="stylesheet" href="/static/css/sound.css?v=p5-20260904">
 <link rel="stylesheet" href="/static/css/deliver.css?v=p5-20260904">
+<link rel="stylesheet" href="/static/css/interaction-refinement.css?v=ui-20260905">
 </head>
 <body data-view="landing" data-design="archive-console">
 <div class="theme-transition-wash" id="theme-transition-wash" aria-hidden="true"></div>
@@ -41,10 +42,10 @@
     </div>
     <div class="header-center">
       <nav class="pipeline" id="pipeline" aria-label="制作阶段">
-        <span class="step" data-step="plan"><b>01</b><span>PLAN</span><small class="step-state mono type-status">当前</small></span><i class="sep" aria-hidden="true"></i>
-        <span class="step" data-step="previs"><b>02</b><span>PREVIS</span><small class="step-state mono type-status">未开始</small></span><i class="sep" aria-hidden="true"></i>
-        <span class="step" data-step="render"><b>03</b><span>RENDER</span><small class="step-state mono type-status">未开始</small></span><i class="sep" aria-hidden="true"></i>
-        <span class="step" data-step="deliver"><b>04</b><span>DELIVER</span><small class="step-state mono type-status">未开始</small></span>
+        <span class="step" data-step="plan"><b>01</b><span>PLAN</span><small class="step-state mono type-status" aria-hidden="true"></small></span><i class="sep" aria-hidden="true"></i>
+        <span class="step" data-step="previs"><b>02</b><span>PREVIS</span><small class="step-state mono type-status" aria-hidden="true"></small></span><i class="sep" aria-hidden="true"></i>
+        <span class="step" data-step="render"><b>03</b><span>RENDER</span><small class="step-state mono type-status" aria-hidden="true"></small></span><i class="sep" aria-hidden="true"></i>
+        <span class="step" data-step="deliver"><b>04</b><span>DELIVER</span><small class="step-state mono type-status" aria-hidden="true"></small></span>
       </nav>
     </div>
     <div class="header-right">
@@ -129,7 +130,7 @@
           <p class="production-route-kicker mono type-system-meta">PRODUCTION ROUTE / 片场路径</p>
           <h2 id="production-route-title">从灵感到交付</h2>
         </div>
-        <p class="production-route-flow mono type-system-meta" aria-label="输入、处理、输出">INPUT <i aria-hidden="true">→</i> PROCESS <i aria-hidden="true">→</i> OUTPUT</p>
+        <p class="production-route-flow mono type-system-meta" aria-label="三阶段生产路径">03 STAGES · ONE ROUTE</p>
       </div>
 
       <div class="production-ruler" role="list" aria-label="三阶段生产路径">
@@ -153,8 +154,8 @@
 
       <div class="landing-features production-stage-list">
         <article class="feature-card production-stage-card reveal" data-stage="greenlight">
-          <div class="feature-meta"><span class="feature-no mono">01</span><span class="feature-stage-kind mono">GREENLIGHT / INPUT</span></div>
-          <div class="production-stage-title"><span class="production-stage-index mono">01 / GREENLIGHT</span><h3>开机</h3></div>
+          <div class="feature-meta"><span class="feature-no mono">ORIGIN</span><span class="feature-stage-kind mono">GREENLIGHT</span></div>
+          <div class="production-stage-title"><h3>开机</h3></div>
           <div class="production-stage-body production-input-specs">
             <div><span class="type-system-meta">CREATIVE</span><strong>一句话创意</strong></div>
             <div><span class="type-system-meta">RUNTIME</span><strong>30–80 秒</strong></div>
@@ -165,8 +166,8 @@
         </article>
 
         <article class="feature-card production-stage-card reveal" data-stage="crew">
-          <div class="feature-meta"><span class="feature-no mono">02</span><span class="feature-stage-kind mono">CREW ASSEMBLY / PROCESS</span></div>
-          <div class="production-stage-title"><span class="production-stage-index mono">02 / CREW ASSEMBLY</span><h3>集结</h3></div>
+          <div class="feature-meta"><span class="feature-no mono">HANDOFF</span><span class="feature-stage-kind mono">CREW ASSEMBLY</span></div>
+          <div class="production-stage-title"><h3>集结</h3></div>
           <div class="production-stage-body production-crew-specs">
             <ol class="agent-route-mini" aria-label="七位 AI Agent">
               <li><span class="mono">01</span><b>DIRECTOR</b></li>
@@ -184,8 +185,8 @@
         </article>
 
         <article class="feature-card production-stage-card reveal" data-stage="delivery">
-          <div class="feature-meta"><span class="feature-no mono">03</span><span class="feature-stage-kind mono">DELIVERY / OUTPUT</span></div>
-          <div class="production-stage-title"><span class="production-stage-index mono">03 / DELIVERY</span><h3>成片</h3></div>
+          <div class="feature-meta"><span class="feature-no mono">MASTER</span><span class="feature-stage-kind mono">DELIVERY</span></div>
+          <div class="production-stage-title"><h3>成片</h3></div>
           <div class="production-stage-body delivery-output-stack">
             <div><span>FINAL CUT</span><strong>Picture + Mix</strong></div>
             <div><span>FINISH</span><strong>Music · Subtitle · Final Look</strong></div>
