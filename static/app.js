@@ -680,19 +680,26 @@ function buildCrewBoard() {
     card.className = "crew-card idle";
     card.dataset.agent = def.id;
     card.dataset.state = "idle";
+    card.dataset.inspectorOpen = "false";
     card.tabIndex = 0;
-    card.setAttribute("role", "button");
-    card.setAttribute("aria-expanded", "false");
+    card.setAttribute("role", "group");
     card.setAttribute("aria-label", `${def.name} Agent 详情`);
     card.innerHTML = `
-      <div class="crew-indexline type-system-meta"><span class="crew-node-id">${esc(def.index)} / NODE</span><span class="crew-en type-system-meta">${esc(def.en)}</span><span class="crew-node-status type-system-meta" data-node-status="idle">QUEUED</span></div>
-      <div class="crew-head"><span class="crew-name">${esc(def.name)}</span></div>
-      <p class="crew-role">${esc(def.role)}</p>
-      <div class="crew-state type-status"><span class="crew-state-icon" aria-hidden="true"></span><span class="crew-state-text">${AGENT_STATUS_COPY[def.id]?.idle || "WAITING"}</span></div>
-      <div class="crew-node-route type-system-meta" aria-label="节点输入与输出"><span class="crew-route-input">IN · ${esc(def.input)}</span><span class="crew-route-arrow" aria-hidden="true">→</span><span class="crew-route-output">OUT · ${esc(def.output)}</span></div>
-      <div class="crew-node-progress" aria-hidden="true"><i></i></div>
-      <p class="crew-summary type-helper">${esc(def.summarize({}))}</p>`;
-    card.addEventListener("click", () => openCrewDrawer(def.id));
+      <header class="crew-card-header">
+        <div class="crew-indexline type-system-meta"><span class="crew-node-id">${esc(def.index)} / NODE</span><span class="crew-en type-system-meta">${esc(def.en)}</span><span class="crew-node-status type-system-meta" data-node-status="idle">QUEUED</span></div>
+        <div class="crew-head"><span class="crew-name">${esc(def.name)}</span></div>
+        <p class="crew-role">${esc(def.role)}</p>
+      </header>
+      <div class="crew-card-main">
+        <div class="crew-state type-status"><span class="crew-state-icon" aria-hidden="true"></span><span class="crew-state-text">${AGENT_STATUS_COPY[def.id]?.idle || "WAITING"}</span></div>
+        <p class="crew-summary type-helper">${esc(def.summarize({}))}</p>
+        <div class="crew-artifact-preview artifact-preview" hidden aria-live="polite"></div>
+      </div>
+      <footer class="crew-card-footer">
+        <div class="crew-node-route type-system-meta" aria-label="节点输入与输出"><span class="crew-route-input">IN · ${esc(def.input)}</span><span class="crew-route-arrow" aria-hidden="true">→</span><span class="crew-route-output">OUT · ${esc(def.output)}</span></div>
+        <div class="crew-node-progress" aria-hidden="true"><i></i></div>
+      </footer>`;
+    card.addEventListener("click", (event) => openCrewDrawer(def.id));
     card.addEventListener("keydown", (event) => {
       if (event.key === "Enter" || event.key === " ") {
         event.preventDefault();
@@ -754,7 +761,7 @@ function setAgentState(agentId, agentState, data = {}, { silent = false } = {}) 
   const text = card.querySelector(".crew-state-text");
   const nodeStatus = card.querySelector("[data-node-status]");
   const summary = card.querySelector(".crew-summary");
-  card.setAttribute("aria-expanded", "false");
+  card.dataset.inspectorOpen = "false";
   if (nodeStatus) {
     nodeStatus.textContent = CREW_NODE_STATE_COPY[resolvedState] || "QUEUED";
     nodeStatus.dataset.state = resolvedState;
@@ -852,12 +859,11 @@ function renderCrewCardExtras(agentId) {
   const card = document.querySelector(`.crew-card[data-agent="${agentId}"]`);
   if (!card) return;
   const latest = state.crewArtifacts.filter((item) => item.agent === agentId).at(-1);
-  if (!latest) return;
-  const summary = card.querySelector(".crew-summary");
-  const artifact = `<span class="crew-artifact"><span class="artifact-title">${esc(latest.title)}</span><span class="artifact-content">${esc(truncate(latest.content, 34))}</span></span>`;
-  summary.innerHTML = card.classList.contains("working")
-    ? `<span class="sk sk-1"></span><span class="sk sk-2"></span><span class="sk sk-3"></span>${artifact}`
-    : `${esc(card.dataset.summary || "")}${artifact}`;
+  const preview = card.querySelector(".crew-artifact-preview");
+  if (!preview || !latest) return;
+  const actionLabel = agentId === "writer" ? "OPEN DRAFT" : "VIEW ARTIFACT";
+  preview.hidden = false;
+  preview.innerHTML = `<div class="artifact-preview-head"><span class="artifact-title">${esc(latest.title)}</span><button class="artifact-action type-control" type="button" aria-label="${actionLabel}: ${esc(latest.title)}">${actionLabel}</button></div><p class="artifact-content">${esc(truncate(latest.content, 180))}</p>`;
 }
 
 function appendCrewArtifact(event) {
@@ -3064,8 +3070,8 @@ function applyProjectSnapshot(project) {
 /* ── Inspector：镜头 / 剧组详情 ───────────────────────────── */
 
 function clearCrewCardSelection() {
-  document.querySelectorAll('.crew-card[aria-expanded="true"]').forEach((card) => {
-    card.setAttribute("aria-expanded", "false");
+  document.querySelectorAll('.crew-card[data-inspector-open="true"]').forEach((card) => {
+    card.dataset.inspectorOpen = "false";
   });
 }
 
@@ -3426,7 +3432,7 @@ function openCrewDrawer(agentId) {
   clearCrewCardSelection();
   syncInspectorSelection();
   const card = document.querySelector(`.crew-card[data-agent="${agentId}"]`);
-  if (card) card.setAttribute("aria-expanded", "true");
+  if (card) card.dataset.inspectorOpen = "true";
   renderDrawerContent(buildCrewInspectorMarkup(agentId), {
     swap: wasOpen,
     onReady: () => {

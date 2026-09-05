@@ -1,3 +1,132 @@
 /* Crew Assembly extraction seam. */
 :where(.p2-crew) { isolation: isolate; }
 
+/* Production Route nodes: the card owns a vertical reading rhythm. */
+body[data-design="archive-console"] .crew-flow .crew-card {
+  display: flex;
+  flex-direction: column;
+  min-height: 340px;
+  height: 100%;
+  padding: 18px 16px 16px;
+  overflow: visible;
+  box-sizing: border-box;
+}
+
+body[data-design="archive-console"] .crew-flow .crew-card-header {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  min-width: 0;
+}
+
+body[data-design="archive-console"] .crew-flow .crew-card-main {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  flex-direction: column;
+  gap: 9px;
+}
+
+body[data-design="archive-console"] .crew-flow .crew-card-footer {
+  display: grid;
+  flex: 0 0 auto;
+  gap: 9px;
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid var(--line-soft);
+}
+
+body[data-design="archive-console"] .crew-flow .crew-card .crew-state {
+  margin-top: 0;
+}
+
+body[data-design="archive-console"] .crew-flow .crew-card .crew-summary {
+  flex: 0 0 auto;
+  min-height: 0;
+  max-height: none;
+  margin: 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+body[data-design="archive-console"] .crew-flow .crew-card .crew-artifact-preview {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--line-soft);
+  border-left: 2px solid var(--accent-token);
+  background: color-mix(in srgb, var(--accent-token) 5%, var(--surface-2));
+}
+
+body[data-design="archive-console"] .crew-flow .crew-card .crew-artifact-preview[hidden] {
+  display: none !important;
+}
+
+body[data-design="archive-console"] .crew-flow .artifact-preview-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+body[data-design="archive-console"] .crew-flow .artifact-title {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-strong);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: .06em;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+body[data-design="archive-console"] .crew-flow .artifact-content {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  color: var(--text-body);
+  font-family: var(--sans);
+  font-size: 13px;
+  line-height: 1.55;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+body[data-design="archive-console"] .crew-flow .artifact-action {
+  min-height: 28px;
+  padding: 5px 7px;
+  border: 1px solid var(--line-soft);
+  color: var(--text-muted);
+  background: transparent;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: .08em;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+body[data-design="archive-console"] .crew-flow .artifact-action:hover,
+body[data-design="archive-console"] .crew-flow .artifact-action:focus-visible {
+  color: var(--text-strong);
+  border-color: var(--accent-token);
+}
+
+body[data-design="archive-console"] .crew-flow .crew-card-footer .crew-node-route,
+body[data-design="archive-console"] .crew-flow .crew-card-footer .crew-node-progress {
+  margin-top: 0;
+}
+
+@media (max-width: 700px) {
+  body[data-design="archive-console"] .crew-flow .crew-card {
+    min-height: 0;
+    height: auto;
+  }
+}
+

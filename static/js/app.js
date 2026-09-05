@@ -31,5 +31,5 @@ window.dispatchEvent(new CustomEvent("movie-agent:modules-ready"));
 
 // Keep one browser entry point.  A classic script tag would execute before
 // this deferred module and race the registry initialization.
-await import("../app.js?v=ui-20260905-p2");
+await import("../app.js?v=ui-20260905-p3");
 

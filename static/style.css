@@ -936,7 +936,7 @@ main {
 
 .crew-card:hover,
 .crew-card:focus-visible,
-.crew-card[aria-expanded="true"] {
+.crew-card[data-inspector-open="true"] {
   opacity: 1;
   border-color: rgba(215, 166, 74, 0.68);
   outline: none;
@@ -1106,7 +1106,6 @@ main {
   padding: 15px 15px 13px;
   border-radius: 3px;
   background: var(--surface-1);
-  overflow: hidden;
 }
 
 .crew-flow .crew-card::before {

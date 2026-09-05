@@ -11,6 +11,7 @@ MODULE_THEME = (ROOT / "static" / "js" / "theme.js").read_text(encoding="utf-8")
 CSS = (ROOT / "static" / "style.css").read_text(encoding="utf-8")
 REFINEMENT = (ROOT / "static" / "css" / "interaction-refinement.css").read_text(encoding="utf-8")
 BIBLE = (ROOT / "static" / "css" / "production-bible.css").read_text(encoding="utf-8")
+CREW = (ROOT / "static" / "css" / "crew.css").read_text(encoding="utf-8")
 
 
 def test_design_dials_and_semantic_theme_tokens_are_present():
@@ -205,6 +206,24 @@ def test_homepage_production_route_uses_three_equal_semantic_stages():
     assert "production-ruler-line" in CSS
 
 
+def test_production_route_node_cards_use_readable_three_part_layout():
+    assert 'class="crew-card-header"' in APP
+    assert 'class="crew-card-main"' in APP
+    assert 'class="crew-card-footer"' in APP
+    assert 'class="crew-artifact-preview artifact-preview"' in APP
+    assert 'class="artifact-action type-control"' in APP
+    assert 'card.setAttribute("role", "group")' in APP
+    assert 'card.dataset.inspectorOpen = "false"' in APP
+    assert 'card.dataset.inspectorOpen = "true"' in APP
+    assert 'crew-card[aria-expanded="true"]' not in APP
+    assert 'crew-card[aria-expanded="true"]' not in CSS
+    assert "min-height: 340px" in CREW
+    assert "overflow: visible" in CREW
+    assert "margin-top: auto" in CREW
+    assert "-webkit-line-clamp: 2" in CREW
+    assert "artifact-action" in CREW
+
+
 def test_global_header_keeps_left_and_right_tracks_stable_when_pipeline_is_hidden():
     assert 'class="global-header-inner"' in INDEX
     assert 'class="header-left"' in INDEX
@@ -290,7 +309,7 @@ def test_frontend_domain_modules_own_migrated_logic_and_legacy_waits_for_them():
     assert "MovieAgentModules.theme.createThemeController" in APP
     assert "MovieAgentModules.api.requestJSON" in APP
     assert "document.addEventListener(\"DOMContentLoaded\", init" in APP
-    assert 'await import("../app.js?v=ui-20260905-p2")' in (ROOT / "static" / "js" / "app.js").read_text(encoding="utf-8")
+    assert 'await import("../app.js?v=ui-20260905-p3")' in (ROOT / "static" / "js" / "app.js").read_text(encoding="utf-8")
     assert '<script src="/static/app.js?v=ui-20260905-p2"></script>' not in INDEX
 
 
