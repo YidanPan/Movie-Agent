@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from movie_agent.services.subtitles import script_subtitle_track
+from movie_agent.services.music import MusicProvider, render_music_asset
 
 
 MUSIC_MODES = {"ai", "library", "upload"}
@@ -262,6 +263,10 @@ def build_audio_tracks(
     voice_profile = getattr(project, "voice_profile", {}) or {}
     shots = list(getattr(project, "storyboard", []) or [])
     music_source, music_status = _mode_source(resolved_mode, asset_name)
+    existing_music = (getattr(project, "audio_tracks", {}) or {}).get("music", {})
+    existing_media = Path(str(existing_music.get("media_path") or ""))
+    if resolved_mode == "upload" and not existing_media.is_file():
+        music_status = "BRIEF READY · AUDIO PENDING"
     cue_count = len(script_subtitle_track(getattr(project, "script", {}) or {}))
     sfx_count = sum(1 for shot in shots if _compact(getattr(shot, "sound_design", "")))
     return {
@@ -290,6 +295,8 @@ def build_audio_tracks(
             "name": "AI Score / Music",
             "status": music_status,
             "source": music_source,
+            "provider": "pending" if music_status.endswith("PENDING") else "file_upload",
+            "brief_status": "BRIEF READY" if music_status.endswith("PENDING") else "AUDIO READY",
             "enabled": True,
             "volume_db": round(-20 + (resolved_intensity * 10), 1),
             "preview_url": None,
@@ -364,6 +371,8 @@ def ensure_audio_design(
     smart_ducking: bool | None = None,
     music_asset_name: str | None = None,
     music_intensity: float | None = None,
+    music_provider: MusicProvider | None = None,
+    music_output_dir: Path | None = None,
 ) -> Any:
     """Mutate a project with the current sound department's reviewable plan."""
 
@@ -416,6 +425,23 @@ def ensure_audio_design(
             track["media_path"] = previous["media_path"]
         if previous.get("revision"):
             track["revision"] = previous["revision"]
+    if music_provider is not None:
+        try:
+            rendered_music = render_music_asset(
+                project,
+                music_provider,
+                music_output_dir or Path("outputs") / project.project_id / "audio",
+            )
+            project.audio_tracks["music"].update(rendered_music)
+        except (OSError, RuntimeError, TypeError, ValueError) as exc:
+            project.audio_tracks["music"].update(
+                {
+                    "status": "BRIEF READY · AUDIO PENDING",
+                    "brief_status": "BRIEF READY",
+                    "provider": getattr(music_provider, "name", music_provider.__class__.__name__),
+                    "provider_error": str(exc),
+                }
+            )
     project.smart_ducking = build_smart_ducking(project, enabled=enabled)
     previous_mix = deepcopy(getattr(project, "mix_state", {}) or {})
     previous_stage_status = previous_mix.get("stage_status") or {}

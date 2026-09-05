@@ -10,6 +10,8 @@ from movie_agent.services.audio import (
     loudness_filter,
     normalise_music_mode,
 )
+from movie_agent.services.audio import build_audio_tracks
+from movie_agent.services.music import FileMusicProvider
 
 
 class AudioDesignTests(unittest.TestCase):
@@ -23,6 +25,18 @@ class AudioDesignTests(unittest.TestCase):
         self.assertEqual(normalise_music_mode("素材库音乐"), "library")
         self.assertEqual(normalise_music_mode("用户上传音乐"), "upload")
         self.assertEqual(normalise_music_mode("unknown"), "ai")
+
+    def test_music_without_real_media_is_pending_and_provider_can_render_score(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            settings = Settings("http://127.0.0.1:8188", 900, root / "workflows", 9071, root / "projects", True, outputs_dir=root / "outputs")
+            project = MovieOrchestrator(settings).create_project("A quiet signal", 48, "film sci-fi")
+            self.assertEqual(project.audio_tracks["music"]["status"], "BRIEF READY · AUDIO PENDING")
+            source = root / "library.wav"
+            source.write_bytes(b"RIFF-test-audio")
+            rendered = root / "outputs" / project.project_id / "audio" / "score.wav"
+            metadata = FileMusicProvider(source).render(project.music_brief, rendered)
+            self.assertTrue(Path(metadata).is_file())
 
     def test_ducking_cues_follow_locked_subtitles(self) -> None:
         with TemporaryDirectory() as temporary_directory:

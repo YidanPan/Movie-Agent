@@ -132,6 +132,7 @@ const els = {
   deliverReadyNote: $("#deliver-ready-note"),
   deliverQualityNote: $("#deliver-quality-note"),
   btnNormalizeResolution: $("#btn-normalize-resolution"),
+  btnCleanWorkingCache: $("#btn-clean-working-cache"),
   deliverSummarySpecs: $("#deliver-summary-specs"),
   deliverWorkProgress: $("#deliver-work-progress"),
   deliverProgressTitle: $("#deliver-progress-title"),
@@ -3567,6 +3568,28 @@ async function renderSingleShot(shotNumber) {
   }
 }
 
+async function cleanWorkingCache() {
+  if (!state.project || !els.btnCleanWorkingCache) return;
+  const button = els.btnCleanWorkingCache;
+  const original = button.textContent;
+  button.disabled = true;
+  button.textContent = "CLEANING…";
+  try {
+    const response = await fetch(`/api/projects/${encodeURIComponent(state.project.project_id)}/storage/clean`, { method: "POST" });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    toast(`已清理 ${payload.removed_files || 0} 个工作缓存文件，保留 Source 与当前 Final Master。`, false);
+    if (els.deliverQualityNote && payload.total_bytes != null) {
+      els.deliverQualityNote.textContent += ` PROJECT STORAGE · ${Math.round(Number(payload.total_bytes) / 1024 / 1024)} MB`;
+    }
+  } catch (error) {
+    toast(`缓存清理失败：${error.message}`, true);
+  } finally {
+    button.disabled = false;
+    button.textContent = original;
+  }
+}
+
 async function approveShot(shotNumber) {
   if (!state.project) return;
   const button = els.drawer.querySelector('[data-inspector-action="approve"]');
@@ -5041,6 +5064,7 @@ function init() {
     els.btnMoreExport?.setAttribute("aria-expanded", String(!isOpen));
   });
   els.btnNormalizeResolution?.addEventListener("click", normalizeProjectResolution);
+  els.btnCleanWorkingCache?.addEventListener("click", cleanWorkingCache);
   [els.finalVideo, els.roughCutVideo].forEach((media) => {
     if (!media) return;
     media.addEventListener("loadedmetadata", () => {

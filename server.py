@@ -33,6 +33,7 @@ from movie_agent.services.subtitles import render_srt, render_vtt, script_subtit
 from movie_agent.services.media_quality import best_master_path, best_screening_path, quality_snapshot
 from movie_agent.pipeline.diagnostics import delivery_preflight, diagnostics_snapshot
 from movie_agent.pipeline.jobs import JobAlreadyRunning, JobLedger
+from movie_agent.services.cache_cleanup import clean_working_cache, storage_summary
 
 settings = Settings.from_env()
 orchestrator = MovieOrchestrator(settings)
@@ -286,6 +287,22 @@ def serialized_project(project) -> dict[str, Any]:
     )
     payload["job"] = job_ledger.summary(project.project_id)
     return payload
+
+
+@app.get("/api/projects/{project_id}/storage")
+def get_project_storage(project_id: str) -> dict[str, Any]:
+    project = _load_project_or_http(project_id)
+    return storage_summary(project, settings.outputs_dir)
+
+
+@app.post("/api/projects/{project_id}/storage/clean")
+def clean_project_working_cache(project_id: str) -> dict[str, Any]:
+    with project_lock(project_id):
+        project = _load_project_or_http(project_id)
+        result = clean_working_cache(project, settings.outputs_dir)
+        project.logs.append(f"Media Cache: Cleaned {result['removed_files']} derived working files; original sources preserved.")
+        orchestrator.store.save(project)
+    return result
 
 
 def run_with_sse(
