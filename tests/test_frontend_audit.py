@@ -24,6 +24,24 @@ def test_design_dials_and_semantic_theme_tokens_are_present():
     assert "html[data-theme=\"light\"]" in CSS
 
 
+def test_theme_toggle_names_and_icons_describe_the_destination_mode():
+    theme = MODULE_THEME
+    assert 'const next = isLight ? "Screening Room" : "Production Desk";' in theme
+    assert 'const nextShort = isLight ? "SCREENING" : "DESK";' in theme
+    assert 'aria-label", `Switch to ${next}`' in theme
+    assert 'icon.dataset.target = isLight ? "screening" : "desk"' in theme
+    assert ".theme-toggle-icon[data-target=\"screening\"]" in CSS
+    assert ".theme-toggle-icon[data-target=\"desk\"]" in CSS
+    assert ".theme-toggle:hover" in CSS
+    assert ".theme-toggle:focus-visible" in CSS
+    assert "box-shadow: none" in CSS
+    assert "theme-toggle-knob" not in CSS
+    assert "data-theme-action" not in CSS
+    assert "data-theme-action" not in theme
+    assert "is-sun" not in theme
+    assert "🌞" not in INDEX and "🌙" not in INDEX
+
+
 def test_page_uses_three_font_roles_and_native_cursor():
     assert '--serif:' in CSS and '--sans:' in CSS and '--mono:' in CSS
     assert "font-family: var(--sans)" in CSS

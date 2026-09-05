@@ -4773,77 +4773,96 @@ body.low-performance[data-design="archive-console"] .landing-reveal-grain { disp
   transition: background-color var(--theme-ms-surface) var(--theme-ease), border-color var(--theme-ms-surface) var(--theme-ease), color var(--theme-ms-text) var(--theme-ease), box-shadow var(--theme-ms-surface) var(--theme-ease);
 }
 
-.theme-toggle:hover,
+.theme-toggle:hover {
+  color: var(--text);
+  border-color: var(--amber-light);
+  box-shadow: none;
+}
+
 .theme-toggle:focus-visible {
   color: var(--text);
   border-color: var(--amber-light);
-  box-shadow: 0 0 0 1px var(--amber-glow);
+  outline: 2px solid var(--accent-token);
+  outline-offset: 2px;
+  box-shadow: none;
 }
 
-/* A small film-equipment control, not an iOS switch: a 30px rail with a
-   13px brass dot that glides 10px and shifts its color temperature. */
+/* The icon names the destination: a half-aperture for Screening and a quiet
+   exposure lamp for the Production Desk. It stays monochrome and inherits
+   the control color. */
 .theme-toggle-icon {
   position: relative;
   display: inline-block;
-  width: 30px;
-  height: 13px;
-  flex: 0 0 30px;
-  border-radius: 999px;
-}
-
-.theme-toggle-knob {
-  position: absolute;
-  top: 0;
-  left: 0;
-  display: block;
   width: 13px;
   height: 13px;
-  border: 1px solid var(--amber-light);
+  flex: 0 0 13px;
+  color: currentColor;
+}
+
+.theme-toggle-icon::before,
+.theme-toggle-icon::after {
+  position: absolute;
+  content: "";
+  display: block;
+}
+
+.theme-toggle-icon::before {
+  inset: 1px;
+  border: 1px solid currentColor;
   border-radius: 50%;
-  background: var(--amber);
-  box-shadow: inset -3px 0 0 rgba(21, 17, 11, 0.28), 0 0 7px var(--amber-glow);
-  transition: transform var(--theme-ms-toggle) var(--theme-ease), background-color var(--theme-ms-toggle) var(--theme-ease), border-color var(--theme-ms-toggle) var(--theme-ease), box-shadow var(--theme-ms-toggle) var(--theme-ease);
 }
 
-html[data-theme="light"] .theme-toggle-knob {
-  transform: translateX(17px);
-  background: var(--amber-light);
-  border-color: var(--amber);
-  box-shadow: inset -2px 0 0 rgba(36, 23, 12, 0.14), 0 0 10px var(--amber-glow), 0 0 0 1px var(--glow-token);
+.theme-toggle-icon::after {
+  top: 3px;
+  left: 6px;
+  width: 1px;
+  height: 7px;
+  background: currentColor;
+  transform-origin: center;
 }
 
-/* Click feedback: the knob pre-slides toward the target side before the
-   global theme flips, so the control answers instantly. */
-.theme-toggle[data-theme-action="light"] .theme-toggle-knob {
-  transform: translateX(24px);
-  background: var(--amber-light);
-  border-color: var(--amber);
-  box-shadow: 0 0 12px var(--glow-token), 0 0 0 1px var(--glow-token);
-  transition-duration: var(--theme-ms-toggle);
+/* Screening target: a restrained half-aperture / half-moon marker. */
+.theme-toggle-icon[data-target="screening"]::before,
+html[data-theme="light"] .theme-toggle-icon:not([data-target])::before {
+  background: linear-gradient(90deg, currentColor 0 48%, transparent 48% 100%);
 }
 
-.theme-toggle[data-theme-action="dark"] .theme-toggle-knob {
-  transform: translateX(0);
-  background: var(--amber-deep);
-  border-color: var(--amber);
-  box-shadow: inset -3px 0 0 rgba(21, 17, 11, 0.34), 0 0 5px var(--amber-glow);
-  transition-duration: var(--theme-ms-toggle);
+.theme-toggle-icon[data-target="screening"]::after,
+html[data-theme="light"] .theme-toggle-icon:not([data-target])::after {
+  opacity: .42;
+  transform: rotate(45deg);
 }
 
-html[data-theme="light"] .theme-toggle[data-theme-action="dark"] .theme-toggle-knob {
-  transform: translateX(-4px);
-  background: var(--amber-deep);
-  border-color: var(--amber);
-  box-shadow: inset -3px 0 0 rgba(21, 17, 11, 0.34);
+/* Desk target: a compact work-light / exposure indicator. */
+.theme-toggle-icon[data-target="desk"]::before,
+html[data-theme="dark"] .theme-toggle-icon:not([data-target])::before {
+  inset: 2px 3px 5px;
+  border-radius: 2px 2px 50% 50%;
+  transform: rotate(180deg);
 }
 
-/* The toggle itself snaps into its new position the moment the theme
-   token flips; only its surface colors follow the room. */
-html[data-theme="light"] .theme-toggle[data-theme-action="light"] .theme-toggle-knob {
-  transform: translateX(21px);
+.theme-toggle-icon[data-target="desk"]::after,
+html[data-theme="dark"] .theme-toggle-icon:not([data-target])::after {
+  top: 9px;
+  left: 2px;
+  width: 9px;
+  height: 1px;
+  transform: none;
 }
 
-.theme-toggle-label { line-height: 1; }
+.theme-toggle-label {
+  line-height: 1;
+  font-size: 0;
+}
+
+.theme-toggle-label::before {
+  content: "DESK";
+  font-size: .54rem;
+}
+
+html[data-theme="light"] .theme-toggle-label::before {
+  content: "SCREENING";
+}
 
 html.theme-transitioning,
 html.theme-transitioning body,
@@ -4883,8 +4902,7 @@ html.theme-transitioning body .deliver-section {
   transition-duration: var(--theme-ms-surface) !important;
 }
 
-html.theme-transitioning body .theme-toggle,
-html.theme-transitioning body .theme-toggle-knob {
+html.theme-transitioning body .theme-toggle {
   transition-duration: var(--theme-ms-toggle) !important;
 }
 
