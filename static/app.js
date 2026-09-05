@@ -451,6 +451,16 @@ function projectTitle(project = state.project) {
   return truncate((project && project.brief && project.brief["主题"]) || (project && project.idea) || "未命名短片", 28);
 }
 
+function manualFilmTitle(project = state.project) {
+  const brief = project?.brief || {};
+  return String(brief["片名"] || brief["标题"] || "未命名短片").trim() || "未命名短片";
+}
+
+function manualProjectLogline(project = state.project) {
+  const brief = project?.brief || {};
+  return String(brief["主题"] || project?.idea || "").trim();
+}
+
 function setBrowserActivity(mode, project = state.project) {
   const projectId = project && project.project_id ? project.project_id : "Movie-Agent";
   document.title = mode === "render"
@@ -1459,15 +1469,15 @@ function compactDuration(seconds) {
 function manualProductionStatus(project) {
   const status = String(project?.status || "");
   const shots = project?.storyboard || [];
-  if (status.startsWith("completed")) return { key: "complete", symbol: "✓", label: "DELIVERED", copy: "成片已交付" };
-  if (status === "awaiting_visual_review") return { key: "review", symbol: "!", label: "MANUAL REVIEW", copy: "请逐镜批准视觉连续性" };
-  if (status === "rough_cut_ready") return { key: "active", symbol: "●", label: "ROUGH CUT READY", copy: "待批准成片" };
-  if (status === "editing_rough_cut") return { key: "active", symbol: "●", label: "AI EDITING", copy: "正在生成粗剪" };
-  if (status === "ready_for_ai_edit") return { key: "active", symbol: "●", label: "DELIVER / AI EDIT", copy: "镜头已就绪" };
-  if (status.includes("render")) return { key: "active", symbol: "●", label: "RENDERING", copy: "正在生成" };
-  if (shots.length >= 6 && (project?.quality_report || []).length) return { key: "complete", symbol: "✓", label: "READY FOR GENERATION", copy: "已通过策划质检" };
-  if (shots.length) return { key: "active", symbol: "●", label: "BOARDING", copy: "分镜正在生长" };
-  return { key: "active", symbol: "●", label: "PLANNING", copy: "剧组正在策划" };
+  if (status.startsWith("completed")) return { key: "complete", symbol: "✓", label: "QC PASSED", copy: "制作手册已通过质量门" };
+  if (status === "awaiting_visual_review") return { key: "review", symbol: "!", label: "QC REVIEW", copy: "请逐镜批准视觉连续性" };
+  if (status === "rough_cut_ready") return { key: "complete", symbol: "✓", label: "QC PASSED", copy: "分镜与连续性检查已通过" };
+  if (status === "editing_rough_cut") return { key: "active", symbol: "●", label: "PREVIS / LOCKED", copy: "分镜已锁定，正在整理剪辑" };
+  if (status === "ready_for_ai_edit") return { key: "complete", symbol: "✓", label: "PREVIS / LOCKED", copy: "分镜已就绪，可进入后续制作" };
+  if (status.includes("render")) return { key: "active", symbol: "●", label: "BIBLE LOCKED", copy: "制作手册已锁定，镜头正在生成" };
+  if (shots.length >= 6 && (project?.quality_report || []).length) return { key: "complete", symbol: "✓", label: "QC PASSED", copy: "已通过策划质检" };
+  if (shots.length) return { key: "active", symbol: "●", label: "PREVIS / DRAFT", copy: "分镜正在生长" };
+  return { key: "active", symbol: "●", label: "BIBLE / DRAFT", copy: "剧组正在策划" };
 }
 
 function renderManualSummary(project) {
@@ -1479,11 +1489,14 @@ function renderManualSummary(project) {
   const total = shots.reduce((sum, shot) => sum + Number(shot.duration_seconds || 0), 0) || Number(project.duration_seconds || 0);
   const status = manualProductionStatus(project);
   const filmId = String(project.project_id || "film-01").replace(/^film-/, "").toUpperCase();
+  const filmTitle = manualFilmTitle(project);
+  const logline = manualProjectLogline(project);
   els.manualSummary.innerHTML = `
     <div class="manual-project-line">
       <div>
         <span class="manual-project-id type-system-meta">FILM ${esc(filmId)} / ${shots.length ? "CUT 01" : "PREP"}</span>
-        <h3>${esc(projectTitle(project))}</h3>
+        <h3>${esc(filmTitle)}</h3>
+        ${logline ? `<p class="manual-project-logline">${esc(logline)}</p>` : ""}
       </div>
       <span class="manual-project-status ${status.key} type-status"><i>${status.symbol}</i>${status.label}</span>
     </div>

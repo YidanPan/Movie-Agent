@@ -10,6 +10,7 @@ MODULE_STORYBOARD = (ROOT / "static" / "js" / "storyboard.js").read_text(encodin
 MODULE_THEME = (ROOT / "static" / "js" / "theme.js").read_text(encoding="utf-8")
 CSS = (ROOT / "static" / "style.css").read_text(encoding="utf-8")
 REFINEMENT = (ROOT / "static" / "css" / "interaction-refinement.css").read_text(encoding="utf-8")
+BIBLE = (ROOT / "static" / "css" / "production-bible.css").read_text(encoding="utf-8")
 
 
 def test_design_dials_and_semantic_theme_tokens_are_present():
@@ -131,13 +132,22 @@ def test_production_bible_is_a_quiet_reading_workspace():
     assert 'data-manual-nav-tab="brief"' in INDEX
     assert 'data-manual-nav-tab="quality"' in INDEX
     assert 'data-manual-nav-tab="visual"' in INDEX
-    assert ".manual-reading-grid" in REFINEMENT
-    assert "max-width: 860px" in REFINEMENT
-    assert ".manual-document .tab-body" in REFINEMENT
-    assert "font-family: var(--sans)" in REFINEMENT
-    assert "font-size: 15px" in REFINEMENT
-    assert "line-height: 1.8" in REFINEMENT
-    assert "box-shadow: none" in REFINEMENT
+    assert 'production-bible.css?v=' in INDEX
+    assert ".manual-reading-grid" in BIBLE
+    assert "--manual-content-width: 860px" in BIBLE
+    assert "max-width: var(--manual-content-width)" in BIBLE
+    assert "font-family: var(--sans)" in BIBLE
+    assert "font-size: var(--manual-body-size)" in BIBLE
+    assert "line-height: var(--manual-body-leading)" in BIBLE
+    assert "box-shadow: none" in BIBLE
+    assert ".manual-document .tab-body" not in REFINEMENT
+
+
+def test_production_bible_summary_separates_title_and_logline():
+    assert 'brief["片名"] || brief["标题"] || "未命名短片"' in APP
+    assert 'class="manual-project-logline"' in APP
+    assert 'label: "DELIVER / AI EDIT"' not in APP
+    assert 'label: "PREVIS / LOCKED"' in APP
 
 
 def test_frontend_assets_are_versioned_and_not_cached():
