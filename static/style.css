@@ -1189,7 +1189,7 @@ main {
   border-bottom: 1px solid var(--line-soft);
 }
 .crew-flow .crew-card .crew-node-id { white-space: nowrap; }
-.crew-flow .crew-card .crew-en { max-width: none; overflow: hidden; color: var(--faint); text-align: left; text-overflow: ellipsis; white-space: nowrap; }
+.crew-flow .crew-card .crew-en { max-width: none; color: var(--faint); text-align: left; white-space: nowrap; }
 .crew-node-status { justify-self: end; padding: 3px 5px; border: 1px solid currentColor; border-radius: 2px; font-size: 0.44rem; letter-spacing: 0.08em; line-height: 1; white-space: nowrap; }
 .crew-card.idle .crew-node-status { color: var(--meta); }
 .crew-card.next .crew-node-status { color: var(--faint); }
@@ -1204,7 +1204,7 @@ main {
 .crew-flow .crew-card .crew-summary { display: block; flex: 0 1 auto; min-height: 3.1em; max-height: 6.2em; margin-top: 9px; overflow: hidden; font-family: var(--mono); font-size: 0.61rem; letter-spacing: 0.035em; line-height: 1.55; color: var(--dim); }
 .crew-node-route { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 5px; margin-top: 10px; color: var(--meta); font-size: 0.47rem; letter-spacing: 0.045em; line-height: 1.25; }
 .crew-route-input,
-.crew-route-output { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.crew-route-output { min-width: 0; white-space: nowrap; }
 .crew-route-output { color: var(--faint); text-align: right; }
 .crew-route-arrow { color: var(--amber-deep); font-size: 0.72rem; line-height: 1; }
 .crew-node-progress { height: 3px; margin-top: 11px; overflow: hidden; background: var(--line-soft); }

@@ -224,6 +224,29 @@ def test_production_route_node_cards_use_readable_three_part_layout():
     assert "artifact-action" in CREW
 
 
+def test_production_route_summaries_are_structured_and_metadata_is_not_truncated():
+    assert "headline:" in APP
+    assert "primary:" in APP
+    assert "secondary:" in APP
+    assert "function renderCrewSummary" in APP
+    for route_token in ("IDEA", "BRIEF", "SCRIPT", "VISUAL", "SHOTS", "QC", "MEDIA", "FINAL"):
+        assert f'input: "{route_token}"' in APP or f'output: "{route_token}"' in APP
+    for role_copy in ("主题 · 叙事", "剧本 · 台词 · 字幕", "角色 · 场景 · 风格", "镜头 · 调度", "连续性 · 风险", "生成 · 重试", "粗剪 · 混音 · 交付"):
+        assert role_copy in APP
+    assert "剧本 · 台词本 · 字幕" not in APP
+    assert "角色 · 场景 · 风格 · 声音" not in APP
+    assert "READY TO RUN" not in APP
+    assert "NEXT IN LINE" not in APP
+    assert "NEXT · RENDER QUEUE" not in APP
+    assert 'IN · ${esc(def.input)}' not in APP
+    assert 'OUT · ${esc(def.output)}' not in APP
+    assert "SCRIPT / ${" not in APP
+    assert "STYLE / ${" not in APP
+    assert "overflow: visible" in CREW
+    assert "text-overflow: clip" in CREW
+    assert ".crew-summary.is-natural .crew-summary-secondary" in CREW
+
+
 def test_global_header_keeps_left_and_right_tracks_stable_when_pipeline_is_hidden():
     assert 'class="global-header-inner"' in INDEX
     assert 'class="header-left"' in INDEX
@@ -309,7 +332,7 @@ def test_frontend_domain_modules_own_migrated_logic_and_legacy_waits_for_them():
     assert "MovieAgentModules.theme.createThemeController" in APP
     assert "MovieAgentModules.api.requestJSON" in APP
     assert "document.addEventListener(\"DOMContentLoaded\", init" in APP
-    assert 'await import("../app.js?v=ui-20260905-p3")' in (ROOT / "static" / "js" / "app.js").read_text(encoding="utf-8")
+    assert 'await import("../app.js?v=ui-20260905-p5")' in (ROOT / "static" / "js" / "app.js").read_text(encoding="utf-8")
     assert '<script src="/static/app.js?v=ui-20260905-p2"></script>' not in INDEX
 
 

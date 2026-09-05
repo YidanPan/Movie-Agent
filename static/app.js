@@ -222,49 +222,84 @@ const SAMPLE_IDEAS = [
 ];
 
 const AGENT_DEFS = [
-  { id: "director", index: "01", name: "导演", en: "DIRECTOR", role: "主题与叙事边界",
-    input: "ORIGINAL IDEA", output: "PROJECT BRIEF",
-    summarize: (d) => d.brief && d.brief["主题"] ? `CORE CONCEPT / ${truncate(d.brief["主题"], 32)}` : d.idea ? `BRIEF / ${truncate(d.idea, 32)}` : "BRIEF / AWAITING DIRECTOR PASS" },
-  { id: "writer", index: "02", name: "编剧", en: "WRITER", role: "剧本 · 台词本 · 字幕",
-    input: "PROJECT BRIEF", output: "SCRIPT + CUES",
-    summarize: (d) => d.script && d.script.story ? `SCRIPT / ${String(d.script.story).split(/\n+/).filter(Boolean).length || 1} SCENES · ${d.script.dialogue_book?.length || 0} CUES · ${d.script.dialogue_locked ? "LOCKED" : "REVIEW"}` : "SCRIPT / AWAITING WRITER PASS" },
-  { id: "visual_bible", index: "03", name: "美术指导", en: "ART DIRECTOR", role: "角色 · 场景 · 风格 · 声音",
-    input: "SCRIPT + CUES", output: "VISUAL BIBLE",
+  { id: "director", index: "01", name: "导演", en: "DIRECTOR", role: "主题 · 叙事",
+    input: "IDEA", output: "BRIEF",
+    summarize: (d) => {
+      const concept = String(d.brief?.["主题"] || d.idea || "").trim();
+      return {
+        headline: d.brief && Object.keys(d.brief).length ? "BRIEF LOCKED" : "BRIEF QUEUED",
+        primary: "CORE CONCEPT",
+        secondary: concept || "AWAITING DIRECTOR PASS",
+        secondaryNatural: Boolean(concept),
+      };
+    } },
+  { id: "writer", index: "02", name: "编剧", en: "WRITER", role: "剧本 · 台词 · 字幕",
+    input: "BRIEF", output: "SCRIPT",
+    summarize: (d) => {
+      const script = d.script || {};
+      const hasScript = Boolean(script.story || script.dialogue_book?.length);
+      const sceneCount = script.story ? String(script.story).split(/\n+/).filter(Boolean).length || 1 : 0;
+      const cueCount = Array.isArray(script.dialogue_book) ? script.dialogue_book.length : 0;
+      return {
+        headline: hasScript ? "SCRIPT READY" : "SCRIPT QUEUED",
+        primary: hasScript ? `${sceneCount} SCENE${sceneCount === 1 ? "" : "S"} · ${cueCount} CUES` : "WAITING FOR SCRIPT",
+        secondary: hasScript ? (script.dialogue_locked ? "DIALOGUE LOCKED" : "DIALOGUE REVIEW") : "AWAITING WRITER PASS",
+      };
+    } },
+  { id: "visual_bible", index: "03", name: "美术指导", en: "ART DIRECTOR", role: "角色 · 场景 · 风格",
+    input: "SCRIPT", output: "VISUAL",
     summarize: (d) => {
       const bible = d.visual_bible || {};
       const rules = Object.keys(bible).length;
-      return rules ? `STYLE / ${d.visual_style || "CUSTOM"} · ${rules} RULES LOCKED` : "STYLE / AWAITING ART DIRECTION";
+      return {
+        headline: rules ? "VISUAL BIBLE" : "VISUAL QUEUED",
+        primary: d.visual_style || "CUSTOM",
+        secondary: rules ? `${rules} RULES LOCKED` : "AWAITING ART DIRECTION",
+      };
     } },
-  { id: "storyboard", index: "04", name: "分镜师", en: "STORYBOARD", role: "可渲染镜头拆解",
-    input: "VISUAL BIBLE", output: "SHOT LIST",
+  { id: "storyboard", index: "04", name: "分镜师", en: "STORYBOARD", role: "镜头 · 调度",
+    input: "VISUAL", output: "SHOTS",
     summarize: (d) => {
       const shots = d.storyboard || [];
       const runtime = shots.reduce((sum, shot) => sum + Number(shot.duration_seconds || 0), 0);
-      return shots.length ? `STRUCTURE / ${shots.length} SHOTS · ${runtime}s LOCKED` : "STRUCTURE / SHOT LIST QUEUED";
+      return {
+        headline: shots.length ? "SHOT LIST" : "SHOT LIST QUEUED",
+        primary: shots.length ? `${shots.length} SHOTS · ${runtime}s` : "0 SHOTS · 0s",
+        secondary: shots.length ? "LOCKED" : "AWAITING STORYBOARD",
+      };
     } },
-  { id: "quality", index: "05", name: "质检", en: "QC GATE", role: "结构与版权风险",
-    input: "SHOT LIST", output: "QC PASS",
+  { id: "quality", index: "05", name: "质检", en: "QC GATE", role: "连续性 · 风险",
+    input: "SHOTS", output: "QC",
     summarize: (d) => {
       const checks = d.quality_report || [];
       const hasRisk = checks.some((item) => /失败|风险|建议改写|未通过|error|fail/i.test(String(item)));
-      return checks.length ? `QC GATE / ${checks.length} CHECKS · ${hasRisk ? "REVIEW" : "PASS"}` : "QC GATE / CHECKS QUEUED";
+      const issueCount = checks.filter((item) => /失败|风险|建议改写|未通过|error|fail/i.test(String(item))).length;
+      return {
+        headline: checks.length ? (hasRisk ? "QC REVIEW" : "QC PASSED") : "QC QUEUED",
+        primary: `${checks.length} CHECKS`,
+        secondary: checks.length ? `${issueCount} ISSUE${issueCount === 1 ? "" : "S"}` : "AWAITING CHECKS",
+      };
     } },
-  { id: "generation", index: "06", name: "生成调度", en: "GENERATION", role: "逐镜生成与重试",
-    input: "QC PASS", output: "SHOT MEDIA",
+  { id: "generation", index: "06", name: "生成调度", en: "GENERATION", role: "生成 · 重试",
+    input: "SHOTS", output: "MEDIA",
     summarize: (d) => {
       const shots = d.storyboard || [];
       const approved = shots.filter(isShotReady).length;
-      return shots.length ? `SHOTS / ${approved}/${shots.length} READY · ${approved === shots.length ? "QUEUE CLEAR" : "RENDER QUEUE"}` : "SHOTS / QUEUE NOT RELEASED";
+      return {
+        headline: shots.length ? "READY" : "QUEUE HOLD",
+        primary: shots.length ? `${approved} / ${shots.length} SHOTS` : "0 / 0 SHOTS",
+        secondary: shots.length ? "QUEUE CLEAR" : "AWAITING SHOTS",
+      };
     } },
-  { id: "editor", index: "07", name: "剪辑", en: "EDITOR", role: "粗剪 · 合片 · 交付",
-    input: "SHOT MEDIA", output: "ROUGH / FINAL CUT",
+  { id: "editor", index: "07", name: "剪辑", en: "EDITOR", role: "粗剪 · 混音 · 交付",
+    input: "MEDIA", output: "FINAL",
     summarize: (d) => {
       const status = String(d.status || "");
-      if (status === "rough_cut_ready" || d.rough_cut_placeholder) return "ROUGH CUT / 4-TRACK MIX READY";
-      if (status === "editing_rough_cut") return "AI EDIT / PICTURE + SOUND MIX";
-      if (status.startsWith("completed")) return status === "completed_comfyui" && (d.final_video_url || state.hasFinalVideo) ? "DELIVERY / MASTER CUT + MIX READY" : "DELIVERY / MEDIA CHECK";
-      if (status === "ready_for_ai_edit") return "AI EDIT / SOUND DESIGN READY";
-      return "EDIT / WAITING FOR SHOT LOCK";
+      if (status === "rough_cut_ready" || d.rough_cut_placeholder) return { headline: "ROUGH CUT READY", primary: "PICTURE + MIX", secondary: "REVIEW AVAILABLE" };
+      if (status === "editing_rough_cut") return { headline: "ACTIVE", primary: "PICTURE + MIX", secondary: "EDIT IN PROGRESS" };
+      if (status.startsWith("completed")) return { headline: "FINAL CUT READY", primary: "MASTER CUT + MIX", secondary: "DELIVERY RECORDED" };
+      if (status === "ready_for_ai_edit") return { headline: "READY", primary: "WAITING FOR MEDIA", secondary: "MIX + SUBTITLE" };
+      return { headline: "QUEUED", primary: "WAITING FOR MEDIA", secondary: "MEDIA PENDING" };
     } },
 ];
 
@@ -272,23 +307,49 @@ function isShotReady(shot) {
   return MovieAgentModules.storyboard.shotReady(shot);
 }
 
+function normalizeCrewSummary(summary) {
+  if (summary && typeof summary === "object") {
+    return {
+      headline: String(summary.headline || "").trim(),
+      primary: String(summary.primary || "").trim(),
+      secondary: String(summary.secondary || "").trim(),
+      secondaryNatural: Boolean(summary.secondaryNatural),
+    };
+  }
+  return { headline: String(summary || "").trim(), primary: "", secondary: "", secondaryNatural: false };
+}
+
+function renderCrewSummary(element, summary) {
+  if (!element) return;
+  const value = normalizeCrewSummary(summary);
+  const headline = element.querySelector(".crew-summary-headline");
+  const primary = element.querySelector(".crew-summary-primary");
+  const secondary = element.querySelector(".crew-summary-secondary");
+  if (headline) headline.textContent = value.headline;
+  if (primary) primary.textContent = value.primary;
+  if (secondary) secondary.textContent = value.secondary;
+  element.classList.toggle("is-natural", value.secondaryNatural);
+  element.dataset.summaryHeadline = value.headline;
+  element.setAttribute("aria-label", [value.headline, value.primary, value.secondary].filter(Boolean).join(" · "));
+}
+
 const AGENT_STATUS_COPY = {
-  director: { idle: "WAITING FOR BRIEF", next: "READY · DIRECTOR", working: "DIRECTING", done: "BRIEF LOCKED" },
-  writer: { idle: "QUEUED", next: "NEXT · WRITER", working: "WRITING", done: "SCRIPT + CUES READY" },
-  visual_bible: { idle: "QUEUED", next: "NEXT · ART DIRECTION", working: "DESIGNING", done: "VISUAL BIBLE LOCKED" },
-  storyboard: { idle: "QUEUED", next: "NEXT · STORYBOARD", working: "BOARDING", done: "SHOT LIST READY" },
-  quality: { idle: "QUEUED", next: "NEXT · QC GATE", working: "REVIEWING", done: "QC APPROVED" },
-  generation: { idle: "QUEUED", next: "NEXT · RENDER QUEUE", working: "RENDERING", done: "SHOTS READY" },
-  editor: { idle: "QUEUED", next: "READY · START AI EDIT", working: "EDITING ROUGH CUT", done: "FINAL CUT READY" },
+  director: { idle: "QUEUED", next: "QUEUED", ready: "READY", working: "DIRECTING", done: "LOCKED", failed: "FAILED" },
+  writer: { idle: "QUEUED", next: "QUEUED", ready: "READY", working: "WRITING", done: "LOCKED", failed: "FAILED" },
+  visual_bible: { idle: "QUEUED", next: "QUEUED", ready: "READY", working: "DESIGNING", done: "LOCKED", failed: "FAILED" },
+  storyboard: { idle: "QUEUED", next: "QUEUED", ready: "READY", working: "BOARDING", done: "LOCKED", failed: "FAILED" },
+  quality: { idle: "QUEUED", next: "QUEUED", ready: "READY", working: "REVIEWING", done: "LOCKED", failed: "FAILED" },
+  generation: { idle: "QUEUED", next: "QUEUED", ready: "READY", working: "GENERATING", done: "LOCKED", failed: "FAILED" },
+  editor: { idle: "QUEUED", next: "QUEUED", ready: "READY", working: "EDITING", done: "LOCKED", failed: "FAILED" },
 };
 
 const CREW_NODE_STATE_COPY = {
   idle: "QUEUED",
-  next: "NEXT IN LINE",
-  ready: "READY TO RUN",
+  next: "QUEUED",
+  ready: "READY",
   working: "ACTIVE",
-  done: "COMPLETED",
-  failed: "BLOCKED",
+  done: "LOCKED",
+  failed: "FAILED",
 };
 
 const CREW_NODE_PROGRESS = {
@@ -692,13 +753,14 @@ function buildCrewBoard() {
       </header>
       <div class="crew-card-main">
         <div class="crew-state type-status"><span class="crew-state-icon" aria-hidden="true"></span><span class="crew-state-text">${AGENT_STATUS_COPY[def.id]?.idle || "WAITING"}</span></div>
-        <p class="crew-summary type-helper">${esc(def.summarize({}))}</p>
+        <p class="crew-summary type-helper"><strong class="crew-summary-headline"></strong><span class="crew-summary-primary"></span><small class="crew-summary-secondary"></small></p>
         <div class="crew-artifact-preview artifact-preview" hidden aria-live="polite"></div>
       </div>
       <footer class="crew-card-footer">
-        <div class="crew-node-route type-system-meta" aria-label="节点输入与输出"><span class="crew-route-input">IN · ${esc(def.input)}</span><span class="crew-route-arrow" aria-hidden="true">→</span><span class="crew-route-output">OUT · ${esc(def.output)}</span></div>
+        <div class="crew-node-route type-system-meta" aria-label="${esc(def.input)} to ${esc(def.output)}"><span class="crew-route-input">${esc(def.input)}</span><span class="crew-route-arrow" aria-hidden="true">→</span><span class="crew-route-output">${esc(def.output)}</span></div>
         <div class="crew-node-progress" aria-hidden="true"><i></i></div>
       </footer>`;
+    renderCrewSummary(card.querySelector(".crew-summary"), def.summarize({}));
     card.addEventListener("click", (event) => openCrewDrawer(def.id));
     card.addEventListener("keydown", (event) => {
       if (event.key === "Enter" || event.key === " ") {
@@ -736,14 +798,6 @@ function crewMergedData(agentId, data = {}) {
 
 function crewStatusText(agentId, agentState, data = {}) {
   const copy = AGENT_STATUS_COPY[agentId] || {};
-  const status = String(data.status || state.project?.status || "");
-  if (agentState === "ready") return copy.next || "READY";
-  if (agentState === "done" && agentId === "editor") {
-    if (status === "rough_cut_ready" || data.rough_cut_placeholder) return "ROUGH CUT READY";
-    if (status.startsWith("completed") && status !== "completed_comfyui") return "DELIVERY RECORDED";
-    if (status === "completed_comfyui" && !state.hasFinalVideo && !data.final_video_url) return "DELIVERY RECORDED";
-  }
-  if (agentState === "working" && agentId === "editor" && status === "editing_final") return "FINAL ENCODE";
   return copy[agentState] || copy.idle || agentState.toUpperCase();
 }
 
@@ -769,34 +823,35 @@ function setAgentState(agentId, agentState, data = {}, { silent = false } = {}) 
   const merged = crewMergedData(agentId, data);
   const def = AGENT_DEFS.find((item) => item.id === agentId);
   const baseSummary = def ? def.summarize(merged) : "";
-  card.dataset.summary = baseSummary;
+  renderCrewSummary(summary, baseSummary);
   if (resolvedState === "working") {
     if (previousState !== "working" || !card.dataset.startedAt) card.dataset.startedAt = String(Date.now());
     text.textContent = `${crewStatusText(agentId, resolvedState, merged)} · 00:00`;
-    summary.innerHTML = '<span class="sk sk-1"></span><span class="sk sk-2"></span><span class="sk sk-3"></span>';
   } else if (resolvedState === "done") {
     delete card.dataset.startedAt;
     text.textContent = crewStatusText(agentId, resolvedState, merged);
-    summary.textContent = baseSummary;
+    renderCrewSummary(summary, baseSummary);
     renderCrewCardExtras(agentId);
     if (!silent && previousState !== "done") playUiSound("done");
   } else if (resolvedState === "ready") {
     delete card.dataset.startedAt;
     text.textContent = crewStatusText(agentId, resolvedState, merged);
-    summary.textContent = baseSummary;
+    renderCrewSummary(summary, baseSummary);
     renderCrewCardExtras(agentId);
   } else if (resolvedState === "next") {
     delete card.dataset.startedAt;
     text.textContent = crewStatusText(agentId, resolvedState, merged);
-    summary.textContent = "UPSTREAM LOCKED / AWAITING THIS PASS";
+    renderCrewSummary(summary, { headline: "QUEUED", primary: "UPSTREAM LOCKED", secondary: "AWAITING THIS PASS" });
   } else if (resolvedState === "failed") {
     delete card.dataset.startedAt;
-    text.textContent = "INTERRUPTED";
-    summary.textContent = "INTERRUPTED / RETRY AVAILABLE";
+    text.textContent = crewStatusText(agentId, resolvedState, merged);
+    renderCrewSummary(summary, { headline: "FAILED", primary: "INTERRUPTED", secondary: "RETRY AVAILABLE" });
   } else {
     delete card.dataset.startedAt;
     text.textContent = crewStatusText(agentId, resolvedState, merged);
-    summary.textContent = baseSummary.includes("AWAITING") || baseSummary.includes("QUEUED") ? baseSummary : "";
+    if (resolvedState === "idle" && !normalizeCrewSummary(baseSummary).headline.match(/QUEUED|AWAITING|HOLD/)) {
+      renderCrewSummary(summary, { headline: "QUEUED", primary: "AWAITING UPSTREAM", secondary: "STANDBY" });
+    }
   }
   const agentName = AGENT_DEFS.find((item) => item.id === agentId)?.name || agentId;
   card.setAttribute("aria-label", `${agentName} Agent · ${text.textContent}`);
@@ -3397,7 +3452,7 @@ function buildCrewInspectorMarkup(agentId) {
       : agentId === "quality" ? crewAssetMarkup("质检报告", asset.quality_report)
       : agentId === "generation" ? crewAssetMarkup("逐镜任务", project.storyboard)
       : agentId === "editor" ? crewAssetMarkup("剪辑结果", project.final_output_placeholder || project.rough_cut_placeholder || (String(project.status || "") === "ready_for_ai_edit" ? "AI EDIT READY / 等待启动粗剪" : String(project.status || "").startsWith("completed") ? "DELIVERY RECORDED / MEDIA CHECK" : "EDIT QUEUED / 等待镜头通过质检"))
-            : `<section class="crew-drawer-section"><h3>任务说明</h3><p class="type-helper">${esc(def.role)}。${esc(card?.querySelector(".crew-summary")?.textContent || "等待上游素材。")}</p></section>`;
+            : `<section class="crew-drawer-section"><h3>任务说明</h3><p class="type-helper">${esc(def.role)}。${esc(card?.querySelector(".crew-summary")?.getAttribute("aria-label") || "等待上游素材。")}</p></section>`;
   return `
     <div class="inspector-content inspector-content--agent" data-inspector-type="agent" data-agent-id="${esc(agentId)}">
       <header class="inspector-head">
@@ -3737,7 +3792,11 @@ function handleCreateEvent(event) {
       const card = document.querySelector('.crew-card[data-agent="generation"]');
       const summary = card?.querySelector(".crew-summary");
       if (summary) {
-        summary.innerHTML = `<span class="sk sk-1"></span><span class="sk sk-2"></span><span class="crew-live-note mono">SHOT ${String(event.shot.number).padStart(2, "0")} · ${esc(shotStatusInfo(event.shot.status))}</span>`;
+        renderCrewSummary(summary, {
+          headline: "ACTIVE",
+          primary: `SHOT ${String(event.shot.number).padStart(2, "0")}`,
+          secondary: shotStatusInfo(event.shot.status),
+        });
       }
       appendCrewStatus("generation", "SHOT UPDATE", `SHOT ${String(event.shot.number).padStart(2, "0")} · ${shotStatusInfo(event.shot.status)}`);
     }

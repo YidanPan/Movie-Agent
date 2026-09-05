@@ -40,15 +40,66 @@ body[data-design="archive-console"] .crew-flow .crew-card .crew-state {
   margin-top: 0;
 }
 
+body[data-design="archive-console"] .crew-flow .crew-card:not(.working):not(.failed) .crew-state {
+  display: none;
+}
+
 body[data-design="archive-console"] .crew-flow .crew-card .crew-summary {
+  display: grid;
   flex: 0 0 auto;
+  gap: 3px;
   min-height: 0;
   max-height: none;
   margin: 0;
+  overflow: visible;
+  -webkit-box-orient: initial;
+  -webkit-line-clamp: unset;
+}
+
+body[data-design="archive-console"] .crew-flow .crew-summary-headline,
+body[data-design="archive-console"] .crew-flow .crew-summary-primary,
+body[data-design="archive-console"] .crew-flow .crew-summary-secondary {
+  display: block;
+  min-width: 0;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+body[data-design="archive-console"] .crew-flow .crew-summary-headline {
+  color: var(--text-strong);
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: .06em;
+  line-height: 1.35;
+}
+
+body[data-design="archive-console"] .crew-flow .crew-summary-primary {
+  color: var(--text-body);
+  font-family: var(--sans);
+  font-size: 14px;
+  font-weight: 550;
+  line-height: 1.45;
+}
+
+body[data-design="archive-console"] .crew-flow .crew-summary-secondary {
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: .04em;
+  line-height: 1.45;
+}
+
+body[data-design="archive-console"] .crew-flow .crew-summary.is-natural .crew-summary-secondary {
   display: -webkit-box;
+  overflow: hidden;
+  font-family: var(--sans);
+  font-size: 13px;
+  letter-spacing: 0;
+  line-height: 1.55;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
-  overflow: hidden;
 }
 
 body[data-design="archive-console"] .crew-flow .crew-card .crew-artifact-preview {
@@ -75,16 +126,17 @@ body[data-design="archive-console"] .crew-flow .artifact-preview-head {
 
 body[data-design="archive-console"] .crew-flow .artifact-title {
   min-width: 0;
-  overflow: hidden;
+  overflow: visible;
   color: var(--text-strong);
   font-family: var(--mono);
   font-size: 11px;
   font-weight: 650;
   letter-spacing: .06em;
   line-height: 1.35;
-  text-overflow: ellipsis;
+  text-overflow: clip;
   text-transform: uppercase;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 body[data-design="archive-console"] .crew-flow .artifact-content {
@@ -121,6 +173,28 @@ body[data-design="archive-console"] .crew-flow .artifact-action:focus-visible {
 body[data-design="archive-console"] .crew-flow .crew-card-footer .crew-node-route,
 body[data-design="archive-console"] .crew-flow .crew-card-footer .crew-node-progress {
   margin-top: 0;
+}
+
+body[data-design="archive-console"] .crew-flow .crew-node-status {
+  max-width: 100%;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: nowrap;
+}
+
+body[data-design="archive-console"] .crew-flow .crew-en {
+  overflow: visible;
+  line-height: 1.2;
+  white-space: normal;
+  overflow-wrap: break-word;
+}
+
+body[data-design="archive-console"] .crew-flow .crew-node-route,
+body[data-design="archive-console"] .crew-flow .crew-route-input,
+body[data-design="archive-console"] .crew-flow .crew-route-output {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: nowrap;
 }
 
 @media (max-width: 700px) {
