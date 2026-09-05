@@ -187,6 +187,8 @@ Deliver also includes a dedicated `FINAL LOOK / COLOR FINISH` inspector after Fi
 
 Video media follows explicit `Source → Working Proxy → Screening Preview → Final Master` tiers. Working Proxy is disposable and optimized for storyboard/edit responsiveness. Screening Preview is the Deliver viewer copy and prefers 720p or 1080p without silently upscaling a smaller source. Final Master is the only source accepted by the export endpoint, so a proxy can never become a delivery master. The player avoids CSS scaling, blur, and low-quality canvas resizing. Real shot media is normalized to the project resolution, fps, SAR, pixel format, and 48 kHz audio before Rough Cut; when the source is below target, Deliver shows `LOW RES SOURCE` and keeps the original path alongside the normalized master. Final export always reads the master contract.
 
+The editorial encode path keeps the original source untouched, writes an edit mezzanine as ProRes 422 LT when the local FFmpeg build supports it, and falls back to H.264 CRF 13 only for incompatible builds. Timing, picture assembly, audio mix, and Final Look preserve that mezzanine instead of repeatedly generating H.264 CRF 18 intermediates. Working Proxy uses CRF 30, Screening Preview uses CRF 22, and the selected delivery container receives the single final delivery encode.
+
 ### P2 Pipeline Reliability
 
 Upstream edits now pass through `movie_agent/services/revisions.py`. Changing a

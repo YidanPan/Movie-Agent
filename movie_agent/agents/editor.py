@@ -23,6 +23,16 @@ from movie_agent.services.media_quality import (
     probe_media,
     target_dimensions,
 )
+from movie_agent.services.media_pipeline import (
+    combine_video_filters,
+    delivery_video_args,
+    mezzanine_video_args,
+    preview_video_args,
+    DELIVERY_CRF,
+    MEZZANINE_FALLBACK_CRF,
+    SCREENING_CRF,
+    PROXY_CRF,
+)
 from movie_agent.services.audio import (
     DEFAULT_CROSSFADE_MS,
     TARGET_LOUDNESS_LUFS,
@@ -61,6 +71,27 @@ class EditorAgent:
         output_dir.mkdir(parents=True, exist_ok=True)
         return output_dir
 
+    def _run_mezzanine(self, command_prefix: list[str], output: Path) -> str:
+        """Run an edit-master encode, falling back only when ProRes is unavailable."""
+
+        errors: list[str] = []
+        for fallback in (False, True):
+            output.unlink(missing_ok=True)
+            command = [
+                self.settings.ffmpeg_bin,
+                "-y",
+                *command_prefix,
+                *mezzanine_video_args(fallback=fallback),
+                "-movflags",
+                "+faststart",
+                str(output),
+            ]
+            completed = subprocess.run(command, capture_output=True, text=True, check=False)
+            if completed.returncode == 0 and output.is_file():
+                return "h264_crf13" if fallback else "prores_422_lt"
+            errors.append(completed.stderr[-400:])
+        raise RuntimeError(f"FFmpeg mezzanine encode failed: {errors[-1] if errors else 'unknown error'}")
+
     def _derive_preview(self, project: MovieProject, source: Path, *, tier: str, resolution: str) -> Path | None:
         """Create a bounded preview copy without ever replacing the source master."""
 
@@ -85,20 +116,7 @@ class EditorAgent:
             str(source),
             "-vf",
             f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},setsar=1",
-            "-c:v",
-            "libx264",
-            "-preset",
-            "veryfast" if tier == "working_proxy" else "fast",
-            "-crf",
-            "30" if tier == "working_proxy" else "22",
-            "-c:a",
-            "aac",
-            "-ar",
-            "48000",
-            "-b:a",
-            "128k",
-            "-movflags",
-            "+faststart",
+            *preview_video_args(tier),
             str(output),
         ]
         completed = subprocess.run(command, capture_output=True, text=True, check=False)
@@ -133,6 +151,7 @@ class EditorAgent:
                 model=model,
                 qc_status="PASSED_PIPELINE",
             )
+            assets["working_proxy"]["encode_policy"] = f"h264_crf{PROXY_CRF}_or_source_passthrough"
         if screening:
             assets["screening_preview"] = asset_record(
                 screening,
@@ -145,6 +164,7 @@ class EditorAgent:
                 model=model,
                 qc_status="PASSED_PIPELINE",
             )
+            assets["screening_preview"]["encode_policy"] = f"h264_crf{SCREENING_CRF}_or_source_passthrough"
         if include_master and source.is_file():
             assets["final_master"] = asset_record(
                 source,
@@ -157,6 +177,8 @@ class EditorAgent:
                 model=model,
                 qc_status="PASSED_PIPELINE",
             )
+            assets["final_master"]["asset_role"] = "edit_mezzanine_or_mixed_master"
+            assets["final_master"]["encode_policy"] = "prores_422_lt_or_h264_crf13_fallback"
         project.video_assets = assets
 
     def normalize_resolution(self, project: MovieProject, resolution: str = "1080p") -> str:
@@ -178,38 +200,25 @@ class EditorAgent:
             source = Path(str(source_record.get("path"))) if isinstance(source_record, dict) and source_record.get("path") else Path(shot.output_placeholder)
             if not source.is_file():
                 continue
-            output = normalized_dir / f"shot-{shot.number:02d}-{resolution}.mp4"
+            output = normalized_dir / f"shot-{shot.number:02d}-{resolution}-mezzanine.mov"
             if not output.is_file():
-                command = [
-                    self.settings.ffmpeg_bin,
-                    "-y",
-                    "-i",
-                    str(source),
-                    "-vf",
-                    f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},setsar=1",
-                    "-r",
-                    str(project.target_fps or 24),
-                    "-c:v",
-                    "libx264",
-                    "-preset",
-                    "medium",
-                    "-crf",
-                    "18",
-                    "-pix_fmt",
-                    "yuv420p",
-                    "-c:a",
-                    "aac",
-                    "-ar",
-                    "48000",
-                    "-b:a",
-                    "192k",
-                    "-movflags",
-                    "+faststart",
-                    str(output),
-                ]
-                completed = subprocess.run(command, capture_output=True, text=True, check=False)
-                if completed.returncode != 0 or not output.is_file():
-                    raise RuntimeError(f"Resolution Normalize failed for Shot {shot.number}: {completed.stderr[-400:]}")
+                encode_profile = self._run_mezzanine(
+                    [
+                        "-i",
+                        str(source),
+                        "-vf",
+                        f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},setsar=1",
+                        "-r",
+                        str(project.target_fps or 24),
+                        "-map",
+                        "0:v:0",
+                        "-map",
+                        "0:a?",
+                    ],
+                    output,
+                )
+            else:
+                encode_profile = "existing_mezzanine"
             record = asset_record(
                 output,
                 tier="final_master",
@@ -225,6 +234,9 @@ class EditorAgent:
                 qc_status="PASSED_PIPELINE",
             )
             record["original_path"] = str(source)
+            record["asset_role"] = "edit_mezzanine"
+            record["encode_profile"] = encode_profile
+            record["generation_loss"] = "fallback_h264_crf13" if encode_profile == "h264_crf13" else "mezzanine"
             source_asset = shot.media_assets.get("source") if isinstance(shot.media_assets, dict) else None
             if not isinstance(source_asset, dict) or source_asset.get("path") != str(source):
                 source_asset = asset_record(
@@ -361,7 +373,7 @@ class EditorAgent:
                 paths.append(source)
                 continue
             timing_dir.mkdir(parents=True, exist_ok=True)
-            target = timing_dir / f"shot-{shot.number:02d}-{mode}-{desired}s.mp4"
+            target = timing_dir / f"shot-{shot.number:02d}-{mode}-{desired}s-mezzanine.mov"
             if target.is_file():
                 paths.append(target)
                 continue
@@ -371,18 +383,11 @@ class EditorAgent:
                 filters.append(f"setpts={factor:.5f}*PTS")
             elif mode in {"extend", "hold_last_frame"} and desired > native:
                 filters.append(f"tpad=stop_mode=clone:stop_duration={desired - native}")
-            command = [self.settings.ffmpeg_bin, "-y", "-i", str(source)]
+            command_prefix = ["-i", str(source)]
             if filters:
-                command.extend(["-vf", ",".join(filters)])
-            command.extend([
-                "-t", str(desired),
-                "-c:v", "libx264", "-preset", "medium", "-crf", "18",
-                "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart",
-                str(target),
-            ])
-            completed = subprocess.run(command, capture_output=True, text=True, check=False)
-            if completed.returncode != 0 or not target.is_file():
-                raise RuntimeError(f"FFmpeg timing operation failed for Shot {shot.number}: {completed.stderr[-400:]}")
+                command_prefix.extend(["-vf", combine_video_filters(*filters) or "null"])
+            command_prefix.extend(["-t", str(desired), "-map", "0:v:0", "-map", "0:a?"])
+            self._run_mezzanine(command_prefix, target)
             paths.append(target)
         return paths
 
@@ -404,9 +409,7 @@ class EditorAgent:
             # and is the main source of broken duration or soft-sync on
             # generated clips.  Normalized masters should all share this
             # format, making the deterministic encode the normal path.
-            command = [
-                self.settings.ffmpeg_bin,
-                "-y",
+            command_prefix = [
                 "-f",
                 "concat",
                 "-safe",
@@ -415,52 +418,12 @@ class EditorAgent:
                 str(concat_file),
                 "-r",
                 str(project.target_fps or 24),
-                "-c:v",
-                "libx264",
-                "-preset",
-                "medium",
-                "-crf",
-                "18",
-                "-pix_fmt",
-                "yuv420p",
-                "-c:a",
-                "aac",
-                "-ar",
-                "48000",
-                "-b:a",
-                "192k",
-                "-movflags",
-                "+faststart",
-                str(output_path),
+                "-map",
+                "0:v:0",
+                "-map",
+                "0:a?",
             ]
-            completed = subprocess.run(command, capture_output=True, text=True, check=False)
-            if completed.returncode != 0:
-                # Compatibility fallback for unusual codecs/FFmpeg builds;
-                # the fallback is explicit and never the primary path.
-                command = [
-                    self.settings.ffmpeg_bin,
-                    "-y",
-                    "-f",
-                    "concat",
-                    "-safe",
-                    "0",
-                    "-i",
-                    str(concat_file),
-                    "-c:v",
-                    "libx264",
-                    "-preset",
-                    "medium",
-                    "-crf",
-                    "18",
-                    "-c:a",
-                    "aac",
-                    "-movflags",
-                    "+faststart",
-                    str(output_path),
-                ]
-                completed = subprocess.run(command, capture_output=True, text=True, check=False)
-            if completed.returncode != 0:
-                raise RuntimeError(f"FFmpeg concat failed: {completed.stderr[-500:]}")
+            self._run_mezzanine(command_prefix, output_path)
         finally:
             concat_file.unlink(missing_ok=True)
         return output_path
@@ -563,7 +526,7 @@ class EditorAgent:
             # Shot audio may already be present even when no separate Voice or
             # Music asset exists. Master that real signal instead of claiming
             # the mix is complete while leaving arbitrary loudness untouched.
-            mastered_path = picture_path.with_name(f"{picture_path.stem}.mastered.mp4")
+            mastered_path = picture_path.with_name(f"{picture_path.stem}.mastered{picture_path.suffix}")
             master_command = [
                 self.settings.ffmpeg_bin,
                 "-y",
@@ -667,7 +630,7 @@ class EditorAgent:
             "aresample=48000[mixed]"
         )
         filter_parts.append(f"[mixed]{loudness_filter()}[master]")
-        mixed_path = picture_path.with_name(f"{picture_path.stem}.mixed.mp4")
+        mixed_path = picture_path.with_name(f"{picture_path.stem}.mixed{picture_path.suffix}")
         command.extend([
             "-filter_complex", ";".join(filter_parts),
             "-map", "0:v:0",
@@ -715,9 +678,18 @@ class EditorAgent:
             "pipeline": ["picture_cut", "voice", "music", "sfx", "subtitles", "mix", "final_encode"],
             "transition_semantics": {
                 "type": "cut",
-                "implementation": "ffmpeg_concat_reencode",
+                "implementation": "ffmpeg_concat_mezzanine",
                 "frames": 0,
                 "note": "Transitions remain hard cuts until an xfade-capable render is selected; metadata never claims an unrendered crossfade.",
+            },
+            "media_encoding": {
+                "source": "original_source_preserved",
+                "edit_master": "prores_422_lt",
+                "edit_master_fallback": f"h264_crf{MEZZANINE_FALLBACK_CRF}",
+                "working_proxy": f"h264_crf{PROXY_CRF}",
+                "screening_preview": f"h264_crf{SCREENING_CRF}",
+                "final_delivery": f"one_final_encode_crf{DELIVERY_CRF}",
+                "delivery_source": "current_final_master_only",
             },
             "sequence": [
                 {
@@ -796,14 +768,14 @@ class EditorAgent:
         project.script["subtitle_mode"] = project.subtitle_mode
         self.write_subtitle_exports(project)
         project.edit_plan = self._rough_cut_plan(project)
-        rough_path = self._output_dir(project) / "rough-cut.mp4"
+        rough_path = self._output_dir(project) / "rough-cut-mezzanine.mov"
         if all(path.is_file() for path in self._shot_paths(project)):
             self._concat_media(project, rough_path)
             self._mix_audio(project, rough_path)
             project.rough_cut_placeholder = str(rough_path)
             self._register_cut_assets(project, rough_path, include_master=False)
             return "Editor Agent: Rough Cut complete. Picture Cut, Voice, Music, SFX, Subtitles, and Mix are ready."
-        project.rough_cut_placeholder = f"outputs/{project.project_id}/rough-cut.mp4"
+        project.rough_cut_placeholder = f"outputs/{project.project_id}/rough-cut-screening.mp4"
         return "Editor Agent: Rough Cut simulated. Four-track audio design and subtitle plan are ready; preview available once real shot media exist."
 
     def assemble_mock(self, project: MovieProject) -> str:
@@ -825,33 +797,31 @@ class EditorAgent:
         project.script["subtitle_mode"] = project.subtitle_mode
         srt_path, _ = self.write_subtitle_exports(project)
         output_dir = self._output_dir(project)
-        rough_path = output_dir / "rough-cut.mp4"
+        rough_path = output_dir / "rough-cut-mezzanine.mov"
         if not rough_path.is_file():
             self._concat_media(project, rough_path)
         self._mix_audio(project, rough_path)
-        final_cut = output_dir / "final-cut.mp4"
+        final_cut = output_dir / "final-cut-mezzanine.mov"
 
         if project.subtitle_mode == "burned":
             # Burn-in is best-effort because font packages differ between the
             # local machine and Spark. A clean concat fallback still leaves
             # the canonical SRT sidecar available for review.
-            command = [
-                self.settings.ffmpeg_bin,
-                "-y",
-                "-i",
-                str(rough_path),
-                "-vf",
-                self._subtitle_filter(srt_path),
-                "-c:v",
-                "libx264",
-                "-c:a",
-                "aac",
-                "-movflags",
-                "+faststart",
-                str(final_cut),
-            ]
-            completed = subprocess.run(command, capture_output=True, text=True, check=False)
-            if completed.returncode != 0:
+            try:
+                self._run_mezzanine(
+                    [
+                        "-i",
+                        str(rough_path),
+                        "-vf",
+                        self._subtitle_filter(srt_path),
+                        "-map",
+                        "0:v:0",
+                        "-map",
+                        "0:a?",
+                    ],
+                    final_cut,
+                )
+            except RuntimeError:
                 self._concat_media(project, final_cut)
         elif project.subtitle_mode == "soft":
             # Prefer a selectable MP4 subtitle stream while keeping canonical
@@ -861,7 +831,7 @@ class EditorAgent:
         else:
             # none mode delivers the clean picture and retains exports for
             # users who want to add subtitles later.
-            self._concat_media(project, final_cut)
+            shutil.copy2(rough_path, final_cut)
         project.final_output_placeholder = str(final_cut)
         self._register_cut_assets(project, final_cut, include_master=True)
         project.edit_plan = {**(project.edit_plan or {}), "status": "final_approved", "approved": True}
@@ -878,36 +848,22 @@ class EditorAgent:
             return source
         output_dir = self._output_dir(project)
         revision = max(1, int((look or {}).get("revision", 1) or 1))
-        output = output_dir / f"final-look-v{revision}.mp4"
-        command = [
-            self.settings.ffmpeg_bin,
-            "-y",
-            "-i",
-            str(source),
-            "-vf",
-            video_filter,
-            "-map",
-            "0:v:0",
-            "-map",
-            "0:a?",
-            "-c:v",
-            "libx264",
-            "-preset",
-            "medium",
-            "-crf",
-            "18",
-            "-pix_fmt",
-            "yuv420p",
-            "-c:a",
-            "aac",
-            "-b:a",
-            "192k",
-            "-movflags",
-            "+faststart",
-            str(output),
-        ]
-        completed = subprocess.run(command, capture_output=True, text=True, check=False)
-        if completed.returncode != 0 or not output.is_file():
+        output = output_dir / f"final-look-v{revision}.mov"
+        try:
+            self._run_mezzanine(
+                [
+                    "-i",
+                    str(source),
+                    "-vf",
+                    video_filter,
+                    "-map",
+                    "0:v:0",
+                    "-map",
+                    "0:a?",
+                ],
+                output,
+            )
+        except RuntimeError:
             output.unlink(missing_ok=True)
             return None
         project.video_assets["final_master"] = asset_record(
@@ -1005,15 +961,14 @@ class EditorAgent:
             video_filters.append(self._subtitle_filter(srt_path, aspect))
         command.extend(["-vf", ",".join(video_filters)])
 
-        if container in {"mp4", "mov"}:
-            command.extend(["-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k"])
-            if subtitle_mode == "soft":
+        command.extend(delivery_video_args(container))
+        if subtitle_mode == "soft":
+            if container in {"mp4", "mov"}:
                 command.extend(["-c:s", "mov_text", "-metadata:s:s:0", "language=eng"])
-            command.extend(["-movflags", "+faststart"])
-        else:
-            command.extend(["-c:v", "libvpx-vp9", "-crf", "32", "-b:v", "0", "-c:a", "libopus"])
-            if subtitle_mode == "soft":
+            else:
                 command.extend(["-c:s", "webvtt", "-metadata:s:s:0", "language=eng"])
+        if container in {"mp4", "mov"}:
+            command.extend(["-movflags", "+faststart"])
         command.append(str(output_path))
         completed = subprocess.run(command, capture_output=True, text=True, check=False)
         if completed.returncode != 0 or not output_path.is_file():

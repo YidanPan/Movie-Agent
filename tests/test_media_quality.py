@@ -64,6 +64,8 @@ class MediaQualityTests(unittest.TestCase):
             editor = EditorAgent(Settings("http://127.0.0.1:8188", 900, root / "workflows", 9071, root / "projects", True, outputs_dir=root / "outputs"))
             plan = editor._rough_cut_plan(project)
             self.assertEqual(plan["transition_semantics"]["type"], "cut")
+            self.assertEqual(plan["media_encoding"]["edit_master"], "prores_422_lt")
+            self.assertEqual(plan["media_encoding"]["final_delivery"], "one_final_encode_crf18")
 
 
 if __name__ == "__main__":
