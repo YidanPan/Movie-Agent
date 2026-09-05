@@ -12,6 +12,15 @@ import re
 from copy import deepcopy
 from typing import Any, Iterable
 
+from movie_agent.services.alignment import (
+    PROPORTIONAL,
+    SENTENCE_LEVEL,
+    WORD_LEVEL,
+    normalize_word_boundaries,
+    sentence_level_cues,
+    word_level_cues,
+)
+
 
 SUBTITLE_MODES = {"none", "soft", "burned"}
 _DEFAULT_SPEAKER = "NARRATOR"
@@ -447,6 +456,10 @@ def align_script_to_audio(
     audio_duration_seconds: float,
     *,
     minimum_cue_seconds: float = 0.18,
+    word_boundaries: Iterable[Any] | None = None,
+    forced_alignment: Iterable[Any] | None = None,
+    sentence_boundaries: dict[str, Any] | None = None,
+    shot_transitions: Iterable[float] | None = None,
 ) -> dict[str, Any]:
     """Re-time locked dialogue and subtitles to measured voice media.
 
@@ -458,6 +471,46 @@ def align_script_to_audio(
     """
 
     duration = max(0.1, float(audio_duration_seconds or 0))
+    # The priority is deliberate: provider-native events beat forced
+    # alignment, which beats measured sentence boundaries, which beats the
+    # proportional fallback below.
+    native_events = list(word_boundaries or [])
+    forced_events = list(forced_alignment or [])
+    if native_events or forced_events:
+        boundaries = normalize_word_boundaries(native_events or forced_events, duration)
+        if boundaries:
+            result = ensure_dialogue_assets(script, duration_seconds=max(1, int(round(duration))))
+            cues = word_level_cues(result, boundaries, shot_transitions=shot_transitions)
+            if cues:
+                result["dialogue_book"] = deepcopy(cues)
+                result["subtitle_track"] = deepcopy(cues)
+                result["voice_alignment"] = {
+                    "status": "MEASURED",
+                    "media_duration_seconds": round(duration, 3),
+                    "method": WORD_LEVEL,
+                    "word_level_timestamps": True,
+                    "source": "tts_native" if native_events else "forced_alignment",
+                    "words": [item.to_dict() for item in boundaries],
+                }
+                return result
+    if sentence_boundaries:
+        measured_script = ensure_dialogue_assets(script, duration_seconds=max(1, int(round(duration))))
+        if isinstance(sentence_boundaries.get("dialogue_book"), list):
+            measured_script["dialogue_book"] = sentence_boundaries["dialogue_book"]
+        if isinstance(sentence_boundaries.get("subtitle_track"), list):
+            measured_script["subtitle_track"] = sentence_boundaries["subtitle_track"]
+        cues = sentence_level_cues(measured_script, duration)
+        if cues:
+            measured_script["dialogue_book"] = deepcopy(cues)
+            measured_script["subtitle_track"] = deepcopy(cues)
+            measured_script["voice_alignment"] = {
+                "status": "MEASURED",
+                "media_duration_seconds": round(duration, 3),
+                "method": SENTENCE_LEVEL,
+                "word_level_timestamps": False,
+                "source": "measured_sentence_boundaries",
+            }
+            return measured_script
     source_entries = _raw_entries((script or {}).get("dialogue_book") or (script or {}).get("subtitle_track"))
     cue_count = max(1, len(source_entries))
     result = ensure_dialogue_assets(
@@ -506,8 +559,9 @@ def align_script_to_audio(
     result["voice_alignment"] = {
         "status": "MEASURED",
         "media_duration_seconds": round(duration, 3),
-        "method": "proportional_duration",
+        "method": PROPORTIONAL,
         "word_level_timestamps": False,
+        "source": "word_count_weighted_fallback",
     }
     return result
 

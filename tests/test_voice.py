@@ -6,6 +6,7 @@ import unittest
 from movie_agent.config import Settings
 from movie_agent.orchestrator import MovieOrchestrator
 from movie_agent.services.subtitles import align_script_to_audio
+from movie_agent.services.alignment import PROPORTIONAL, SENTENCE_LEVEL, WORD_LEVEL
 from movie_agent.services.voice import ContinuousVoiceService, locked_voice_text
 
 
@@ -58,7 +59,38 @@ class ContinuousVoiceTests(unittest.TestCase):
             self.assertTrue(Path(project.audio_tracks["voice"]["media_path"]).is_file())
             self.assertEqual(project.script["voice_alignment"]["media_duration_seconds"], 3.0)
             self.assertEqual(project.smart_ducking["signal_source"], "continuous_voice_track")
-            self.assertGreater(len(locked_voice_text(project)), 20)
+        self.assertGreater(len(locked_voice_text(project)), 20)
+
+    def test_alignment_prefers_native_word_events_and_keeps_public_schema(self) -> None:
+        script = {
+            "dialogue_book": [{"line_id": "L1", "shot": 1, "text": "The signal is here."}],
+            "subtitle_track": [{"line_id": "L1", "shot": 1, "text": "The signal is here."}],
+        }
+        aligned = align_script_to_audio(
+            script,
+            2.0,
+            word_boundaries=[
+                {"word": "The", "start_time": 0.0, "end_time": 0.3},
+                {"word": "signal", "start_time": 0.35, "end_time": 0.8},
+                {"word": "is", "start_time": 0.85, "end_time": 1.0},
+                {"word": "here.", "start_time": 1.05, "end_time": 1.5},
+            ],
+        )
+        self.assertEqual(aligned["voice_alignment"]["method"], WORD_LEVEL)
+        self.assertEqual(aligned["voice_alignment"]["words"][0]["word"], "The")
+        self.assertEqual(aligned["subtitle_track"][0]["start_seconds"], 0.0)
+
+    def test_alignment_falls_back_in_order(self) -> None:
+        script = {
+            "dialogue_book": [
+                {"line_id": "L1", "text": "First sentence.", "start_seconds": 0, "end_seconds": 1},
+                {"line_id": "L2", "text": "Second sentence.", "start_seconds": 1, "end_seconds": 2},
+            ]
+        }
+        sentence = align_script_to_audio(script, 2.0, sentence_boundaries={"dialogue_book": script["dialogue_book"]})
+        proportional = align_script_to_audio({"dialogue_book": [{"text": "One line."}]}, 2.0)
+        self.assertEqual(sentence["voice_alignment"]["method"], SENTENCE_LEVEL)
+        self.assertEqual(proportional["voice_alignment"]["method"], PROPORTIONAL)
 
 
 if __name__ == "__main__":

@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from movie_agent.config import Settings
+from movie_agent.services.alignment import PROPORTIONAL, WORD_LEVEL
 from movie_agent.services.subtitles import align_script_to_audio, script_subtitle_track
 
 
@@ -36,6 +37,7 @@ class VoiceSynthesisResult:
     method: str
     alignment_method: str
     error: str | None = None
+    word_boundaries: list[dict[str, Any]] | None = None
 
 
 def locked_voice_text(project: Any) -> str:
@@ -208,6 +210,7 @@ class ContinuousVoiceService:
             return result
         output_path = self.settings.outputs_dir / project.project_id / "audio" / "voice.wav"
         output_path.parent.mkdir(parents=True, exist_ok=True)
+        word_boundaries: list[dict[str, Any]] = []
         try:
             rendered_value = active_provider.synthesize(
                 text,
@@ -223,8 +226,21 @@ class ContinuousVoiceService:
                 str(rendered),
                 duration,
                 "continuous_voice_track",
-                "proportional_duration",
+                PROPORTIONAL,
             )
+            native = getattr(active_provider, "word_boundaries", None)
+            if native is None and callable(getattr(active_provider, "get_word_boundaries", None)):
+                native = active_provider.get_word_boundaries(text, rendered)
+            if native:
+                word_boundaries = [item for item in native if isinstance(item, (dict, list, tuple))]
+                result = VoiceSynthesisResult(
+                    result.status,
+                    result.media_path,
+                    result.duration_seconds,
+                    result.method,
+                    WORD_LEVEL,
+                    word_boundaries=word_boundaries,
+                )
         except (OSError, RuntimeError, TypeError, ValueError, subprocess.SubprocessError) as exc:
             output_path.unlink(missing_ok=True)
             result = VoiceSynthesisResult(
@@ -262,6 +278,7 @@ class ContinuousVoiceService:
             script = align_script_to_audio(
                 getattr(project, "script", {}) or {},
                 result.duration_seconds,
+                word_boundaries=result.word_boundaries,
             )
             project.script = script
             project.smart_ducking = {
@@ -283,8 +300,10 @@ class ContinuousVoiceService:
             "status": "MEASURED" if result.duration_seconds else "PENDING",
             "media_duration_seconds": result.duration_seconds,
             "method": result.alignment_method,
-            "word_level_timestamps": False,
+            "word_level_timestamps": result.alignment_method == WORD_LEVEL,
         }
+        if result.word_boundaries:
+            track["alignment"]["word_count"] = len(result.word_boundaries)
 
 
 def synthesize_continuous_voice(
