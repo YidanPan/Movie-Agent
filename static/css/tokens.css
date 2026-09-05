@@ -1,0 +1,9 @@
+/* P2 token layer.  Existing style.css owns the visual values; these aliases
+   make future component extraction consume semantic tokens only. */
+:root {
+  --p2-space-inset: clamp(16px, 2vw, 32px);
+  --p2-space-stage: clamp(48px, 6vw, 88px);
+  --p2-motion-fast: 220ms;
+  --p2-motion-cinematic: 560ms;
+}
+

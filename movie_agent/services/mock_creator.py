@@ -3,26 +3,68 @@
 from __future__ import annotations
 
 from math import ceil
+from typing import Any
 
 from movie_agent.models import Shot
 
 
-def build_storyboard(idea: str, duration: int, style: str, project_id: str) -> list[Shot]:
+def _english_style(style: str) -> str:
+    """Keep generation prompts English even when the UI preset is Chinese."""
+
+    aliases = {
+        "写实近未来": "grounded near-future realism",
+        "胶片科幻": "analog film science fiction",
+        "极简冷色": "minimal cool-toned cinema",
+        "梦境超现实": "dreamlike surreal cinema",
+        "冷灰未来": "cool gray future",
+        "赛博夜色": "restrained cyber night",
+    }
+    return aliases.get(str(style).strip(), str(style).strip() or "cinematic realism")
+
+
+def build_storyboard(
+    idea: str,
+    duration: int,
+    style: str,
+    project_id: str,
+    story_beats: list[dict[str, Any]] | None = None,
+) -> list[Shot]:
     shot_count = max(6, ceil(duration / 8))
     shot_count = min(10, shot_count)
     base_duration, remainder = divmod(duration, shot_count)
-    framings = ["全景", "中近景", "特写", "过肩镜头", "低机位中景", "空镜"]
-    modes = ["T2V", "T2V", "I2V", "I2V", "R2V", "T2V", "I2V", "R2V", "T2V", "I2V"]
+    framings = ["wide shot", "medium close-up", "close-up", "over-the-shoulder", "low-angle medium", "insert shot"]
     shots: list[Shot] = []
+    english_style = _english_style(style)
     for index in range(shot_count):
         shot_duration = base_duration + (1 if index < remainder else 0)
-        phase = "建立孤独的日常" if index < 2 else "让异常逐渐显现" if index < shot_count - 2 else "完成情绪转折与余韵"
-        image = f"{style}电影摄影，同一主角与同一核心空间，{phase}。"
-        action = f"主角在第 {index + 1} 个叙事节拍中完成一个克制、清晰的动作。"
-        sound = "低频环境声、空间混响与克制的音乐渐进，不使用受版权保护的素材。"
+        beat = _beat_for_index(story_beats, index, shot_count)
+        narrative_purpose = beat.get("narrative_purpose", "") if beat else ""
+        starting_state = beat.get("starting_state", "") if beat else ""
+        ending_state = beat.get("ending_state", "") if beat else ""
+        transition_hook = beat.get("transition_hook", "") if beat else ""
+        emotional_arc = beat.get("emotional_arc", "") if beat else ""
+        phase = (
+            "establish the quiet routine" if index < 2
+            else "let the anomaly gradually emerge" if index < shot_count - 2
+            else "complete the emotional turn and lingering resonance"
+        )
+        image = f"{english_style} film cinematography, same protagonist and same core space, {phase}."
+        action = f"The protagonist carries the previous beat forward, completing a restrained action in narrative beat {index + 1}."
+        sound = "Low-frequency ambience, spatial reverb, and restrained musical progression; no copyrighted material."
+        main_action = f"Narrative beat {index + 1}: {narrative_purpose or phase}. {emotional_arc}"
+        character_reaction = f"The protagonist responds to the evolving situation with {emotional_arc.split(' → ')[-1] if ' → ' in emotional_arc else 'measured composure'}." if emotional_arc else ""
+        delta = (
+            "Establish the protagonist and the core space."
+            if index == 0
+            else f"Continue from the previous shot's ending state; change the action toward {ending_state or narrative_purpose or phase}."
+        )
+        # Keep the persisted storyboard prompt concise and delta-only.  The
+        # generation layer later compiles this with global locks, previous
+        # state, and negative constraints for a T2V model that has no frame
+        # memory.
         prompt = (
-            f"{image} {action} [{0}s-{shot_duration}s] 镜头运动自然稳定。{sound} "
-            "不出现现有影视角色、片名、品牌标志、真人肖像或受版权保护的造型。"
+            f"Shot delta: {delta} Main change: {main_action} Reaction: {character_reaction or 'measured composure'}. "
+            f"Transition hook: {transition_hook or 'Cut to next shot.'}"
         )
         shots.append(
             Shot(
@@ -32,9 +74,29 @@ def build_storyboard(idea: str, duration: int, style: str, project_id: str) -> l
                 image_description=image,
                 action=action,
                 sound_design=sound,
-                generation_mode=modes[index],
+                generation_mode="T2V",
                 prompt=prompt,
                 output_placeholder=f"outputs/{project_id}/shot-{index + 1:02d}.mp4",
+                narrative_purpose=narrative_purpose or f"narrative beat {index + 1}",
+                starting_state=starting_state or f"Shot {index} conclusion.",
+                main_action=main_action,
+                character_reaction=character_reaction,
+                ending_state=ending_state or f"Shot {index + 1} resolves into the next beat.",
+                transition_hook=transition_hook or "Cut to next shot.",
             )
         )
     return shots
+
+
+def _beat_for_index(
+    story_beats: list[dict[str, Any]] | None,
+    shot_index: int,
+    total_shots: int,
+) -> dict[str, Any] | None:
+    if not story_beats:
+        return None
+    if len(story_beats) >= total_shots:
+        return story_beats[min(shot_index, len(story_beats) - 1)]
+    ratio = shot_index / max(1, total_shots - 1)
+    beat_index = min(int(ratio * (len(story_beats) - 1)), len(story_beats) - 1)
+    return story_beats[beat_index]

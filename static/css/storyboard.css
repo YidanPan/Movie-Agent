@@ -1,0 +1,3 @@
+/* Storyboard / film-strip extraction seam. */
+:where(.p2-storyboard) { isolation: isolate; }
+
