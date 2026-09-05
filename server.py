@@ -1013,6 +1013,14 @@ def _resolve_final_video(project_id: str) -> Path:
     return _guard_project_media(project_id, path, "Final Master has not been generated yet.")
 
 
+def _video_media_type(path: Path) -> str:
+    return {
+        ".mp4": "video/mp4",
+        ".mov": "video/quicktime",
+        ".webm": "video/webm",
+    }.get(path.suffix.lower(), "application/octet-stream")
+
+
 def _resolve_rough_cut(project_id: str) -> Path:
     project = _load_project_or_http(project_id)
     if str(getattr(project, "status", "")) not in {"editing_rough_cut", "rough_cut_ready"}:
@@ -1020,6 +1028,13 @@ def _resolve_rough_cut(project_id: str) -> Path:
     if isinstance(getattr(project, "edit_plan", None), dict) and project.edit_plan.get("stale"):
         raise HTTPException(status_code=404, detail="The current Rough Cut is stale and must be regenerated.")
     path = Path(project.rough_cut_placeholder or "")
+    # The editor keeps the Rough Cut as a high-quality mezzanine. Serve the
+    # browser-safe Screening Preview for playback when one is available.
+    if path.suffix.lower() == ".mov":
+        screening = (getattr(project, "video_assets", {}) or {}).get("screening_preview")
+        screening_path = Path(str(screening.get("path") or "")) if isinstance(screening, dict) else Path()
+        if screening_path.is_file():
+            path = screening_path
     return _guard_project_media(project_id, path, "Rough Cut has not been rendered to a real video file yet.")
 
 
@@ -1061,7 +1076,8 @@ def _resolve_shot_video(project_id: str, shot_number: int) -> Path:
 
 @app.get("/api/projects/{project_id}/final-video")
 def final_video(project_id: str):
-    return FileResponse(_resolve_final_video(project_id), media_type="video/mp4")
+    path = _resolve_final_video(project_id)
+    return FileResponse(path, media_type=_video_media_type(path))
 
 
 @app.head("/api/projects/{project_id}/final-video")
@@ -1072,7 +1088,8 @@ def final_video_head(project_id: str):
 
 @app.get("/api/projects/{project_id}/screening-preview")
 def screening_preview_video(project_id: str):
-    return FileResponse(_resolve_screening_preview(project_id), media_type="video/mp4")
+    path = _resolve_screening_preview(project_id)
+    return FileResponse(path, media_type=_video_media_type(path))
 
 
 @app.head("/api/projects/{project_id}/screening-preview")
@@ -1126,7 +1143,8 @@ async def export_video(project_id: str, request: Request):
 
 @app.get("/api/projects/{project_id}/rough-cut")
 def rough_cut_video(project_id: str):
-    return FileResponse(_resolve_rough_cut(project_id), media_type="video/mp4")
+    path = _resolve_rough_cut(project_id)
+    return FileResponse(path, media_type=_video_media_type(path))
 
 
 @app.head("/api/projects/{project_id}/rough-cut")

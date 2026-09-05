@@ -104,7 +104,9 @@ class EditorAgent:
         suffix = "proxy" if tier == "working_proxy" else "screening"
         output = output_dir / f"{suffix}-{resolution}.mp4"
         source_width = metadata.get("width")
-        if isinstance(source_width, int) and source_width <= width:
+        source_codec = str(metadata.get("codec") or "").upper()
+        browser_safe_passthrough = source.suffix.lower() == ".mp4" and source_codec in {"H264", "AVC1", "MPEG4", "VP9"}
+        if isinstance(source_width, int) and source_width <= width and browser_safe_passthrough:
             # Do not silently upscale a low-res source. The UI will surface the
             # resulting LOW RES SOURCE quality label from the copied asset.
             shutil.copy2(source, output)
