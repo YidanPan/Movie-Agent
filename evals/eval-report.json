@@ -1,0 +1,72 @@
+{
+  "suite": "golden-film-evaluation",
+  "version": 1,
+  "projects": [
+    {
+      "project_id": "golden_project_01",
+      "title": "The Last Signal",
+      "project_file": null,
+      "metrics": {
+        "Narrative Continuity": null,
+        "Character Consistency": null,
+        "Scene Consistency": null,
+        "Subtitle Alignment Error": null,
+        "Duration Error": null,
+        "Native Resolution": null,
+        "Final Resolution": null,
+        "LUFS": null,
+        "True Peak": null,
+        "Retry Count": 0,
+        "Generation Time": null,
+        "API Calls": null,
+        "Estimated Cost": null,
+        "Alignment Method": "PROPORTIONAL",
+        "Availability": "PLAN ONLY"
+      }
+    },
+    {
+      "project_id": "golden_project_02",
+      "title": "The Empty Platform",
+      "project_file": null,
+      "metrics": {
+        "Narrative Continuity": null,
+        "Character Consistency": null,
+        "Scene Consistency": null,
+        "Subtitle Alignment Error": null,
+        "Duration Error": null,
+        "Native Resolution": null,
+        "Final Resolution": null,
+        "LUFS": null,
+        "True Peak": null,
+        "Retry Count": 0,
+        "Generation Time": null,
+        "API Calls": null,
+        "Estimated Cost": null,
+        "Alignment Method": "PROPORTIONAL",
+        "Availability": "PLAN ONLY"
+      }
+    },
+    {
+      "project_id": "golden_project_03",
+      "title": "Borrowed Dawn",
+      "project_file": null,
+      "metrics": {
+        "Narrative Continuity": null,
+        "Character Consistency": null,
+        "Scene Consistency": null,
+        "Subtitle Alignment Error": null,
+        "Duration Error": null,
+        "Native Resolution": null,
+        "Final Resolution": null,
+        "LUFS": null,
+        "True Peak": null,
+        "Retry Count": 0,
+        "Generation Time": null,
+        "API Calls": null,
+        "Estimated Cost": null,
+        "Alignment Method": "PROPORTIONAL",
+        "Availability": "PLAN ONLY"
+      }
+    }
+  ]
+}

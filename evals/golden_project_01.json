@@ -1,0 +1,6 @@
+{
+  "project_id": "golden_project_01",
+  "title": "The Last Signal",
+  "idea": "A night watchman follows a signal beyond the moon.",
+  "expected": {"duration_seconds": 48, "target_resolution": "1080p", "alignment_method": "PROPORTIONAL"}
+}

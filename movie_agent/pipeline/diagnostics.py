@@ -351,10 +351,8 @@ def delivery_preflight(
     return {
         "ready": not blocking,
         "requested": {"resolution": resolution, "aspect": aspect, "subtitle_mode": subtitle_mode},
-        "output": {
-            "width": expected_width,
-            "height": expected_height,
-            "codec": "H.264",
+        "output": {"width": expected_width, "height": expected_height, "codec": "H.264"},
+        "media_metadata": {
             "native_resolution": quality.get("native_resolution"),
             "conformed_resolution": (quality.get("final_master") or {}).get("conformed_resolution") if isinstance(quality.get("final_master"), dict) else None,
             "upscale_method": (quality.get("final_master") or {}).get("upscale_method") if isinstance(quality.get("final_master"), dict) else "none",

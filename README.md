@@ -189,6 +189,10 @@ Video media follows explicit `Source → Working Proxy → Screening Preview →
 
 The editorial encode path keeps the original source untouched, writes an edit mezzanine as ProRes 422 LT when the local FFmpeg build supports it, and falls back to H.264 CRF 13 only for incompatible builds. Timing, picture assembly, audio mix, and Final Look preserve that mezzanine instead of repeatedly generating H.264 CRF 18 intermediates. Working Proxy uses CRF 30, Screening Preview uses CRF 22, and the selected delivery container receives the single final delivery encode.
 
+Voice subtitle alignment records `WORD-LEVEL`, `SENTENCE-LEVEL`, or `PROPORTIONAL`; proportional timing is explicitly a fallback, not exact synchronization. Media assets retain `native_resolution`, `conformed_resolution`, `upscale_method`, and `enhanced`, so a 608×352 source conformed to 1080P is shown as `1080P CONFORM`, while `AI UPSCALED` is reserved for a real enhancement provider. The current verified T2V path does not claim visual inheritance; persistent Reference Bank data is ready for future I2V/R2V workflows.
+
+The competition deployment keeps one Uvicorn worker (`--workers 1`) for the persistent Job Ledger. `CLEAN WORKING CACHE` removes only derived proxy, preview, timing, temporary, and stale normalized files; current Source, current Final Master, and the two newest Source revisions are protected.
+
 Visual QC references are persisted in `outputs/<project>/references/reference-bank.json` and copied into the same project-owned reference directory. The reviewer can use approved character/scene references, the previous approved shot's late keyframe, and current-shot keyframes; process memory is not the source of truth. Without a Vision Model, media integrity only moves a shot to `AWAITING_VISUAL_REVIEW`; the shot becomes `APPROVED` only after the `APPROVE SHOT` action, which also promotes that shot's review keyframes into the bank.
 
 ### P2 Pipeline Reliability

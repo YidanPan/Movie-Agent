@@ -1,0 +1,6 @@
+{
+  "project_id": "golden_project_03",
+  "title": "Borrowed Dawn",
+  "idea": "A child returns a borrowed sunrise to a failing orbital station.",
+  "expected": {"duration_seconds": 48, "target_resolution": "1080p", "alignment_method": "PROPORTIONAL"}
+}

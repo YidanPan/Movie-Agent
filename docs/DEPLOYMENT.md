@@ -8,6 +8,16 @@
 
 在魔搭创空间新建 Gradio 应用，并导入仓库。入口文件为 `app.py`，依赖文件为 `requirements.txt`。
 
+### 单实例 Job Ledger
+
+比赛部署保持单进程账本策略，不启用 Redis / Celery。使用 FastAPI 入口时必须保持一个 Uvicorn worker：
+
+```bash
+uvicorn server:app --host 0.0.0.0 --port 9071 --workers 1
+```
+
+`JobLedger` 的跨请求保护依赖同一进程内的锁；多 worker 会让不同进程看到不一致的 process-local lock。产品化部署再评估 SQLite lease、file lock 或外部队列。
+
 ## 3. 添加 Secrets
 
 在创空间的环境变量 / Secrets 中设置：

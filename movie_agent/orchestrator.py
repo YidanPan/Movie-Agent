@@ -43,7 +43,9 @@ from movie_agent.services.subtitles import (
     normalise_subtitle_mode,
     shot_count_for_duration,
 )
-from movie_agent.pipeline.rendering import shot_render_context
+from movie_agent.pipeline.planning import PlanningPipeline
+from movie_agent.pipeline.rendering import RenderPipeline, shot_render_context
+from movie_agent.pipeline.editing import EditPipeline
 from movie_agent.pipeline.editing import edit_output_exists
 
 
@@ -72,6 +74,13 @@ class MovieOrchestrator:
         self.quality_gate = PlanningQualityGate()
         self.continuity_gate = ContinuityQualityGate()
         self.semantic_copyright_reviewer = SemanticCopyrightReviewer(creative_llm)
+        self.planning_pipeline = PlanningPipeline(
+            self.quality_gate,
+            self.continuity_gate,
+            self.semantic_copyright_reviewer,
+        )
+        self.render_pipeline = RenderPipeline(self.generation_agent, self.reviewer)
+        self.edit_pipeline = EditPipeline(self.editor, self.voice_service)
 
     def create_project(
         self,
@@ -333,26 +342,14 @@ class MovieOrchestrator:
                 "content": "Checking duration, shot count, prompt completeness, and potential copyright proximity in parallel.",
             }
         )
-        quality_report = self.quality_gate.review(
+        quality_report = self.planning_pipeline.review(
+            idea=cleaned_idea,
             duration_seconds=duration,
             script=script,
             visual_bible=visual_bible,
             storyboard=storyboard,
-        )
-        quality_report.extend(
-            self.semantic_copyright_reviewer.review(
-                idea=cleaned_idea,
-                script=script,
-                visual_bible=visual_bible,
-                storyboard=storyboard,
-            )
-        )
-        continuity_report = self.continuity_gate.review(
-            visual_bible=visual_bible,
-            storyboard=storyboard,
             continuity_lock=continuity_lock,
         )
-        quality_report.extend(continuity_report)
         emit({"type": "agent_done", "agent": "quality", "quality_report": quality_report})
         emit(
             {
@@ -491,18 +488,11 @@ class MovieOrchestrator:
             previous_shot = render_context["previous_shot"]
             for attempt in range(1, self.settings.comfy_max_retries + 1):
                 try:
-                    project.logs.append(self.generation_agent.generate(
-                        project.project_id, shot,
-                        visual_bible=project.visual_bible,
-                        previous_shot=previous_shot,
-                        target_resolution=project.target_resolution,
-                        film_language=project.film_language,
-                    ))
                     project.logs.append(
-                        self.reviewer.review_generated(
+                        self.render_pipeline.render_shot(
+                            project,
                             shot,
-                            project_id=project.project_id,
-                            visual_bible=project.visual_bible,
+                            previous_shot=previous_shot,
                         )
                     )
                     self.store.save(project)
@@ -578,18 +568,11 @@ class MovieOrchestrator:
         self.store.save(project)
         previous_shot = render_context["previous_shot"]
         try:
-            project.logs.append(self.generation_agent.generate(
-                project.project_id, shot,
-                visual_bible=project.visual_bible,
-                previous_shot=previous_shot,
-                target_resolution=project.target_resolution,
-                film_language=project.film_language,
-            ))
             project.logs.append(
-                self.reviewer.review_generated(
+                self.render_pipeline.render_shot(
+                    project,
                     shot,
-                    project_id=project.project_id,
-                    visual_bible=project.visual_bible,
+                    previous_shot=previous_shot,
                 )
             )
         except Exception as error:
@@ -861,18 +844,15 @@ class MovieOrchestrator:
         # without touching the locked dialogue or regenerating shots.
         if str(project.status).startswith("completed"):
             self._invalidate_edit_outputs(project, reason="recut_requested", source="rough_cut")
-        ensure_audio_design(
+        media_status, voice_result = self.edit_pipeline.prepare_media_and_audio(
             project,
             music_mode=music_mode,
             smart_ducking=smart_ducking,
             music_asset_name=music_asset_name,
             music_intensity=music_intensity,
+            track_enabled=track_enabled,
+            track_params=track_params,
         )
-        for key, enabled in (track_enabled or {}).items():
-            if key in project.audio_tracks:
-                project.audio_tracks[key]["enabled"] = bool(enabled)
-        apply_audio_track_params(project, track_params)
-        media_status = self.editor.prepare_media_for_edit(project)
         project.logs.append(f"Media Pipeline: {media_status}.")
         project.mix_state["media_mixed"] = False
         project.mix_state["stage_status"] = {stage: "queued" for stage in EDIT_AUDIO_STAGES}
@@ -892,7 +872,6 @@ class MovieOrchestrator:
         project.logs.append("Editor Agent: Shot order, Trim, and transitions complete.")
         if progress_callback:
             progress_callback("Voice: Wiring locked narration and Dialogue Book.")
-        voice_result = self.voice_service.synthesize(project)
         if voice_result.media_path:
             project.logs.append(
                 f"Voice Agent: Continuous English voice ready ({voice_result.duration_seconds:.2f}s measured; subtitle timing aligned)."

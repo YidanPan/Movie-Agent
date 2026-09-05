@@ -1,0 +1,6 @@
+{
+  "project_id": "golden_project_02",
+  "title": "The Empty Platform",
+  "idea": "A commuter meets the last train after the city has gone silent.",
+  "expected": {"duration_seconds": 48, "target_resolution": "1080p", "alignment_method": "PROPORTIONAL"}
+}

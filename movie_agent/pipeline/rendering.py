@@ -7,6 +7,30 @@ from typing import Any
 from movie_agent.services.continuity import ensure_continuity_lock
 
 
+class RenderPipeline:
+    """Own one real shot render + visual QC transaction."""
+
+    def __init__(self, generation_agent: Any, reviewer: Any) -> None:
+        self.generation_agent = generation_agent
+        self.reviewer = reviewer
+
+    def render_shot(self, project: Any, shot: Any, *, previous_shot: Any = None) -> str:
+        message = self.generation_agent.generate(
+            project.project_id,
+            shot,
+            visual_bible=project.visual_bible,
+            previous_shot=previous_shot,
+            target_resolution=project.target_resolution,
+            film_language=project.film_language,
+        )
+        review = self.reviewer.review_generated(
+            shot,
+            project_id=project.project_id,
+            visual_bible=project.visual_bible,
+        )
+        return f"{message}\n{review}"
+
+
 def shot_render_context(project: Any, shot_number: int) -> dict[str, Any]:
     """Build the renderer context for one shot without doing any I/O."""
 
