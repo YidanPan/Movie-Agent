@@ -202,8 +202,52 @@ body[data-design="archive-console"] .landing-spotlight .spotlight-dust { opacity
 .crew-card,
 .panel { backdrop-filter: none; }
 
+/* Workspace scroll reveal: panels may rise into view, but they never become
+   blurred or scaled raster layers. Keep the depth-shift property from the
+   generic panel motion out of this path as well. */
+body[data-design="archive-console"] .workspace .panel {
+  translate: 0 0;
+  filter: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+body[data-design="archive-console"] .workspace .panel::before,
+body[data-design="archive-console"] .workspace .panel::after {
+  filter: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+@supports (animation-timeline: view()) {
+  body[data-design="archive-console"] .workspace .panel {
+    animation: workspace-scroll-reveal linear both;
+    animation-timeline: view();
+    animation-range: entry 0% cover 20%;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   body[data-design="archive-console"] .grain { animation: none; }
+
+  body[data-design="archive-console"] .workspace .panel,
+  body[data-design="archive-console"] .workspace .panel::before,
+  body[data-design="archive-console"] .workspace .panel::after {
+    animation: none !important;
+    animation-timeline: auto !important;
+    animation-range: normal !important;
+    opacity: 1 !important;
+    transform: none !important;
+    translate: 0 0 !important;
+    filter: none !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+
+  body[data-design="archive-console"] .workspace .panel * {
+    animation: none !important;
+    transition: none !important;
+  }
 }
 
 /* Sound page: keep the brief and semantic timeline visible; park controls behind one disclosure. */

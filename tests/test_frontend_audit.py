@@ -64,6 +64,23 @@ def test_page_copy_does_not_ship_em_dash_or_glass_backdrop():
     assert "editorial-scroll-unveil" in CSS
 
 
+def test_workspace_scroll_reveal_never_blurs_or_scales_information_panels():
+    assert "@keyframes workspace-scroll-reveal" in CSS
+    assert "animation-range: entry 0% cover 20%" in CSS
+    assert "workspace .panel" in REFINEMENT
+    assert "filter: none !important" in REFINEMENT
+    assert "backdrop-filter: none !important" in REFINEMENT
+    assert "translate: 0 0" in REFINEMENT
+    assert "animation-timeline: auto !important" in REFINEMENT
+
+    workspace_keyframes = CSS.split("@keyframes workspace-scroll-reveal", 1)[1].split("@supports", 1)[0]
+    assert "filter:" not in workspace_keyframes
+    assert "scale(" not in workspace_keyframes
+
+    shared_scroll_support = CSS.split("@supports (animation-timeline: view())", 1)[1].split("}", 1)[0]
+    assert ".workspace .panel" not in shared_scroll_support
+
+
 def test_readability_pass_covers_production_surfaces_and_structured_values():
     assert "Typography / alignment polish" in CSS
     assert "productionValueMarkup" in APP
