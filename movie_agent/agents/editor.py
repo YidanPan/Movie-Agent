@@ -132,6 +132,12 @@ class EditorAgent:
 
         assets: dict[str, dict[str, Any]] = {}
         revision = max((int(getattr(shot, "revision", 1) or 1) for shot in project.storyboard), default=1)
+        native_resolutions = [
+            str((getattr(shot, "media_assets", {}) or {}).get("source", {}).get("native_resolution") or "")
+            for shot in project.storyboard
+            if isinstance((getattr(shot, "media_assets", {}) or {}).get("source"), dict)
+        ]
+        native_resolution = next((value for value in native_resolutions if value), None)
         provider = "ffmpeg"
         model = str(self.settings.ffmpeg_bin or "ffmpeg")
         proxy = self._derive_preview(project, source, tier="working_proxy", resolution="720p")
@@ -152,6 +158,7 @@ class EditorAgent:
                 provider=provider,
                 model=model,
                 qc_status="PASSED_PIPELINE",
+                native_resolution=native_resolution,
             )
             assets["working_proxy"]["encode_policy"] = f"h264_crf{PROXY_CRF}_or_source_passthrough"
         if screening:
@@ -165,6 +172,7 @@ class EditorAgent:
                 provider=provider,
                 model=model,
                 qc_status="PASSED_PIPELINE",
+                native_resolution=native_resolution,
             )
             assets["screening_preview"]["encode_policy"] = f"h264_crf{SCREENING_CRF}_or_source_passthrough"
         if include_master and source.is_file():
@@ -178,6 +186,7 @@ class EditorAgent:
                 provider=provider,
                 model=model,
                 qc_status="PASSED_PIPELINE",
+                native_resolution=native_resolution,
             )
             assets["final_master"]["asset_role"] = "edit_mezzanine_or_mixed_master"
             assets["final_master"]["encode_policy"] = "prores_422_lt_or_h264_crf13_fallback"
@@ -202,6 +211,9 @@ class EditorAgent:
             source = Path(str(source_record.get("path"))) if isinstance(source_record, dict) and source_record.get("path") else Path(shot.output_placeholder)
             if not source.is_file():
                 continue
+            native_resolution = None
+            if isinstance(source_record, dict):
+                native_resolution = source_record.get("native_resolution") or source_record.get("source_resolution")
             output = normalized_dir / f"shot-{shot.number:02d}-{resolution}-mezzanine.mov"
             if not output.is_file():
                 encode_profile = self._run_mezzanine(
@@ -234,6 +246,9 @@ class EditorAgent:
                 model=str(self.settings.ffmpeg_bin or "ffmpeg"),
                 seed=getattr(shot, "seed", None) or getattr(shot, "generation_seed", None),
                 qc_status="PASSED_PIPELINE",
+                native_resolution=native_resolution,
+                upscale_method="ffmpeg_scale",
+                enhanced=False,
             )
             record["original_path"] = str(source)
             record["asset_role"] = "edit_mezzanine"
@@ -254,10 +269,14 @@ class EditorAgent:
                     seed=getattr(shot, "seed", None) or getattr(shot, "generation_seed", None),
                     qc_status=str(getattr(shot, "qc_status", "PASSED_PIPELINE") or "PASSED_PIPELINE"),
                 )
+            source_asset.setdefault("native_resolution", native_resolution or source_asset.get("source_resolution"))
+            source_asset.setdefault("conformed_resolution", source_asset.get("source_resolution"))
+            source_asset.setdefault("upscale_method", "none")
+            source_asset.setdefault("enhanced", False)
             shot.media_assets["source"] = source_asset
             shot.media_assets["final_master"] = record
             shot.output_placeholder = str(output)
-            shot.source_resolution = record.get("source_resolution")
+            shot.source_resolution = source_asset.get("native_resolution") or record.get("native_resolution") or record.get("source_resolution")
             shot.source_fps = record.get("source_fps")
             shot.source_duration = record.get("source_duration")
             shot.stale = False
@@ -868,6 +887,7 @@ class EditorAgent:
         except RuntimeError:
             output.unlink(missing_ok=True)
             return None
+        previous_master = (getattr(project, "video_assets", {}) or {}).get("final_master")
         project.video_assets["final_master"] = asset_record(
             output,
             tier="final_master",
@@ -878,6 +898,9 @@ class EditorAgent:
             provider="ffmpeg",
             model=str(self.settings.ffmpeg_bin or "ffmpeg"),
             qc_status="PASSED_PIPELINE",
+            native_resolution=(previous_master or {}).get("native_resolution") if isinstance(previous_master, dict) else None,
+            upscale_method=(previous_master or {}).get("upscale_method", "none") if isinstance(previous_master, dict) else "none",
+            enhanced=bool((previous_master or {}).get("enhanced", False)) if isinstance(previous_master, dict) else False,
         )
         return output
 

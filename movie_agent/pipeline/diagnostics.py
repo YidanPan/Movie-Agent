@@ -134,6 +134,11 @@ def _media_tier(record: Any) -> dict[str, Any]:
         "stale": bool(record.get("stale")),
         "quality": str(record.get("quality") or "QUALITY UNKNOWN"),
         "resolution": resolution,
+        "native_resolution": record.get("native_resolution") or resolution,
+        "conformed_resolution": record.get("conformed_resolution") or resolution,
+        "upscale_method": str(record.get("upscale_method") or "none"),
+        "enhanced": bool(record.get("enhanced", False)),
+        "resolution_label": str(record.get("resolution_label") or record.get("quality") or "QUALITY UNKNOWN"),
         "fps": record.get("fps") if record.get("fps") is not None else record.get("source_fps"),
         "duration_seconds": record.get("duration_seconds") if record.get("duration_seconds") is not None else record.get("source_duration"),
         "has_audio": bool(record.get("has_audio")),
@@ -326,7 +331,8 @@ def delivery_preflight(
     metadata = probe_media(master_path, ffprobe_bin) if master_scoped and master_path else {}
     has_dimensions = isinstance(metadata.get("width"), int) and isinstance(metadata.get("height"), int)
     resolution_ok = not has_dimensions or (metadata["width"] >= expected_width and metadata["height"] >= expected_height)
-    quality_warning = bool(metadata.get("quality") == "LOW RES SOURCE") or (
+    quality = quality_snapshot(project, ffprobe_bin)
+    quality_warning = bool(quality.get("source_low_res")) or bool(metadata.get("quality") == "LOW RES SOURCE") or (
         has_dimensions and (metadata["width"] < expected_width or metadata["height"] < expected_height)
     )
 
@@ -345,7 +351,15 @@ def delivery_preflight(
     return {
         "ready": not blocking,
         "requested": {"resolution": resolution, "aspect": aspect, "subtitle_mode": subtitle_mode},
-        "output": {"width": expected_width, "height": expected_height, "codec": "H.264"},
+        "output": {
+            "width": expected_width,
+            "height": expected_height,
+            "codec": "H.264",
+            "native_resolution": quality.get("native_resolution"),
+            "conformed_resolution": (quality.get("final_master") or {}).get("conformed_resolution") if isinstance(quality.get("final_master"), dict) else None,
+            "upscale_method": (quality.get("final_master") or {}).get("upscale_method") if isinstance(quality.get("final_master"), dict) else "none",
+            "enhanced": bool((quality.get("final_master") or {}).get("enhanced", False)) if isinstance(quality.get("final_master"), dict) else False,
+        },
         "checks": checks,
         "blocking": blocking,
         "warnings": warnings,

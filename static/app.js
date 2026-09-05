@@ -1726,6 +1726,8 @@ function deliverRuntime(project) {
 }
 
 function mediaQualityLabel(record, video = null) {
+  const explicit = String(record?.resolution_label || "").toUpperCase();
+  if (explicit) return explicit;
   const width = Number(record?.width || video?.videoWidth || 0);
   const height = Number(record?.height || video?.videoHeight || 0);
   if (width && height) {
@@ -1753,9 +1755,12 @@ function renderMediaQuality(project, mode = "screening") {
   }
   const lowRes = label === "LOW RES SOURCE" || Boolean(snapshot.source_low_res);
   if (els.deliverQualityNote) {
+    const native = snapshot.native_resolution || record?.native_resolution || "UNKNOWN";
+    const screening = snapshot.screening_preview?.resolution_label || snapshot.screening_preview?.quality || label;
+    const master = snapshot.final_master?.resolution_label || snapshot.final_master?.quality || "NOT AVAILABLE";
     els.deliverQualityNote.textContent = lowRes
-      ? "LOW RES SOURCE · Screening 仅保留原始清晰度；导出前请运行 Resolution Normalize。"
-      : `Screening Room · ${prefix} 优先读取 ${label === "QUALITY UNKNOWN" ? "720P / 1080P" : label}。Final Export 只使用 Final Master。`;
+      ? `SOURCE ${native} · SCREENING ${screening} · MASTER ${master} · LOW RES SOURCE：这代表 conform，不代表恢复真实细节。`
+      : `SOURCE ${native} · SCREENING ${screening} · MASTER ${master} · Final Export 只使用 Final Master。`;
   }
   if (els.btnNormalizeResolution) {
     const showNormalize = lowRes && !state.hasFinalVideo && Boolean(project?.storyboard?.length);

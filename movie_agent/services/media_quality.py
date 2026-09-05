@@ -137,6 +137,17 @@ def quality_label(metadata: dict[str, Any], target_resolution: str = "1080p") ->
     return "LOW RES SOURCE"
 
 
+def _native_is_low_resolution(resolution: str | None, target_resolution: str = "1080p") -> bool:
+    if not resolution or "x" not in resolution.lower():
+        return False
+    try:
+        width, height = (int(part) for part in resolution.lower().split("x", 1))
+    except (TypeError, ValueError):
+        return False
+    target_sizes = [size for (resolution_name, _), size in EXPORT_DIMENSIONS.items() if resolution_name == str(target_resolution).lower()]
+    return not any(width >= target_width and height >= target_height for target_width, target_height in target_sizes)
+
+
 def asset_record(
     path: Path,
     *,
@@ -153,19 +164,34 @@ def asset_record(
     created_at: str | None = None,
     qc_status: str = "PENDING",
     stale: bool = False,
+    native_resolution: str | None = None,
+    conformed_resolution: str | None = None,
+    upscale_method: str = "",
+    enhanced: bool = False,
 ) -> dict[str, Any]:
     metadata = probe_media(path, ffprobe_bin)
     timestamp = created_at or datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
     source_resolution = None
     if isinstance(metadata.get("width"), int) and isinstance(metadata.get("height"), int):
         source_resolution = f"{metadata['width']}x{metadata['height']}"
+    native = str(native_resolution or source_resolution or "") or None
+    conformed = str(conformed_resolution or source_resolution or "") or None
+    low_native = _native_is_low_resolution(native, target_resolution)
+    method = str(upscale_method or ("ffmpeg_scale" if normalized and native != conformed else "none"))
+    measured_quality = quality_label(metadata, target_resolution)
+    display_quality = "AI UPSCALED" if enhanced else (
+        f"{str(target_resolution).upper()} CONFORM"
+        if low_native and measured_quality == str(target_resolution).upper()
+        else measured_quality
+    )
     return {
         **metadata,
         "tier": tier,
         "source": source,
-        "quality": quality_label(metadata, target_resolution),
+        "quality": measured_quality,
+        "resolution_label": display_quality,
         "normalized": bool(normalized),
-        "is_low_res": quality_label(metadata, target_resolution) == "LOW RES SOURCE",
+        "is_low_res": low_native or quality_label(metadata, target_resolution) == "LOW RES SOURCE",
         "revision": max(1, int(revision or 1)),
         "prompt_hash": str(prompt_hash or ""),
         "provider": str(provider or ""),
@@ -174,6 +200,10 @@ def asset_record(
         "created_at": timestamp,
         "qc_status": str(qc_status or "PENDING"),
         "source_resolution": source_resolution,
+        "native_resolution": native,
+        "conformed_resolution": conformed,
+        "upscale_method": method,
+        "enhanced": bool(enhanced),
         "source_fps": metadata.get("fps"),
         "source_duration": metadata.get("duration_seconds"),
         "stale": bool(stale),
@@ -242,7 +272,11 @@ def quality_snapshot(project: Any, ffprobe_bin: str = "ffprobe") -> dict[str, An
         if isinstance(records, dict):
             for key in ("source", "final_master"):
                 record = records.get(key)
-                if isinstance(record, dict) and record.get("is_low_res"):
+                if isinstance(record, dict) and (
+                    record.get("is_low_res")
+                    or _native_is_low_resolution(record.get("native_resolution") or record.get("source_resolution"), target)
+                    or quality_label(record, target) == "LOW RES SOURCE"
+                ):
                     low_res_source = True
     snapshot: dict[str, Any] = {
         "target_resolution": target,
@@ -257,6 +291,15 @@ def quality_snapshot(project: Any, ffprobe_bin: str = "ffprobe") -> dict[str, An
         "final_master": assets.get("final_master"),
         "source_low_res": low_res_source,
         "upscale_available": low_res_source,
+        "native_resolution": next(
+            (
+                record.get("native_resolution") or record.get("source_resolution")
+                for shot in shots
+                for record in [((getattr(shot, "media_assets", {}) or {}).get("source") or {})]
+                if isinstance(record, dict) and (record.get("native_resolution") or record.get("source_resolution"))
+            ),
+            None,
+        ),
     }
     # Older project files have no manifest. Infer a source record without
     # changing the persisted JSON until the next edit/save.

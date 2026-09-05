@@ -29,6 +29,39 @@ class MediaQualityTests(unittest.TestCase):
             self.assertFalse(record["exists"])
             self.assertEqual(record["quality"], "QUALITY UNKNOWN")
 
+    def test_normalized_low_res_source_is_labeled_conform_not_upscaled(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            source = root / "source.mp4"
+            master = root / "master.mov"
+            source.touch()
+            master.touch()
+            import movie_agent.services.media_quality as media_quality
+
+            original_probe = media_quality.probe_media
+            media_quality.probe_media = lambda path, ffprobe_bin="ffprobe": {
+                "path": str(path), "exists": True, "width": 608 if path == source else 1920,
+                "height": 352 if path == source else 1080, "duration_seconds": 4.0,
+                "fps": 24.0, "codec": "H264", "pix_fmt": "yuv420p", "sample_rate": None, "has_audio": False,
+            }
+            try:
+                record = asset_record(
+                    master,
+                    tier="final_master",
+                    normalized=True,
+                    native_resolution="608x352",
+                    upscale_method="ffmpeg_scale",
+                    enhanced=False,
+                )
+            finally:
+                media_quality.probe_media = original_probe
+            self.assertEqual(record["native_resolution"], "608x352")
+            self.assertEqual(record["conformed_resolution"], "1920x1080")
+            self.assertEqual(record["resolution_label"], "1080P CONFORM")
+            self.assertEqual(record["upscale_method"], "ffmpeg_scale")
+            self.assertFalse(record["enhanced"])
+            self.assertTrue(record["is_low_res"])
+
     def test_master_resolution_is_preferred_over_preview(self) -> None:
         with TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
