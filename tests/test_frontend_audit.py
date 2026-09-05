@@ -69,6 +69,17 @@ def test_landing_hero_has_standby_state_and_responsive_proximity_feedback():
     assert "calc(100dvh - 70px)" in CSS
 
 
+def test_landing_focus_word_is_gold_before_hero_motion_starts():
+    assert 'id="critical-hero-accent"' in INDEX
+    assert "--hero-accent-first-paint: #d0a04a" in INDEX
+    assert "html[data-theme=\"light\"] { --hero-accent-first-paint: #9b6c31; }" in INDEX
+    assert ".landing-line--focus em { color: var(--accent-token); }" in CSS
+    assert "animation: title-ember" not in CSS
+    assert "@keyframes title-ember" not in CSS
+    assert "0%, 48% { color: var(--text)" not in CSS
+    assert "style.color" not in APP
+
+
 def test_semantic_micro_type_system_separates_five_small_text_roles():
     for role in ("type-system-meta", "type-ui-label", "type-helper", "type-control", "type-status"):
         assert f".{role}" in CSS

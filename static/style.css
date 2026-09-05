@@ -3068,11 +3068,12 @@ body[data-view="landing"] .pipeline { visibility: hidden; pointer-events: none; 
 
 .landing-title em {
   font-style: italic;
-  color: var(--amber);
+  color: var(--accent-token);
   text-shadow: 0 0 44px rgba(232, 163, 76, 0.45);
 }
 
 .landing-line { display: block; overflow: hidden; padding-block: 0.05em; }
+.landing-line--focus em { color: var(--accent-token); }
 
 .landing-line > span {
   display: inline-block;
@@ -3800,7 +3801,7 @@ body[data-design="archive-console"] .hero-title {
 
 body[data-design="archive-console"] .landing-title em,
 body[data-design="archive-console"] .hero-title em {
-  color: var(--amber-light);
+  color: var(--accent-token);
   text-shadow: 0 0 24px rgba(194, 138, 62, 0.23);
 }
 
@@ -4204,16 +4205,6 @@ body[data-design="archive-console"] .landing-spotlight .spotlight-dust {
   to { transform: translate3d(5%, 3%, 0) scale(1.06); opacity: 0.4; }
 }
 
-body[data-design="archive-console"] .landing-title em {
-  color: var(--text);
-  animation: title-ember 1.4s cubic-bezier(0.16, 1, 0.3, 1) 0.72s forwards;
-}
-
-@keyframes title-ember {
-  0%, 48% { color: var(--text); text-shadow: none; }
-  72%, 100% { color: var(--amber-light); text-shadow: 0 0 24px rgba(194, 138, 62, 0.2); }
-}
-
 body[data-design="archive-console"] .landing-hero:not(.is-booted) .landing-copy { opacity: 0.82; }
 
 /* 原生 View Transitions：有支持时补充“摄影机推进”，没有则继续使用遮幅。 */
@@ -4573,7 +4564,6 @@ body.low-performance[data-design="archive-console"] .landing-reveal-grain { disp
   body[data-design="archive-console"] .shot-frame-lens::after { opacity: 0; }
   body[data-design="archive-console"] .shot-frame-sketch { opacity: 0.52; }
   body[data-design="archive-console"] .shot-frame-color { opacity: 0.08; }
-  body[data-design="archive-console"] .landing-title em { color: var(--amber-light); }
   body[data-design="archive-console"] .inspector-content.is-ready .prompt-token { animation: none; }
 }
 
@@ -5616,11 +5606,6 @@ body[data-design="archive-console"] .landing-title,
 body[data-design="archive-console"] .hero-title,
 body[data-design="archive-console"] .landing-title em,
 body[data-design="archive-console"] .hero-title em { text-shadow: none; }
-
-@keyframes title-ember {
-  0%, 48% { color: var(--text); text-shadow: none; }
-  72%, 100% { color: var(--accent-token-light); text-shadow: none; }
-}
 
 @media (min-width: 961px) {
   /* Asymmetric homepage composition: copy enters from the left, the
@@ -7058,11 +7043,11 @@ body[data-design="archive-console"] .landing-line--focus > span {
 
 body[data-design="archive-console"] .landing-title em {
   display: inline-block;
-  color: var(--accent-token-light);
+  color: var(--accent-token);
   font-style: normal;
   letter-spacing: -.02em;
   text-shadow: 0 0 28px color-mix(in srgb, var(--accent-token) calc(18% + var(--hero-title-focus, 0) * 24%), transparent);
-  transition: color .24s ease, text-shadow .24s ease;
+  transition: text-shadow .24s ease;
 }
 
 body[data-design="archive-console"] .landing-sub {

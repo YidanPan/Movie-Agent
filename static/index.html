@@ -16,6 +16,11 @@
     document.documentElement.dataset.theme = theme;
   })();
 </script>
+<style id="critical-hero-accent">
+  :root { --hero-accent-first-paint: #d0a04a; }
+  html[data-theme="light"] { --hero-accent-first-paint: #9b6c31; }
+  .landing-line--focus em { color: var(--hero-accent-first-paint); }
+</style>
 <link id="favicon" rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%2315110b'/%3E%3Crect x='6' y='12' width='5' height='8' fill='%23c28a3e'/%3E%3Crect x='14' y='12' width='5' height='8' fill='%23c28a3e' opacity='.55'/%3E%3Crect x='22' y='12' width='5' height='8' fill='%23c28a3e' opacity='.3'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="/static/style.css?v=media-quality-20260904-p5">
 <link rel="stylesheet" href="/static/css/tokens.css?v=p5-20260904">
