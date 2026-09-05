@@ -747,9 +747,12 @@ function buildCrewBoard() {
     card.setAttribute("aria-label", `${def.name} Agent 详情`);
     card.innerHTML = `
       <header class="crew-card-header">
-        <div class="crew-indexline type-system-meta"><span class="crew-node-id">${esc(def.index)} / NODE</span><span class="crew-en type-system-meta">${esc(def.en)}</span><span class="crew-node-status type-system-meta" data-node-status="idle">QUEUED</span></div>
-        <div class="crew-head"><span class="crew-name">${esc(def.name)}</span></div>
-        <p class="crew-role">${esc(def.role)}</p>
+        <div class="crew-indexline type-system-meta"><span class="crew-node-id">${esc(def.index)}</span><span class="crew-node-status type-system-meta" data-node-status="idle">QUEUED</span></div>
+        <div class="crew-identity">
+          <h3 class="crew-name">${esc(def.name)}</h3>
+          <span class="crew-en type-system-meta">${esc(def.en)}</span>
+          <p class="crew-role">${esc(def.role)}</p>
+        </div>
       </header>
       <div class="crew-card-main">
         <div class="crew-state type-status"><span class="crew-state-icon" aria-hidden="true"></span><span class="crew-state-text">${AGENT_STATUS_COPY[def.id]?.idle || "WAITING"}</span></div>

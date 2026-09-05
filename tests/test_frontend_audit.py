@@ -225,6 +225,10 @@ def test_homepage_production_route_uses_three_equal_semantic_stages():
 
 def test_production_route_node_cards_use_readable_three_part_layout():
     assert 'class="crew-card-header"' in APP
+    assert 'class="crew-identity"' in APP
+    assert '<h3 class="crew-name">' in APP
+    assert '<span class="crew-en type-system-meta">' in APP
+    assert '${esc(def.index)} / NODE' not in APP
     assert 'class="crew-card-main"' in APP
     assert 'class="crew-card-footer"' in APP
     assert 'class="crew-artifact-preview artifact-preview"' in APP
@@ -239,6 +243,12 @@ def test_production_route_node_cards_use_readable_three_part_layout():
     assert "margin-top: auto" in CREW
     assert "-webkit-line-clamp: 2" in CREW
     assert "artifact-action" in CREW
+    assert "writing-mode: horizontal-tb" in CREW
+    assert "word-break: break-all" not in CREW
+    assert "overflow-wrap: anywhere" not in CREW
+    assert ".crew-flow .crew-card.done { opacity: 0.72" not in CSS
+    assert ".crew-flow .crew-card .crew-en" not in CSS
+    assert 'body[data-design="archive-console"] .crew-flow .crew-card .crew-indexline' not in CSS
 
 
 def test_production_route_summaries_are_structured_and_metadata_is_not_truncated():

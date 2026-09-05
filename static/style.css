@@ -918,140 +918,8 @@ main {
   100% { top: 100%; opacity: 0; }
 }
 
-.crew-card {
-  flex: 1 1 190px;
-  min-width: 180px;
-  min-height: 148px;
-  display: flex;
-  flex-direction: column;
-  padding: 16px 18px 14px;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 5px;
-  opacity: 0.42;
-  transition: opacity 0.35s ease, border-color 0.25s ease, background-color 0.25s ease, box-shadow 0.25s ease, transform 0.25s ease;
-  cursor: pointer;
-  translate: 0 var(--depth-shift, 0px);
-}
-
-.crew-card:hover,
-.crew-card:focus-visible,
-.crew-card[data-inspector-open="true"] {
-  opacity: 1;
-  border-color: rgba(215, 166, 74, 0.68);
-  outline: none;
-  background: var(--surface-2);
-  box-shadow: 0 0 0 1px rgba(215, 166, 74, 0.14), 0 8px 18px rgba(0, 0, 0, 0.28);
-  transform: translateY(-1px);
-}
-
-.crew-card:active,
 .shot-card:active,
 .feature-card:active { transform: scale(0.985); }
-
-.crew-card.working {
-  opacity: 1;
-  border-color: rgba(215, 166, 74, 0.58);
-  box-shadow: inset 0 0 0 1px rgba(215, 166, 74, 0.06);
-  animation: crew-pulse 1.8s ease-in-out infinite;
-}
-
-.crew-card.next {
-  opacity: 0.78;
-  border-color: rgba(215, 166, 74, 0.42);
-  box-shadow: inset 0 0 0 1px rgba(215, 166, 74, 0.04);
-}
-
-.crew-card.done { opacity: 1; border-color: var(--line); }
-
-.crew-card.failed {
-  opacity: 1;
-  border-color: rgba(229, 72, 77, 0.55);
-  box-shadow: inset 0 0 0 1px rgba(229, 72, 77, 0.08);
-}
-
-.crew-card.failed .crew-state { color: var(--err); }
-
-.crew-card.failed .crew-state-icon::before { content: "✕"; }
-
-@keyframes crew-pulse {
-  0%, 100% { border-color: rgba(215, 166, 74, 0.48); box-shadow: inset 0 0 0 1px rgba(215, 166, 74, 0.04); }
-  50% { border-color: rgba(215, 166, 74, 0.72); box-shadow: inset 0 0 0 1px rgba(215, 166, 74, 0.12); }
-}
-
-.crew-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.crew-indexline {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 12px;
-  color: var(--amber);
-  font-size: 0.58rem;
-  letter-spacing: 0.16em;
-}
-
-.crew-name { font-family: var(--sans); font-size: 1.06rem; font-weight: 650; letter-spacing: 0.08em; }
-
-.crew-en { max-width: 58%; font-size: 0.56rem; letter-spacing: 0.1em; color: var(--faint); text-align: right; }
-
-.crew-role { margin-top: 3px; font-size: 0.76rem; color: var(--faint); }
-
-.crew-state {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 12px;
-  font-size: 0.62rem;
-  letter-spacing: 0.1em;
-  color: var(--dim);
-}
-
-.crew-card.working .crew-state { color: var(--amber); }
-.crew-card.next .crew-state { color: var(--amber); }
-
-.crew-card.done .crew-state { color: var(--ok); }
-
-.crew-state-icon { display: inline-block; width: 12px; height: 12px; }
-
-.crew-card.idle .crew-state-icon::before { content: "○"; }
-
-.crew-card.working .crew-state-icon {
-  border: 2px solid rgba(232, 163, 76, 0.25);
-  border-top-color: var(--amber);
-  border-radius: 50%;
-  animation: spin 0.9s linear infinite;
-}
-
-.crew-card.done .crew-state-icon::before { content: "✓"; }
-
-@keyframes spin { to { transform: rotate(360deg); } }
-
-.crew-summary {
-  flex: 1;
-  min-height: 3.1em;
-  margin-top: 10px;
-  font-size: 0.74rem;
-  line-height: 1.55;
-  color: var(--dim);
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  animation: fade-up 0.5s ease both;
-}
-
-.crew-summary .sk { min-height: 8px; }
-
-@keyframes fade-up {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: translateY(0); }
-}
 
 /* ── Agent production route：七个节点是一条可读的制作链 ─────── */
 .crew-flow-head {
@@ -1098,25 +966,6 @@ main {
 
 .crew-flow-node:last-child { padding-right: 0; }
 
-.crew-flow .crew-card {
-  position: relative;
-  width: 100%;
-  min-width: 0;
-  min-height: 208px;
-  padding: 15px 15px 13px;
-  border-radius: 3px;
-  background: var(--surface-1);
-}
-
-.crew-flow .crew-card::before {
-  content: "";
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 2px;
-  background: var(--node-accent, var(--line));
-  opacity: 0.9;
-}
-
 .crew-flow-link {
   position: absolute;
   top: 50%;
@@ -1157,67 +1006,6 @@ main {
 .crew-flow-link[data-state="active"] { border-top-style: solid; border-top-color: rgba(215, 166, 74, 0.8); color: rgba(215, 166, 74, 0.92); }
 .crew-flow-link[data-state="active"] b { opacity: 1; animation: signal-flow 1.8s ease-in-out infinite; }
 
-.crew-flow .crew-card.idle { opacity: 0.34; }
-.crew-flow .crew-card.next { opacity: 0.64; border-color: var(--line); box-shadow: none; }
-.crew-flow .crew-card.idle .crew-indexline,
-.crew-flow .crew-card.next .crew-indexline { color: var(--meta); }
-.crew-flow .crew-card.ready {
-  --node-accent: var(--amber);
-  opacity: 1;
-  border-color: rgba(215, 166, 74, 0.78);
-  background: var(--surface-2);
-  box-shadow: inset 0 0 0 1px rgba(215, 166, 74, 0.12), 0 8px 18px rgba(0, 0, 0, 0.24);
-}
-.crew-flow .crew-card.working { --node-accent: var(--amber); box-shadow: inset 0 0 0 1px rgba(215, 166, 74, 0.13), 0 8px 18px rgba(0, 0, 0, 0.22); }
-.crew-flow .crew-card.done { --node-accent: var(--ok); opacity: 0.72; border-color: rgba(133, 185, 140, 0.34); box-shadow: none; }
-.crew-flow .crew-card.idle { --node-accent: var(--meta); }
-.crew-flow .crew-card.next { --node-accent: var(--faint); }
-.crew-flow .crew-card.failed { --node-accent: var(--err); }
-.crew-flow .crew-card.done .crew-indexline { color: rgba(133, 185, 140, 0.68); }
-.crew-flow .crew-card.done .crew-name { color: var(--dim); }
-.crew-flow .crew-card.done:hover,
-.crew-flow .crew-card.done:focus-visible { opacity: 0.96; border-color: rgba(133, 185, 140, 0.58); box-shadow: 0 7px 16px rgba(0, 0, 0, 0.22); }
-
-.crew-flow .crew-card .crew-indexline { margin-bottom: 10px; }
-.crew-flow .crew-card .crew-indexline {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 7px;
-  min-height: 25px;
-  padding-bottom: 9px;
-  border-bottom: 1px solid var(--line-soft);
-}
-.crew-flow .crew-card .crew-node-id { white-space: nowrap; }
-.crew-flow .crew-card .crew-en { max-width: none; color: var(--faint); text-align: left; white-space: nowrap; }
-.crew-node-status { justify-self: end; padding: 3px 5px; border: 1px solid currentColor; border-radius: 2px; font-size: 0.44rem; letter-spacing: 0.08em; line-height: 1; white-space: nowrap; }
-.crew-card.idle .crew-node-status { color: var(--meta); }
-.crew-card.next .crew-node-status { color: var(--faint); }
-.crew-card.ready .crew-node-status,
-.crew-card.working .crew-node-status { color: var(--amber); }
-.crew-card.done .crew-node-status { color: var(--ok); }
-.crew-card.failed .crew-node-status { color: var(--err); }
-.crew-flow .crew-card .crew-name { font-size: 1.02rem; }
-.crew-flow .crew-card .crew-role { min-height: 2.7em; margin-top: 5px; color: var(--faint); font-size: 0.7rem; line-height: 1.45; }
-.crew-flow .crew-card .crew-state { margin-top: 9px; font-size: 0.57rem; }
-.crew-flow .crew-card .crew-state { padding: 7px 0; border-block: 1px dashed var(--line-soft); }
-.crew-flow .crew-card .crew-summary { display: block; flex: 0 1 auto; min-height: 3.1em; max-height: 6.2em; margin-top: 9px; overflow: hidden; font-family: var(--mono); font-size: 0.61rem; letter-spacing: 0.035em; line-height: 1.55; color: var(--dim); }
-.crew-node-route { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 5px; margin-top: 10px; color: var(--meta); font-size: 0.47rem; letter-spacing: 0.045em; line-height: 1.25; }
-.crew-route-input,
-.crew-route-output { min-width: 0; white-space: nowrap; }
-.crew-route-output { color: var(--faint); text-align: right; }
-.crew-route-arrow { color: var(--amber-deep); font-size: 0.72rem; line-height: 1; }
-.crew-node-progress { height: 3px; margin-top: 11px; overflow: hidden; background: var(--line-soft); }
-.crew-node-progress i { display: block; width: var(--node-progress, 0%); height: 100%; background: var(--node-accent, var(--meta)); transition: width 0.45s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.25s ease; }
-.crew-flow .crew-card.working .crew-node-progress i { background: linear-gradient(90deg, var(--amber-deep), var(--amber)); }
-.crew-flow .crew-card .crew-artifact { margin-top: 6px; padding: 5px 6px; }
-.crew-flow .crew-card .crew-artifact .artifact-title { margin-bottom: 1px; font-size: 0.5rem; }
-.crew-flow .crew-card .crew-artifact .artifact-content { display: block; max-height: 1.55em; overflow: hidden; font-size: 0.56rem; line-height: 1.55; text-overflow: ellipsis; white-space: nowrap; }
-.crew-flow .crew-card.ready .crew-state { color: var(--amber); }
-.crew-flow .crew-card.next .crew-state { color: var(--faint); }
-.crew-flow .crew-card.ready .crew-state-icon::before { content: "→"; }
-.crew-flow .crew-card.done .crew-state { color: var(--ok); }
-.crew-flow .crew-card.failed .crew-state { color: var(--err); }
 .crew-live-note { display: block; margin-top: 8px; color: var(--amber); font-size: 0.57rem; letter-spacing: 0.08em; }
 
 @media (max-width: 1180px) {
@@ -3654,7 +3442,6 @@ body[data-view="landing"] .pipeline { visibility: hidden; pointer-events: none; 
 
 /* 装饰性 metadata 使用独立低亮度层，和正文保持清晰距离 */
 .panel-meta,
-.crew-en,
 .radio-summary,
 .crew-radio .radio-time,
 .manual-stats span,
@@ -3756,13 +3543,9 @@ body[data-design="archive-console"] .manual-panel .shot-detail-head h3 {
   font-family: var(--serif);
 }
 
-body[data-design="archive-console"] .crew-name { font-family: var(--sans); }
-
 body[data-design="archive-console"] .landing-sub,
 body[data-design="archive-console"] .hero-sub,
 body[data-design="archive-console"] .feature-desc,
-body[data-design="archive-console"] .crew-role,
-body[data-design="archive-console"] .crew-summary,
 body[data-design="archive-console"] .panel-note,
 body[data-design="archive-console"] .deliver-room p {
   font-family: var(--sans);
@@ -3777,10 +3560,6 @@ body[data-design="archive-console"] .panel-meta,
 body[data-design="archive-console"] .act-meta,
 body[data-design="archive-console"] .feature-meta,
 body[data-design="archive-console"] .feature-en,
-body[data-design="archive-console"] .crew-indexline,
-body[data-design="archive-console"] .crew-node-status,
-body[data-design="archive-console"] .crew-node-route,
-body[data-design="archive-console"] .crew-node-progress,
 body[data-design="archive-console"] .crew-radio,
 body[data-design="archive-console"] .mono {
   font-family: var(--mono);
@@ -3899,13 +3678,7 @@ body[data-design="archive-console"] .feature-card.is-hovered .feature-no {
   text-shadow: 0 0 10px rgba(194, 138, 62, 0.42);
 }
 
-/* Crew 节点与工作区使用档案式表面，状态仍由原有逻辑驱动。 */
-body[data-design="archive-console"] .crew-flow .crew-card { background: var(--panel); }
-body[data-design="archive-console"] .crew-flow .crew-card.ready,
-body[data-design="archive-console"] .crew-flow .crew-card.working { background: var(--sediment); }
-body[data-design="archive-console"] .crew-flow .crew-card .crew-indexline,
-body[data-design="archive-console"] .crew-flow .crew-card .crew-node-route,
-body[data-design="archive-console"] .crew-flow .crew-card .crew-node-progress { border-color: var(--hairline-soft); }
+/* Crew card surfaces are defined in static/css/crew.css. */
 body[data-design="archive-console"] .crew-radio-wrap { border-color: var(--hairline-soft); }
 body[data-design="archive-console"] .crew-radio-head { background: rgba(236, 227, 206, 0.018); }
 body[data-design="archive-console"] .crew-radio-head:hover { background: rgba(194, 138, 62, 0.055); }
@@ -4244,10 +4017,6 @@ body[data-design="archive-console"] .crew-flow-link[data-state="active"] b {
   box-shadow: 0 0 11px rgba(220, 175, 99, 0.78);
 }
 
-body[data-design="archive-console"] .crew-flow .crew-card.working {
-  animation: crew-active-breathe 2.2s ease-in-out infinite;
-}
-
 /* proximity 层只表达鼠标造成的局部受光，不覆盖真实的节点状态语义。 */
 body[data-design="archive-console"] .crew-flow .crew-card {
   outline: 1px solid rgba(220, 175, 99, var(--crew-proximity-border, 0));
@@ -4283,11 +4052,6 @@ body[data-design="archive-console"] .crew-flow-link.is-proximity {
 body[data-design="archive-console"] .crew-flow-link.is-proximity b {
   opacity: var(--link-proximity, 0);
   animation: signal-flow 1.45s cubic-bezier(0.16, 1, 0.3, 1) infinite;
-}
-
-@keyframes crew-active-breathe {
-  0%, 100% { box-shadow: inset 0 0 0 1px rgba(220, 175, 99, 0.09), 0 8px 18px rgba(0, 0, 0, 0.22); }
-  50% { box-shadow: inset 0 0 0 1px rgba(220, 175, 99, 0.2), 0 10px 20px rgba(0, 0, 0, 0.28); }
 }
 
 /* Storyboard：胶片带保留原生滚动惯性，拖拽时只施加小幅速度倾斜。 */
@@ -4534,7 +4298,6 @@ body[data-design="archive-console"] .audio-empty { align-self: center; padding-l
 body.low-performance[data-design="archive-console"] .aurora,
 body.low-performance[data-design="archive-console"] .landing-spotlight .spotlight-dust,
 body.low-performance[data-design="archive-console"] .grain { display: none; }
-body.low-performance[data-design="archive-console"] .crew-flow .crew-card.working { animation: none; }
 body.low-performance[data-design="archive-console"] .landing-spotlight .spotlight-beam { filter: blur(10px); animation-duration: 1.2s; }
 body.low-performance[data-design="archive-console"] .filmstrip { transition-duration: 180ms; }
 body.low-performance[data-design="archive-console"] .landing-reveal-grain { display: none; }
@@ -4557,7 +4320,6 @@ body.low-performance[data-design="archive-console"] .landing-reveal-grain { disp
   body[data-design="archive-console"] .landing-spotlight .spotlight-beam,
   body[data-design="archive-console"] .landing-spotlight .spotlight-dust,
   body[data-design="archive-console"] .landing-title em,
-  body[data-design="archive-console"] .crew-flow .crew-card.working,
   body[data-design="archive-console"] .shot-card.is-developing .shot-frame::after,
   body[data-design="archive-console"] .shot-card.has-media .shot-frame video { animation: none; transition: none; }
   body[data-design="archive-console"] .landing-spotlight { opacity: 0.56; transform: none; }
@@ -4750,8 +4512,7 @@ body.low-performance[data-design="archive-console"] .landing-reveal-grain { disp
 
 @media (prefers-reduced-motion: reduce) {
   .grain { animation: none; }
-  .rec-dot, .rec-inline.live, .shot-map i, .crew-card.working { animation: none; }
-  .crew-card.working .crew-state-icon { animation: none; }
+  .rec-dot, .rec-inline.live, .shot-map i { animation: none; }
   .crew-flow-link[data-state="active"] b { animation: none; opacity: 0.65; }
   .aurora i, .marquee-track, .landing-hero::before, .landing-hud-rec i { animation: none; }
   .landing-line > span { animation: none; transform: none; }
@@ -4990,7 +4751,6 @@ html[data-theme="light"] body[data-design="archive-console"] .landing-title,
 html[data-theme="light"] body[data-design="archive-console"] .hero-title,
 html[data-theme="light"] body[data-design="archive-console"] .act-head h2,
 html[data-theme="light"] body[data-design="archive-console"] .panel-head h2,
-html[data-theme="light"] body[data-design="archive-console"] .crew-name,
 html[data-theme="light"] body[data-design="archive-console"] .feature-card h3,
 html[data-theme="light"] body[data-design="archive-console"] .deliver-room h3,
 html[data-theme="light"] body[data-design="archive-console"] .deliver-room h4 {
@@ -5100,25 +4860,6 @@ html[data-theme="light"] body[data-design="archive-console"] .feature-card:hover
 html[data-theme="light"] body[data-design="archive-console"] .feature-card.is-hovered h3 { color: var(--text-strong); }
 html[data-theme="light"] body[data-design="archive-console"] .feature-card:hover .feature-no,
 html[data-theme="light"] body[data-design="archive-console"] .feature-card.is-hovered .feature-no { color: var(--accent-token); text-shadow: none; }
-
-html[data-theme="light"] body[data-design="archive-console"] .crew-flow .crew-card,
-html[data-theme="light"] body[data-design="archive-console"] .crew-flow .crew-card.ready,
-html[data-theme="light"] body[data-design="archive-console"] .crew-flow .crew-card.working {
-  background: var(--surface-1);
-  border-color: var(--line);
-}
-
-html[data-theme="light"] body[data-design="archive-console"] .crew-flow .crew-card.ready,
-html[data-theme="light"] body[data-design="archive-console"] .crew-flow .crew-card.working {
-  background: var(--surface-2);
-  border-color: var(--accent-token-light);
-  box-shadow: inset 0 0 0 1px var(--glow-token), var(--theme-shadow-card);
-}
-
-html[data-theme="light"] body[data-design="archive-console"] .crew-flow .crew-card.done {
-  border-color: rgba(95, 140, 104, 0.34);
-  box-shadow: none;
-}
 
 html[data-theme="light"] body[data-design="archive-console"] .crew-flow .crew-card::after {
   background: radial-gradient(190px circle at var(--crew-proximity-x, 50%) var(--crew-proximity-y, 50%), rgba(192, 139, 76, 0.2), transparent 72%);
@@ -5465,27 +5206,6 @@ body[data-design="archive-console"] .feature-card.is-hovered h3 {
   text-shadow: none;
 }
 
-/* Agent nodes are a route with readable handoff gaps, not equal-weight cards. */
-body[data-design="archive-console"] .crew-flow .crew-card {
-  background: var(--surface-1);
-  border-radius: var(--radius-surface);
-  box-shadow: none;
-}
-
-body[data-design="archive-console"] .crew-flow .crew-card.ready,
-body[data-design="archive-console"] .crew-flow .crew-card.working {
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-token) 18%, transparent);
-}
-
-body[data-design="archive-console"] .crew-flow .crew-card.done {
-  box-shadow: none;
-}
-
-body[data-design="archive-console"] .crew-flow .crew-card.done:hover,
-body[data-design="archive-console"] .crew-flow .crew-card.done:focus-visible {
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--status-ok-token) 28%, transparent);
-}
-
 body[data-design="archive-console"] .crew-flow-link[data-state="active"] {
   box-shadow: 0 0 4px color-mix(in srgb, var(--accent-token) 20%, transparent);
 }
@@ -5496,11 +5216,6 @@ body[data-design="archive-console"] .crew-flow-link[data-state="active"] b {
 
 body[data-design="archive-console"] .crew-flow-link.is-proximity {
   box-shadow: 0 0 4px color-mix(in srgb, var(--accent-token-light) 20%, transparent);
-}
-
-@keyframes crew-active-breathe {
-  0%, 100% { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-token) 10%, transparent); }
-  50% { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-token-light) 22%, transparent); }
 }
 
 body[data-design="archive-console"] .crew-radio-wrap {
@@ -5764,8 +5479,6 @@ html[data-theme="light"] body[data-design="archive-console"] .deliver-timeline-s
   box-shadow: inset 0 1px 0 var(--glow-token);
 }
 
-html[data-theme="light"] body[data-design="archive-console"] .crew-flow .crew-card.ready,
-html[data-theme="light"] body[data-design="archive-console"] .crew-flow .crew-card.working,
 html[data-theme="light"] body[data-design="archive-console"] .deliver-work-progress,
 html[data-theme="light"] body[data-design="archive-console"] .deliver-audio-panel,
 html[data-theme="light"] body[data-design="archive-console"] .final-look-panel,
@@ -5877,128 +5590,6 @@ body[data-design="archive-console"] .crew-flow-legend i {
   width: 8px;
   height: 8px;
   box-shadow: none;
-}
-
-body[data-design="archive-console"] .crew-flow .crew-card {
-  min-height: 220px;
-  padding: 17px 16px 15px;
-  border-radius: var(--radius-surface);
-  box-shadow: none;
-  text-shadow: none;
-}
-
-body[data-design="archive-console"] .crew-flow .crew-card.idle {
-  opacity: .78;
-}
-
-body[data-design="archive-console"] .crew-flow .crew-card.next {
-  opacity: .86;
-}
-
-body[data-design="archive-console"] .crew-flow .crew-card.done {
-  opacity: .92;
-  box-shadow: none;
-}
-
-body[data-design="archive-console"] .crew-flow .crew-card.ready,
-body[data-design="archive-console"] .crew-flow .crew-card.working {
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-token) 42%, transparent);
-}
-
-body[data-design="archive-console"] .crew-flow .crew-card:hover,
-body[data-design="archive-console"] .crew-flow .crew-card.done:hover,
-body[data-design="archive-console"] .crew-flow .crew-card:focus-visible {
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-token) 58%, transparent);
-}
-
-body[data-design="archive-console"] .crew-flow .crew-card .crew-indexline,
-body[data-design="archive-console"] .crew-flow .crew-card .crew-node-id,
-body[data-design="archive-console"] .crew-flow .crew-card .crew-en {
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: .08em;
-}
-
-body[data-design="archive-console"] .crew-flow .crew-card .crew-indexline {
-  margin-bottom: 12px;
-  color: var(--accent-token);
-}
-
-body[data-design="archive-console"] .crew-flow .crew-card .crew-en {
-  color: var(--text-muted);
-}
-
-body[data-design="archive-console"] .crew-flow .crew-card .crew-node-status {
-  padding: 4px 6px;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: .07em;
-}
-
-body[data-design="archive-console"] .crew-flow .crew-card .crew-name {
-  color: var(--text-strong);
-  font-family: var(--sans);
-  font-size: 19px;
-  font-weight: 650;
-  letter-spacing: .035em;
-  line-height: 1.25;
-}
-
-body[data-design="archive-console"] .crew-flow .crew-card .crew-role {
-  min-height: 0;
-  margin-top: 7px;
-  color: var(--text-body);
-  font-family: var(--sans);
-  font-size: 14px;
-  line-height: 1.55;
-}
-
-body[data-design="archive-console"] .crew-flow .crew-card .crew-state {
-  margin-top: 12px;
-  padding: 8px 0;
-  color: var(--text-body);
-  font-family: var(--mono);
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: .06em;
-}
-
-body[data-design="archive-console"] .crew-flow .crew-card .crew-summary {
-  min-height: 0;
-  max-height: 6.6em;
-  margin-top: 11px;
-  color: var(--text-body);
-  font-family: var(--sans);
-  font-size: 14px;
-  font-weight: 400;
-  letter-spacing: 0;
-  line-height: 1.6;
-}
-
-body[data-design="archive-console"] .crew-node-route {
-  margin-top: 12px;
-  color: var(--text-muted);
-  font-family: var(--mono);
-  font-size: 12px;
-  letter-spacing: .025em;
-  line-height: 1.35;
-}
-
-body[data-design="archive-console"] .crew-route-output {
-  color: var(--text-muted);
-}
-
-body[data-design="archive-console"] .crew-flow .crew-card .crew-artifact .artifact-title {
-  margin-bottom: 3px;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: .08em;
-}
-
-body[data-design="archive-console"] .crew-flow .crew-card .crew-artifact .artifact-content {
-  font-family: var(--sans);
-  font-size: 13px;
-  line-height: 1.5;
 }
 
 body[data-design="archive-console"] .crew-radio-wrap {
@@ -7493,8 +7084,6 @@ body[data-design="archive-console"] :is(
   .panel-note,
   .render-note,
   .idea-helper,
-  .crew-role,
-  .crew-summary,
   .monitor-desc,
   .radio-msg p,
   .manual-panel .manual-type,
@@ -7614,7 +7203,6 @@ body[data-design="archive-console"] :is(
   .manual-section-kicker,
   .deliver-kicker,
   .deliver-label,
-  .crew-indexline,
   .style-current,
   .audio-console-state,
   .deliver-audio-head > .mono,
@@ -7700,7 +7288,6 @@ body[data-design="archive-console"] .manual-panel .tab {
 body[data-design="archive-console"] .pipeline .step-state,
 body[data-design="archive-console"] .act-meta > span:not(.act-meta-label),
 body[data-design="archive-console"] .mode-note,
-body[data-design="archive-console"] .crew-flow .crew-card .crew-state,
 body[data-design="archive-console"] .crew-radio .radio-line .radio-status,
 body[data-design="archive-console"] .screening-panel .deliver-state-badge,
 body[data-design="archive-console"] .screening-panel .deliver-progress-state,
@@ -7722,8 +7309,6 @@ body[data-design="archive-console"] .toast {
   color: var(--type-status-color);
 }
 
-body[data-design="archive-console"] .crew-flow .crew-card .crew-role,
-body[data-design="archive-console"] .crew-flow .crew-card .crew-summary,
 body[data-design="archive-console"] .crew-radio .radio-msg p,
 body[data-design="archive-console"] .screening-panel .audio-track-main > p {
   font-family: var(--type-helper-font);

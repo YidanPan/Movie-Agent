@@ -1,17 +1,53 @@
-/* Crew Assembly extraction seam. */
+/* Crew Assembly / Production Route authoritative card system. */
 :where(.p2-crew) { isolation: isolate; }
 
-/* Production Route nodes: the card owns a vertical reading rhythm. */
 body[data-design="archive-console"] .crew-flow .crew-card {
+  position: relative;
   display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
+  width: 100%;
+  min-width: 0;
   min-height: 340px;
   height: 100%;
-  padding: 18px 16px 16px;
-  overflow: visible;
   box-sizing: border-box;
+  padding: 16px 15px 14px;
+  overflow: visible;
+  color: var(--text-body);
+  background: var(--surface-1);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-surface);
+  box-shadow: none;
+  opacity: 1;
+  cursor: pointer;
+  text-shadow: none;
+  transition: border-color 0.2s ease, background-color 0.2s ease, outline-color 0.2s ease;
 }
 
+body[data-design="archive-console"] .crew-flow .crew-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  z-index: 0;
+  width: 2px;
+  background: var(--node-accent, var(--line));
+  opacity: 0.9;
+}
+
+body[data-design="archive-console"] .crew-flow .crew-card > * {
+  position: relative;
+  z-index: 1;
+}
+
+body[data-design="archive-console"] .crew-flow .crew-card:hover,
+body[data-design="archive-console"] .crew-flow .crew-card:focus-visible,
+body[data-design="archive-console"] .crew-flow .crew-card[data-inspector-open="true"] {
+  border-color: color-mix(in srgb, var(--accent-token) 62%, var(--line));
+  background: var(--surface-1);
+  box-shadow: none;
+}
+
+/* Header: index and state only. Identity lives in its own block below. */
 body[data-design="archive-console"] .crew-flow .crew-card-header {
   display: flex;
   flex: 0 0 auto;
@@ -19,41 +55,140 @@ body[data-design="archive-console"] .crew-flow .crew-card-header {
   min-width: 0;
 }
 
+body[data-design="archive-console"] .crew-flow .crew-indexline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  min-height: 27px;
+  margin: 0;
+  padding-bottom: 10px;
+  color: var(--accent-token);
+  border-bottom: 1px solid var(--line-soft);
+  font: 600 12px/1.1 var(--mono);
+  letter-spacing: .08em;
+}
+
+body[data-design="archive-console"] .crew-flow .crew-node-id,
+body[data-design="archive-console"] .crew-flow .crew-node-status {
+  flex: 0 0 auto;
+  min-width: 0;
+  word-break: normal;
+  overflow-wrap: normal;
+  white-space: nowrap;
+  writing-mode: horizontal-tb;
+}
+
+body[data-design="archive-console"] .crew-flow .crew-node-status {
+  padding: 4px 6px;
+  color: var(--text-muted);
+  border: 1px solid currentColor;
+  border-radius: 2px;
+  font-size: 11px;
+  letter-spacing: .07em;
+}
+
+/* Identity: Chinese name, horizontal English name, one-line role. */
+body[data-design="archive-console"] .crew-flow .crew-identity {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  margin-top: 16px;
+}
+
+body[data-design="archive-console"] .crew-flow .crew-name {
+  display: block;
+  min-width: 0;
+  margin: 0;
+  color: var(--text-strong);
+  font: 650 19px/1.25 var(--sans);
+  letter-spacing: .035em;
+  word-break: normal;
+  overflow-wrap: normal;
+  white-space: nowrap;
+  writing-mode: horizontal-tb;
+}
+
+body[data-design="archive-console"] .crew-flow .crew-en {
+  display: block;
+  width: auto;
+  max-width: none;
+  min-width: 0;
+  color: var(--text-muted);
+  font: 600 12px/1.2 var(--mono);
+  letter-spacing: .08em;
+  text-align: left;
+  word-break: normal;
+  overflow-wrap: normal;
+  white-space: nowrap;
+  writing-mode: horizontal-tb;
+}
+
+body[data-design="archive-console"] .crew-flow .crew-role {
+  min-width: 0;
+  min-height: 1.55em;
+  margin: 1px 0 0;
+  color: var(--text-body);
+  font: 14px/1.55 var(--sans);
+  letter-spacing: 0;
+  word-break: normal;
+  overflow-wrap: normal;
+  white-space: nowrap;
+  writing-mode: horizontal-tb;
+}
+
+/* Main: state/output, structured summary, optional artifact preview. */
 body[data-design="archive-console"] .crew-flow .crew-card-main {
   display: flex;
   flex: 1 1 auto;
   min-height: 0;
   flex-direction: column;
-  gap: 9px;
+  gap: 10px;
+  margin-top: 17px;
+  overflow: visible;
 }
 
-body[data-design="archive-console"] .crew-flow .crew-card-footer {
-  display: grid;
+body[data-design="archive-console"] .crew-flow .crew-state {
+  display: flex;
+  align-items: center;
   flex: 0 0 auto;
-  gap: 9px;
-  margin-top: auto;
-  padding-top: 12px;
-  border-top: 1px solid var(--line-soft);
-}
-
-body[data-design="archive-console"] .crew-flow .crew-card .crew-state {
-  margin-top: 0;
+  gap: 8px;
+  min-height: 27px;
+  margin: 0;
+  padding: 6px 0;
+  color: var(--text-body);
+  border-block: 1px dashed var(--line-soft);
+  font: 600 12px/1.2 var(--mono);
+  letter-spacing: .06em;
+  white-space: nowrap;
 }
 
 body[data-design="archive-console"] .crew-flow .crew-card:not(.working):not(.failed) .crew-state {
-  display: none;
+  visibility: hidden;
 }
 
-body[data-design="archive-console"] .crew-flow .crew-card .crew-summary {
+body[data-design="archive-console"] .crew-flow .crew-state-icon {
+  display: inline-grid;
+  flex: 0 0 12px;
+  place-items: center;
+  width: 12px;
+  height: 12px;
+}
+
+body[data-design="archive-console"] .crew-flow .crew-summary {
   display: grid;
   flex: 0 0 auto;
-  gap: 3px;
-  min-height: 0;
-  max-height: none;
+  gap: 4px;
+  min-width: 0;
+  min-height: 70px;
   margin: 0;
   overflow: visible;
-  -webkit-box-orient: initial;
-  -webkit-line-clamp: unset;
+  color: var(--text-body);
+  font-family: var(--sans);
+  letter-spacing: 0;
+  line-height: 1.45;
+  animation: fade-up 0.5s ease both;
 }
 
 body[data-design="archive-console"] .crew-flow .crew-summary-headline,
@@ -63,50 +198,48 @@ body[data-design="archive-console"] .crew-flow .crew-summary-secondary {
   min-width: 0;
   overflow: visible;
   text-overflow: clip;
-  white-space: normal;
+  word-break: normal;
+  overflow-wrap: normal;
+  white-space: nowrap;
+  writing-mode: horizontal-tb;
 }
 
 body[data-design="archive-console"] .crew-flow .crew-summary-headline {
   color: var(--text-strong);
-  font-family: var(--mono);
-  font-size: 12px;
-  font-weight: 650;
+  font: 650 12px/1.35 var(--mono);
   letter-spacing: .06em;
-  line-height: 1.35;
 }
 
 body[data-design="archive-console"] .crew-flow .crew-summary-primary {
   color: var(--text-body);
-  font-family: var(--sans);
-  font-size: 14px;
-  font-weight: 550;
-  line-height: 1.45;
+  font: 550 13px/1.45 var(--mono);
+  letter-spacing: .02em;
 }
 
 body[data-design="archive-console"] .crew-flow .crew-summary-secondary {
   color: var(--text-muted);
-  font-family: var(--mono);
-  font-size: 11px;
+  font: 600 11px/1.45 var(--mono);
   letter-spacing: .04em;
-  line-height: 1.45;
 }
 
 body[data-design="archive-console"] .crew-flow .crew-summary.is-natural .crew-summary-secondary {
   display: -webkit-box;
   overflow: hidden;
-  font-family: var(--sans);
-  font-size: 13px;
+  font: 13px/1.55 var(--sans);
   letter-spacing: 0;
-  line-height: 1.55;
+  white-space: normal;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
 
 body[data-design="archive-console"] .crew-flow .crew-card .crew-artifact-preview {
   display: grid;
+  flex: 0 0 auto;
   gap: 7px;
   min-width: 0;
-  padding: 10px;
+  max-height: 102px;
+  padding: 9px;
+  overflow: visible;
   border: 1px solid var(--line-soft);
   border-left: 2px solid var(--accent-token);
   background: color-mix(in srgb, var(--accent-token) 5%, var(--surface-2));
@@ -126,27 +259,22 @@ body[data-design="archive-console"] .crew-flow .artifact-preview-head {
 
 body[data-design="archive-console"] .crew-flow .artifact-title {
   min-width: 0;
-  overflow: visible;
   color: var(--text-strong);
-  font-family: var(--mono);
-  font-size: 11px;
-  font-weight: 650;
+  font: 650 11px/1.35 var(--mono);
   letter-spacing: .06em;
-  line-height: 1.35;
-  text-overflow: clip;
-  text-transform: uppercase;
-  white-space: normal;
-  overflow-wrap: anywhere;
+  overflow-wrap: normal;
+  white-space: nowrap;
+  writing-mode: horizontal-tb;
 }
 
 body[data-design="archive-console"] .crew-flow .artifact-content {
   display: -webkit-box;
+  min-width: 0;
   margin: 0;
   overflow: hidden;
   color: var(--text-body);
-  font-family: var(--sans);
-  font-size: 13px;
-  line-height: 1.55;
+  font: 13px/1.55 var(--sans);
+  white-space: normal;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
@@ -154,13 +282,11 @@ body[data-design="archive-console"] .crew-flow .artifact-content {
 body[data-design="archive-console"] .crew-flow .artifact-action {
   min-height: 28px;
   padding: 5px 7px;
-  border: 1px solid var(--line-soft);
   color: var(--text-muted);
   background: transparent;
-  font-family: var(--mono);
-  font-size: 10px;
+  border: 1px solid var(--line-soft);
+  font: 600 10px/1 var(--mono);
   letter-spacing: .08em;
-  line-height: 1;
   white-space: nowrap;
 }
 
@@ -170,32 +296,80 @@ body[data-design="archive-console"] .crew-flow .artifact-action:focus-visible {
   border-color: var(--accent-token);
 }
 
-body[data-design="archive-console"] .crew-flow .crew-card-footer .crew-node-route,
-body[data-design="archive-console"] .crew-flow .crew-card-footer .crew-node-progress {
-  margin-top: 0;
+/* Footer: route and progress share one baseline across all seven cards. */
+body[data-design="archive-console"] .crew-flow .crew-card-footer {
+  display: grid;
+  flex: 0 0 auto;
+  gap: 10px;
+  margin-top: auto;
+  padding-top: 13px;
+  border-top: 1px solid var(--line-soft);
 }
 
-body[data-design="archive-console"] .crew-flow .crew-node-status {
-  max-width: 100%;
-  overflow: visible;
-  text-overflow: clip;
+body[data-design="archive-console"] .crew-flow .crew-node-route {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  margin: 0;
+  color: var(--text-muted);
+  font: 600 11px/1.25 var(--mono);
+  letter-spacing: .025em;
   white-space: nowrap;
 }
 
-body[data-design="archive-console"] .crew-flow .crew-en {
-  overflow: visible;
-  line-height: 1.2;
-  white-space: normal;
-  overflow-wrap: break-word;
-}
-
-body[data-design="archive-console"] .crew-flow .crew-node-route,
 body[data-design="archive-console"] .crew-flow .crew-route-input,
 body[data-design="archive-console"] .crew-flow .crew-route-output {
+  min-width: 0;
   overflow: visible;
   text-overflow: clip;
+  word-break: normal;
+  overflow-wrap: normal;
   white-space: nowrap;
+  writing-mode: horizontal-tb;
 }
+
+body[data-design="archive-console"] .crew-flow .crew-route-output { text-align: right; }
+body[data-design="archive-console"] .crew-flow .crew-route-arrow { color: var(--accent-token); font-size: 13px; line-height: 1; }
+
+body[data-design="archive-console"] .crew-flow .crew-node-progress {
+  width: 100%;
+  height: 3px;
+  margin: 0;
+  overflow: hidden;
+  background: var(--line-soft);
+}
+
+body[data-design="archive-console"] .crew-flow .crew-node-progress i {
+  display: block;
+  width: var(--node-progress, 0%);
+  height: 100%;
+  background: var(--node-accent, var(--meta));
+  transition: width 0.45s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.25s ease;
+}
+
+/* State language: readable cards stay fully opaque; accents carry state. */
+body[data-design="archive-console"] .crew-flow .crew-card.idle { --node-accent: var(--meta); }
+body[data-design="archive-console"] .crew-flow .crew-card.next { --node-accent: var(--text-muted); }
+body[data-design="archive-console"] .crew-flow .crew-card.ready,
+body[data-design="archive-console"] .crew-flow .crew-card.working { --node-accent: var(--accent-token); border-color: color-mix(in srgb, var(--accent-token) 66%, var(--line)); }
+body[data-design="archive-console"] .crew-flow .crew-card.done { --node-accent: var(--status-ok-token); border-color: color-mix(in srgb, var(--status-ok-token) 55%, var(--line)); }
+body[data-design="archive-console"] .crew-flow .crew-card.failed { --node-accent: var(--status-error-token); border-color: color-mix(in srgb, var(--status-error-token) 62%, var(--line)); }
+
+body[data-design="archive-console"] .crew-flow .crew-card.idle .crew-node-status { color: var(--text-muted); }
+body[data-design="archive-console"] .crew-flow .crew-card.next .crew-node-status { color: var(--text-muted); }
+body[data-design="archive-console"] .crew-flow .crew-card.ready .crew-node-status,
+body[data-design="archive-console"] .crew-flow .crew-card.working .crew-node-status { color: var(--accent-token); }
+body[data-design="archive-console"] .crew-flow .crew-card.done .crew-node-status { color: var(--status-ok-token); }
+body[data-design="archive-console"] .crew-flow .crew-card.failed .crew-node-status { color: var(--status-error-token); }
+
+body[data-design="archive-console"] .crew-flow .crew-card.working .crew-state { color: var(--accent-token); }
+body[data-design="archive-console"] .crew-flow .crew-card.failed .crew-state { color: var(--status-error-token); }
+body[data-design="archive-console"] .crew-flow .crew-card.done .crew-state { color: var(--status-ok-token); }
+body[data-design="archive-console"] .crew-flow .crew-card.idle .crew-state-icon::before { content: "○"; }
+body[data-design="archive-console"] .crew-flow .crew-card.done .crew-state-icon::before { content: "✓"; }
+body[data-design="archive-console"] .crew-flow .crew-card.failed .crew-state-icon::before { content: "✕"; }
 
 @media (max-width: 700px) {
   body[data-design="archive-console"] .crew-flow .crew-card {
@@ -203,4 +377,3 @@ body[data-design="archive-console"] .crew-flow .crew-route-output {
     height: auto;
   }
 }
-
