@@ -65,6 +65,22 @@ class ReferenceBankTests(unittest.TestCase):
             self.assertEqual(len(inputs["current_scene"]), 1)
             self.assertEqual(len(inputs["previous_approved_shot_ending_frame"]), 1)
 
+    def test_new_approved_revision_stales_previous_shot_reference(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            old_frame = root / "old.jpg"
+            new_frame = root / "new.jpg"
+            old_frame.touch()
+            new_frame.touch()
+            store = ReferenceBankStore(root / "outputs")
+            store.register_file("film-test", old_frame, kind="review_keyframe", source="qc", shot_number=1, revision=1)
+            store.promote_shot_references("film-test", 1, 1)
+            store.register_file("film-test", new_frame, kind="review_keyframe", source="qc", shot_number=1, revision=2)
+            store.promote_shot_references("film-test", 1, 2)
+            bank = store.load("film-test")
+            inputs = store.qc_reference_paths("film-test", 2)
+            self.assertEqual(inputs["previous_approved_shot_ending_frame"], [Path(bank.assets[-1].path)])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -644,6 +644,7 @@ class MovieOrchestrator:
         return bool(shots) and all(
             str(getattr(shot, "status", "")).startswith("approved")
             and not bool(getattr(shot, "stale", False))
+            and str(getattr(shot, "qc_status", "")).upper() not in {"AWAITING_VISUAL_REVIEW", "PASSED_MANUAL_REVIEW_REQUIRED"}
             for shot in shots
         )
 
@@ -1076,6 +1077,8 @@ class MovieOrchestrator:
         self._require_dialogue_locked(project)
         if project.status not in {"rough_cut_ready", "editing_rough_cut"}:
             raise ValueError("Please complete the Rough Cut before approving the final cut.")
+        if not self._shots_ready(project):
+            raise ValueError("All current shot revisions must be approved before the final cut can be approved.")
         if subtitle_mode:
             project.subtitle_mode = normalise_subtitle_mode(subtitle_mode)
         project.status = "editing_final"

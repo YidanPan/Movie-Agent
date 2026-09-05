@@ -102,6 +102,11 @@ class ReferenceBankStore:
             raise FileNotFoundError(f"Reference file does not exist: {source_path}")
         bank = self.load(project_id)
         timestamp = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+        current_revision = max(1, int(revision or 1))
+        if approved and shot_number is not None:
+            for existing in bank.assets:
+                if existing.shot_number == shot_number and existing.revision != current_revision:
+                    existing.metadata["stale"] = True
         reference_id = f"ref-{len(bank.assets) + 1:04d}"
         safe_name = self._slug_pattern.sub("-", name or f"{kind}-{reference_id}").strip("-.") or reference_id
         suffix = source_path.suffix.lower() or ".webp"
@@ -115,7 +120,7 @@ class ReferenceBankStore:
             source=str(source),
             approved=bool(approved),
             shot_number=shot_number,
-            revision=max(1, int(revision or 1)),
+            revision=current_revision,
             created_at=timestamp,
             metadata=dict(metadata or {}),
         )
@@ -147,7 +152,13 @@ class ReferenceBankStore:
         """Resolve persistent, approved inputs for a shot's visual review."""
 
         bank = self.load(project_id)
-        usable = [asset for asset in bank.assets if asset.approved and Path(asset.path).is_file()]
+        usable = [
+            asset
+            for asset in bank.assets
+            if asset.approved
+            and not bool((asset.metadata or {}).get("stale"))
+            and Path(asset.path).is_file()
+        ]
         character = [asset for asset in usable if asset.kind in {"character_hero", "character", "approved_keyframe"}]
         scene = [asset for asset in usable if asset.kind in {"scene", "palette", "cinematography"}]
         previous = [
@@ -157,8 +168,15 @@ class ReferenceBankStore:
             and asset.shot_number is not None
             and asset.shot_number < shot_number
         ]
+        latest_previous: dict[int, ReferenceAsset] = {}
+        for asset in previous:
+            if asset.shot_number is None:
+                continue
+            current = latest_previous.get(asset.shot_number)
+            if current is None or (asset.revision, asset.created_at) > (current.revision, current.created_at):
+                latest_previous[asset.shot_number] = asset
         return {
             "character_hero": [Path(asset.path) for asset in character[:2]],
             "current_scene": [Path(asset.path) for asset in scene[:3]],
-            "previous_approved_shot_ending_frame": [Path(previous[-1].path)] if previous else [],
+            "previous_approved_shot_ending_frame": [Path(asset.path) for asset in latest_previous.values()][-1:] if latest_previous else [],
         }
