@@ -136,3 +136,13 @@ Light / `Production Desk` 下的片场监视器采用“纸张工作台中的嵌
 - 屏幕只保留轻微暗角、扫描纹理和内缘线，避免大面积 blur、外发光与玻璃拟态。`6/6 READY`、`100%`、时间码和状态说明使用独立的高对比 monitor token，确保屏内信息不比页面 metadata 更难读。
 - shot 状态条与进度线使用低饱和 brass / moss 色，表达监看设备状态灯而不是游戏 HUD。Spark 真实生成按钮在 disabled 时保持可读文字、去除高光并禁止 pointer，不依赖低 opacity 制造不可用感。
 - 监视器下方日志改为默认折叠的 `AGENT ACTIVITY`。摘要持续显示最新三条事件，展开后读取完整 `log-feed`，让监视器保持主视觉而不丢失可审阅的生产记录。
+
+## Quiet workspace / quality disclosure pass
+
+本轮继续保持 `Cinematic Operating System` 的视觉骨架，但把电影感从特效转回信息组织：
+
+- Production Bible 收敛为左侧 Scene / Shot / Character 导航与右侧 Production Document。正文限定阅读宽度，正文使用 Sans，章节标题使用 Serif，SHOT / REV / QC 等工业字段使用 Mono；工作台不再依赖 glow、blur 或卡片阴影制造层级。
+- Sound 首屏只保留 Music Direction、Emotional Arc、Timeline 和紧凑 Mix Summary。高级音量、声像、provider、source、alignment 与 loudness 收进 `SHOW MIX CONTROLS`，轨道仍可通过共享 Inspector 展开。
+- Deliver 把 Final Cut 作为唯一主角，Final Look 默认保持简洁，Fine Tune 与技术摘要下沉。Quality strip 明确区分 `AUTO / PROXY / SCREENING / ORIGINAL`，同时展示 SOURCE、SCREENING 和 MASTER，低清源直接标记 `LOW RES SOURCE`，不使用 CSS sharpening、scale 或 blur 掩盖 conform 的真实限制。
+- Theme 切换继续采用 Screening Room / Production Desk 的 exposure change：布局和内容保持稳定，只有 work light、表面、背景与 ambient 在分层时序内变化，并遵守 `prefers-reduced-motion`。
+- 前端 domain logic 已开始从 legacy `static/app.js` 迁移到 `static/js/`：theme、player、storyboard、state、sound、deliver 现在提供实际可调用的模块 API，legacy 层保留 DOM orchestration 和兼容入口，不再保留同一业务函数的第二份实现。

@@ -27,7 +27,7 @@
 <link rel="stylesheet" href="/static/css/storyboard.css?v=p5-20260904">
 <link rel="stylesheet" href="/static/css/sound.css?v=p5-20260904">
 <link rel="stylesheet" href="/static/css/deliver.css?v=p5-20260904">
-<link rel="stylesheet" href="/static/css/interaction-refinement.css?v=ui-20260905">
+<link rel="stylesheet" href="/static/css/interaction-refinement.css?v=ui-20260905-p2">
 </head>
 <body data-view="landing" data-design="archive-console">
 <div class="theme-transition-wash" id="theme-transition-wash" aria-hidden="true"></div>
@@ -332,6 +332,15 @@
           </div>
           <span class="panel-meta mono type-system-meta">PRODUCTION BIBLE</span>
         </div>
+        <div class="manual-reading-grid">
+          <nav class="manual-navigation" aria-label="制作手册导航">
+            <span class="manual-navigation-label mono">BIBLE INDEX</span>
+            <button type="button" class="manual-navigation-item is-active" data-manual-nav-tab="brief"><span>01</span><b>SCENE</b><small>PROJECT / WORLD</small></button>
+            <button type="button" class="manual-navigation-item" data-manual-nav-tab="quality"><span>02</span><b>SHOT</b><small>CONTINUITY / QC</small></button>
+            <button type="button" class="manual-navigation-item" data-manual-nav-tab="visual"><span>03</span><b>CHARACTER</b><small>LOOK / REFERENCE</small></button>
+            <span class="manual-navigation-note type-helper">Selected document stays sharp. Motion is reserved for navigation.</span>
+          </nav>
+          <div class="manual-document">
         <div class="manual-summary" id="manual-summary" aria-label="项目摘要"></div>
         <div class="tabs" id="manual-tabs" role="tablist">
           <button class="tab active" id="manual-tab-brief" data-tab="brief" type="button" role="tab" aria-controls="manual-body" aria-selected="true">项目设定</button>
@@ -348,6 +357,8 @@
           </summary>
           <div class="activity-body" id="activity-body"></div>
         </details>
+          </div>
+        </div>
       </div>
 
       <div class="panel screening-panel">
@@ -397,7 +408,7 @@
                 <video id="rough-cut-video" controls playsinline preload="metadata" aria-label="Rough Cut 粗剪预览"></video>
               </div>
               <section class="audio-design-console" id="audio-design-console" aria-label="声音设计控制台">
-                <header class="audio-console-head"><div><span class="deliver-label mono">SOUND CONSOLE / MUSIC DIRECTION</span><h4>声音设计与配乐</h4></div><span class="audio-console-state mono" id="audio-design-state">DESIGN READY</span></header>
+                <header class="audio-console-head"><div><span class="deliver-label mono">SOUND CONSOLE / MUSIC DIRECTION</span><h4>声音设计与配乐</h4></div><div class="audio-console-actions"><span class="audio-console-state mono" id="audio-design-state">DESIGN READY</span><button class="ghost type-control" type="button" data-audio-advanced-toggle aria-expanded="false">SHOW MIX CONTROLS</button></div></header>
                 <div class="audio-focus-grid">
                   <section class="music-direction-panel" aria-label="Music Direction">
                     <header class="audio-block-head"><div><span class="deliver-label mono">MUSIC DIRECTION</span><strong id="music-brief-source">AI MUSIC / EMOTIONAL ARC</strong></div><span class="music-brief-version mono" id="music-brief-version">V1</span></header>
@@ -439,6 +450,21 @@
                     <span class="final-compare-label final-compare-label--original mono">ORIGINAL</span>
                     <span class="final-compare-label final-compare-label--final mono">FINAL LOOK</span>
                   </div>
+                  <section class="deliver-preview-quality" aria-label="预览质量">
+                    <div class="deliver-preview-quality-head"><span class="deliver-label mono">QUALITY</span><span class="deliver-preview-quality-current mono" id="deliver-quality-mode">AUTO</span></div>
+                    <div class="deliver-quality-modes" id="deliver-quality-modes" role="group" aria-label="预览质量模式">
+                      <button type="button" class="deliver-quality-mode is-selected" data-quality-mode="auto">AUTO</button>
+                      <button type="button" class="deliver-quality-mode" data-quality-mode="proxy">PROXY</button>
+                      <button type="button" class="deliver-quality-mode" data-quality-mode="screening">SCREENING</button>
+                      <button type="button" class="deliver-quality-mode" data-quality-mode="original">ORIGINAL</button>
+                    </div>
+                    <div class="deliver-preview-quality-grid">
+                      <div><span class="deliver-label mono">SOURCE</span><strong id="deliver-quality-source">·</strong></div>
+                      <div><span class="deliver-label mono">SCREENING</span><strong id="deliver-quality-screening">·</strong></div>
+                      <div><span class="deliver-label mono">MASTER</span><strong id="deliver-quality-master">·</strong></div>
+                    </div>
+                    <p class="deliver-preview-quality-warning mono" id="deliver-quality-warning"></p>
+                  </section>
                   <div class="final-not-generated" id="final-not-generated"><strong class="mono">FINAL CUT NOT GENERATED</strong><span>后端尚未提供可播放的最终视频文件。</span></div>
                 </div>
               </div>
@@ -520,7 +546,7 @@
             <div class="deliver-primary-actions">
               <button class="cta cta--deliver-edit" id="btn-ai-edit" type="button">AI 剪辑成片 <span class="cta-arrow" aria-hidden="true">→</span></button>
               <button class="cta cta--deliver-approve" id="btn-approve-edit" type="button">批准最终成片 <span class="cta-arrow" aria-hidden="true">→</span></button>
-              <button class="cta cta--deliver-export hidden" id="btn-export-final" type="button">导出最终成片 <span class="cta-arrow" aria-hidden="true">→</span></button>
+              <button class="cta cta--deliver-export hidden" id="btn-export-final" type="button">EXPORT FINAL FILM <span class="cta-arrow" aria-hidden="true">→</span></button>
             </div>
             <div class="deliver-secondary-actions">
               <button class="ghost" id="btn-reedit" type="button">重新剪辑</button>
@@ -584,7 +610,7 @@
 
 <div class="toast mono" id="toast" role="status"></div>
 
-<script type="module" src="/static/js/app.js?v=p5-20260904"></script>
-<script src="/static/app.js?v=media-quality-20260904-p5"></script>
+<script type="module" src="/static/js/app.js?v=ui-20260905-p2"></script>
+<script src="/static/app.js?v=ui-20260905-p2"></script>
 </body>
 </html>

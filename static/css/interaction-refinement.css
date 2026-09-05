@@ -205,3 +205,170 @@ body[data-design="archive-console"] .landing-spotlight .spotlight-dust { opacity
 @media (prefers-reduced-motion: reduce) {
   body[data-design="archive-console"] .grain { animation: none; }
 }
+
+/* Production Bible is a binder: a quiet index rail beside one readable document. */
+body[data-design="archive-console"] .manual-reading-grid {
+  display: grid;
+  grid-template-columns: 148px minmax(0, 1fr);
+  gap: clamp(24px, 4vw, 58px);
+  align-items: start;
+}
+
+body[data-design="archive-console"] .manual-navigation {
+  position: sticky;
+  top: 88px;
+  display: grid;
+  gap: 4px;
+  padding-top: 20px;
+  border-top: 1px solid var(--hairline-soft);
+}
+
+body[data-design="archive-console"] .manual-navigation-label,
+body[data-design="archive-console"] .manual-navigation-note {
+  color: var(--reader-meta);
+  font-size: 0.54rem;
+  letter-spacing: 0.14em;
+}
+
+body[data-design="archive-console"] .manual-navigation-item {
+  display: grid;
+  grid-template-columns: 24px 1fr;
+  gap: 3px 8px;
+  padding: 11px 0;
+  text-align: left;
+  color: var(--reader-secondary);
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--hairline-soft);
+  cursor: pointer;
+}
+
+body[data-design="archive-console"] .manual-navigation-item span,
+body[data-design="archive-console"] .manual-navigation-item small {
+  color: var(--reader-meta);
+  font: 0.5rem var(--mono);
+  letter-spacing: 0.08em;
+}
+
+body[data-design="archive-console"] .manual-navigation-item b {
+  font: 600 0.63rem/1.2 var(--mono);
+  letter-spacing: 0.08em;
+}
+
+body[data-design="archive-console"] .manual-navigation-item small {
+  grid-column: 2;
+  font-size: 0.46rem;
+}
+
+body[data-design="archive-console"] .manual-navigation-item.is-active,
+body[data-design="archive-console"] .manual-navigation-item:hover,
+body[data-design="archive-console"] .manual-navigation-item:focus-visible {
+  color: var(--reader-heading);
+  outline: none;
+}
+
+body[data-design="archive-console"] .manual-navigation-item.is-active b { color: var(--accent-token); }
+body[data-design="archive-console"] .manual-navigation-note { margin-top: 16px; line-height: 1.6; letter-spacing: 0.04em; }
+body[data-design="archive-console"] .manual-document { min-width: 0; }
+body[data-design="archive-console"] .manual-document .tab-body,
+body[data-design="archive-console"] .manual-document .manual-intro,
+body[data-design="archive-console"] .manual-document .brief-sheet,
+body[data-design="archive-console"] .manual-document .screenplay-reader,
+body[data-design="archive-console"] .manual-document .visual-board,
+body[data-design="archive-console"] .manual-document .shot-sheet,
+body[data-design="archive-console"] .manual-document .screenplay-body,
+body[data-design="archive-console"] .manual-document .screenplay-narration,
+body[data-design="archive-console"] .manual-document .dialogue-book { max-width: 860px; }
+
+body[data-design="archive-console"] .manual-document .tab-body,
+body[data-design="archive-console"] .manual-document .tab-body .story p,
+body[data-design="archive-console"] .manual-document .tab-body dd,
+body[data-design="archive-console"] .manual-document .manual-intro p,
+body[data-design="archive-console"] .manual-document .screenplay-body p,
+body[data-design="archive-console"] .manual-document .screenplay-narration p,
+body[data-design="archive-console"] .manual-document .visual-spec p,
+body[data-design="archive-console"] .manual-document .shot-detail-head p,
+body[data-design="archive-console"] .manual-document .shot-detail-grid p {
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.8;
+}
+
+body[data-design="archive-console"] .manual-document .manual-intro h3,
+body[data-design="archive-console"] .manual-document .shot-detail-head h3 { font-family: var(--serif); }
+body[data-design="archive-console"] .manual-document .visual-spec h4,
+body[data-design="archive-console"] .manual-document .dialogue-book-head h3 { font-family: var(--sans); }
+body[data-design="archive-console"] .manual-document .manual-summary,
+body[data-design="archive-console"] .manual-document .tabs,
+body[data-design="archive-console"] .manual-document .agent-activity,
+body[data-design="archive-console"] .manual-document .brief-row,
+body[data-design="archive-console"] .manual-document .screenplay-head,
+body[data-design="archive-console"] .manual-document .shot-nav-head { box-shadow: none; text-shadow: none; }
+
+/* Sound page: keep the brief and semantic timeline visible; park controls behind one disclosure. */
+body[data-design="archive-console"] .audio-console-head { align-items: center; }
+body[data-design="archive-console"] .audio-console-actions { display: flex; align-items: center; gap: 12px; }
+body[data-design="archive-console"] .audio-console-actions .ghost { min-height: 30px; padding: 5px 8px; font-size: 0.5rem; }
+body[data-design="archive-console"] .audio-design-console:not(.is-expanded) .audio-source-zone,
+body[data-design="archive-console"] .audio-design-console:not(.is-expanded) .audio-mixer,
+body[data-design="archive-console"] .audio-design-console:not(.is-expanded) .smart-ducking,
+body[data-design="archive-console"] .audio-design-console:not(.is-expanded) .edit-console-controls { display: none; }
+body[data-design="archive-console"] .audio-design-console:not(.is-expanded) .audio-timeline { margin-top: 16px; }
+body[data-design="archive-console"] .sound-summary-tag { padding: 3px 7px; background: transparent; box-shadow: none; }
+body[data-design="archive-console"] .audio-track,
+body[data-design="archive-console"] .audio-mixer,
+body[data-design="archive-console"] .audio-track-inspector { box-shadow: none; backdrop-filter: none; }
+
+/* Deliver: the film owns the left side; the Finish inspector stays a calm 35–38% column. */
+body[data-design="archive-console"] .deliver-final .final-cut-workspace { grid-template-columns: minmax(0, 1.7fr) minmax(300px, 1fr); gap: clamp(24px, 2.2vw, 32px); }
+body[data-design="archive-console"] .deliver-final .final-player-shell { box-shadow: none; }
+body[data-design="archive-console"] .deliver-final .final-preview,
+body[data-design="archive-console"] .deliver-final .final-preview video,
+body[data-design="archive-console"] .deliver-final .final-compare-after video { object-fit: contain; transform: none !important; filter: none !important; }
+body[data-design="archive-console"] .deliver-final .final-look-panel { box-shadow: none; }
+body[data-design="archive-console"] .deliver-final .final-look-preset-grid { gap: 5px; }
+body[data-design="archive-console"] .deliver-final .final-look-preset { box-shadow: none; }
+body[data-design="archive-console"] .deliver-final .final-look-disclosure { margin-top: 2px; }
+body[data-design="archive-console"] .deliver-final .tech-summary,
+body[data-design="archive-console"] .deliver-final .shot-timeline-section,
+body[data-design="archive-console"] .deliver-final .sound-summary { margin-top: 18px; padding-top: 16px; }
+body[data-design="archive-console"] .deliver-final .deliver-actions { justify-content: flex-start; }
+body[data-design="archive-console"] .deliver-final .cta--deliver-export { min-width: min(360px, 100%); letter-spacing: 0.11em; }
+
+/* Quality is metadata, never an image treatment. */
+body[data-design="archive-console"] .deliver-preview-quality {
+  display: grid;
+  gap: 10px;
+  padding: 13px 14px 14px;
+  border-top: 1px solid var(--hairline-soft);
+  background: var(--panel);
+}
+body[data-design="archive-console"] .deliver-preview-quality-head { display: flex; justify-content: space-between; gap: 12px; }
+body[data-design="archive-console"] .deliver-preview-quality-current { color: var(--accent-token); font-size: 0.55rem; letter-spacing: 0.1em; }
+body[data-design="archive-console"] .deliver-quality-modes { display: flex; flex-wrap: wrap; gap: 5px; }
+body[data-design="archive-console"] .deliver-quality-mode { padding: 5px 8px; color: var(--text-muted); background: transparent; border: 1px solid var(--hairline-soft); font: 0.5rem var(--mono); letter-spacing: 0.08em; cursor: pointer; }
+body[data-design="archive-console"] .deliver-quality-mode:hover,
+body[data-design="archive-console"] .deliver-quality-mode.is-selected { color: var(--text-strong); border-color: var(--accent-token); }
+body[data-design="archive-console"] .deliver-preview-quality-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+body[data-design="archive-console"] .deliver-preview-quality-grid > div { display: grid; gap: 5px; min-width: 0; }
+body[data-design="archive-console"] .deliver-preview-quality-grid strong { overflow: hidden; color: var(--text-body); font: 500 0.62rem var(--mono); text-overflow: ellipsis; white-space: nowrap; }
+body[data-design="archive-console"] .deliver-preview-quality-warning { min-height: 1em; margin: 0; color: var(--err); font-size: 0.49rem; letter-spacing: 0.08em; }
+
+/* Theme toggle: exposure change, not a page transition. */
+.theme-transition-wash { position: fixed; inset: 0; z-index: 100; pointer-events: none; background: radial-gradient(ellipse at 82% 14%, rgba(236, 216, 173, 0.15), transparent 52%); opacity: 0; transition: opacity var(--theme-ms-ambient) var(--theme-ease); }
+.theme-transition-wash.is-active { opacity: 1; }
+html.theme-transitioning body * { filter: none !important; }
+
+@media (max-width: 900px) {
+  body[data-design="archive-console"] .manual-reading-grid { grid-template-columns: 1fr; gap: 12px; }
+  body[data-design="archive-console"] .manual-navigation { position: static; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding-top: 12px; }
+  body[data-design="archive-console"] .manual-navigation-label,
+  body[data-design="archive-console"] .manual-navigation-note { grid-column: 1 / -1; }
+  body[data-design="archive-console"] .manual-navigation-note { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .theme-transition-wash { transition: none; }
+  body[data-design="archive-console"] .manual-navigation-item,
+  body[data-design="archive-console"] .manual-document * { animation: none !important; transition: none !important; }
+}

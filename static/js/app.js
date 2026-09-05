@@ -14,7 +14,7 @@ import { moduleScript } from "./script.js";
 import { moduleSound } from "./sound.js";
 import { moduleDeliver } from "./deliver.js";
 
-window.MovieAgentModules = {
+Object.assign(window.MovieAgentModules || (window.MovieAgentModules = {}), {
   api: moduleApi(),
   state: moduleState(),
   theme: moduleTheme(),
@@ -25,5 +25,7 @@ window.MovieAgentModules = {
   script: moduleScript(),
   sound: moduleSound(),
   deliver: moduleDeliver(),
-};
+});
+
+window.dispatchEvent(new CustomEvent("movie-agent:modules-ready"));
 

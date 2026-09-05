@@ -5,9 +5,10 @@
 
 "use strict";
 
-// P2 ES-module registry is optional so the legacy entry point stays usable
-// when a browser has module loading disabled.
-const MovieAgentModules = window.MovieAgentModules || {};
+// The ES modules own pure domain logic; this file remains the DOM adapter.
+// The shared object is created before the deferred module boot so both sides
+// reference the same registry when the browser reaches DOMContentLoaded.
+const MovieAgentModules = window.MovieAgentModules || (window.MovieAgentModules = {});
 
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
@@ -78,6 +79,7 @@ const els = {
   logFeed: $("#log-feed"),
   monitorActivityRecent: $("#monitor-activity-recent"),
   manualTabs: $("#manual-tabs"),
+  manualNavigation: $(".manual-navigation"),
   manualBody: $("#manual-body"),
   manualSummary: $("#manual-summary"),
   activitySummary: $("#activity-summary"),
@@ -125,6 +127,12 @@ const els = {
   deliverStateCopy: $("#deliver-state-copy"),
   deliverStateBadge: $("#deliver-state-badge"),
   deliverQualityReadout: $("#deliver-quality-readout"),
+  deliverQualityModes: $("#deliver-quality-modes"),
+  deliverQualityMode: $("#deliver-quality-mode"),
+  deliverQualitySource: $("#deliver-quality-source"),
+  deliverQualityScreening: $("#deliver-quality-screening"),
+  deliverQualityMaster: $("#deliver-quality-master"),
+  deliverQualityWarning: $("#deliver-quality-warning"),
   deliverSummary: $("#deliver-summary"),
   deliverProjectTitle: $("#deliver-project-title"),
   deliverProjectCopy: $("#deliver-project-copy"),
@@ -261,7 +269,7 @@ const AGENT_DEFS = [
 ];
 
 function isShotReady(shot) {
-  return String(shot?.status || "").startsWith("approved") && shot?.stale !== true;
+  return MovieAgentModules.storyboard.shotReady(shot);
 }
 
 const AGENT_STATUS_COPY = {
@@ -352,6 +360,7 @@ const state = {
   finalVideoUrl: null,
   finalVideoProbeRun: 0,
   videoQuality: null,
+  previewQualityMode: "auto",
   editProgressStep: 0,
   musicMode: "ai",
   musicIntensity: 0.6,
@@ -393,13 +402,7 @@ function esc(value) {
     .replaceAll('"', "&quot;");
 }
 
-function timecode(seconds) {
-  const s = Math.max(0, Math.round(seconds));
-  const hh = String(Math.floor(s / 3600)).padStart(2, "0");
-  const mm = String(Math.floor((s % 3600) / 60)).padStart(2, "0");
-  const ss = String(s % 60).padStart(2, "0");
-  return `${hh}:${mm}:${ss}`;
-}
+const timecode = (seconds) => MovieAgentModules.player.formatTimecode(seconds);
 
 function truncate(text, max = 56) {
   const clean = String(text || "").replace(/\s+/g, " ").trim();
@@ -650,49 +653,7 @@ function setPipeline(states = {}) {
 }
 
 function pipelineFromProject(project, hasVideo) {
-  const states = { plan: "todo", previs: "todo", render: "todo", deliver: "todo" };
-  if (!project) return states;
-  // The backend's canonical state descriptor is authoritative for persisted
-  // projects.  Keep the legacy inference below only for an in-flight live
-  // creation stream whose temporary project object predates that descriptor.
-  const canonical = String(project.pipeline_state?.state || "");
-  if (canonical) {
-    const backendPipeline = project.pipeline_state?.pipeline || {};
-    for (const key of Object.keys(states)) {
-      const value = backendPipeline[key];
-      if (["todo", "active", "ready", "review", "failed", "stale", "done", "archived"].includes(value)) states[key] = value;
-    }
-    // A completed project only becomes a delivered stage after the browser
-    // verifies a playable media asset.  The backend still reports FINAL_READY
-    // when a legacy project has no file, so the UI can honestly show READY.
-    if (canonical === "final_ready" && hasVideo) states.deliver = "done";
-    return states;
-  }
-  const historical = Boolean(state.viewingHistorical);
-  states.plan = "done";
-  if ((project.storyboard || []).length > 0) states.previs = "done";
-  const status = project.status || "";
-  const shots = project.storyboard || [];
-  const allReady = shots.length > 0 && shots.every(isShotReady);
-  // A completed status is not enough to call Deliver finished: mock runs may
-  // only contain a placeholder path. The pipeline is complete only after the
-  // browser has verified a playable final media asset.
-  const finalApproved = status.startsWith("completed") && hasVideo;
-  if (["rendering_comfyui", "generating_video_mock", "ready_for_comfyui_render", "render_failed"].includes(status)) {
-    states.render = status === "render_failed" ? "failed" : "active";
-  } else if (historical && ["planned_mock", "planned_text_ai"].includes(status)) {
-    states.render = "ready";
-  } else if (allReady || status.startsWith("editing_") || status === "rough_cut_ready" || finalApproved) {
-    states.render = "done";
-  }
-  // A verified Final Cut is a completed deliverable even when the user is
-  // viewing an older project. Historical context belongs in the project
-  // metadata, not in the active production-stage label.
-  if (finalApproved) states.deliver = "done";
-  else if (status === "ready_for_ai_edit") states.deliver = historical ? "ready" : "active";
-  else if (allReady || status === "editing_rough_cut" || status === "rough_cut_ready") states.deliver = "active";
-  if (historical && status.startsWith("completed") && !finalApproved) states.deliver = "archived";
-  return states;
+  return MovieAgentModules.state.pipelineFromProject(project, hasVideo, Boolean(state.viewingHistorical), isShotReady);
 }
 
 /* ── 第二幕 · 剧组看板 ─────────────────────────────────────── */
@@ -1191,42 +1152,9 @@ function shotStatusInfo(status) {
   return SHOT_STATUS[status] || status || "QUEUED";
 }
 
-function formatShotDuration(value) {
-  const seconds = Math.max(0, Number(value || 0));
-  const minutes = Math.floor(seconds / 60);
-  const remainder = (seconds % 60).toFixed(1).padStart(4, "0");
-  return `${String(minutes).padStart(2, "0")}:${remainder}`;
-}
-
-function timingModeLabel(shot = {}) {
-  const mode = String(shot.timing_mode || "native").toLowerCase();
-  return ({ native: "NATIVE", trim: "TRIM", hold_last_frame: "HOLD", slow_motion: "SLOW", extend: "EXTEND" })[mode] || mode.toUpperCase();
-}
-
-function shotReviewLabel(shot = {}) {
-  const driftDetails = shot.qc_details?.drift_details || {};
-  const flags = [ ...(shot.qc_flags || []), ...Object.keys(driftDetails) ].map((flag) => String(flag).toUpperCase());
-  if (flags.some((flag) => flag.includes("CHARACTER"))) return "CHARACTER REVIEW";
-  if (flags.some((flag) => flag.includes("SCENE"))) return "SCENE REVIEW";
-  if (flags.some((flag) => flag.includes("STYLE"))) return "STYLE REVIEW";
-  return "VISUAL REVIEW";
-}
-
-function shotStateInfo(shot = {}) {
-  const status = String(shot.status || "planned");
-  const qcStatus = String(shot.qc_status || "").toUpperCase();
-  const hasLastError = shot.last_error && typeof shot.last_error === "object"
-    ? Object.keys(shot.last_error).length > 0
-    : Boolean(shot.last_error);
-  if (shot.stale === true || qcStatus.includes("STALE")) return { key: "stale", symbol: "↻", label: "STALE" };
-  if (status === "generation_failed" || hasLastError) return { key: "failed", symbol: "×", label: "FAILED" };
-  if (status === "awaiting_visual_review" || qcStatus === "AWAITING_VISUAL_REVIEW" || (shot.qc_flags || []).some((flag) => String(flag).toUpperCase().includes("REVIEW"))) {
-    return { key: "review", symbol: "!", label: shotReviewLabel(shot) };
-  }
-  if (["approved_mock", "approved_comfyui"].includes(status)) return { key: "complete", symbol: "✓", label: "QC PASS" };
-  if (["generating_mock", "generating_comfyui", "generated_comfyui"].includes(status)) return { key: "active", symbol: "●", label: "ACTIVE" };
-  return { key: "queued", symbol: "○", label: "QUEUED" };
-}
+const formatShotDuration = (value) => MovieAgentModules.storyboard.formatShotDuration(value);
+const timingModeLabel = (shot = {}) => MovieAgentModules.storyboard.timingModeLabel(shot);
+const shotStateInfo = (shot = {}) => MovieAgentModules.storyboard.shotStateInfo(shot);
 
 function durationRailShare(value) {
   return `${Math.min(94, Math.max(18, Number(value || 1) / 12 * 100)).toFixed(1)}%`;
@@ -1263,13 +1191,11 @@ function bindShotDurationRail(card, project, shot) {
       const next = Number(rail.dataset.previewDuration || startDuration);
       if (next === startDuration) return;
       try {
-        const response = await fetch(`/api/projects/${project.project_id}/shots/${shot.number}`, {
+        const payload = await MovieAgentModules.api.requestJSON(`/api/projects/${project.project_id}/shots/${shot.number}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ desired_duration: next, timing_mode: next < startDuration ? "trim" : "extend" }),
         });
-        const payload = await response.json();
-        if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
         state.project = payload;
         renderWorkspace(payload, { tab: "storyboard" });
         toast(`镜头 ${shot.number} 已调整为 ${next.toFixed(1)}s，字幕与配乐已重新对齐。`);
@@ -1783,6 +1709,7 @@ function renderManual(project, tab = state.manualTab, animate = false) {
     button.classList.toggle("is-live", Boolean(liveTabs[button.dataset.tab]));
     button.setAttribute("aria-selected", String(button.dataset.tab === tab));
   });
+  $$("[data-manual-nav-tab]").forEach((button) => button.classList.toggle("is-active", button.dataset.manualNavTab === tab));
   const body = els.manualBody;
   if (!project) {
     body.innerHTML = '<p class="empty-note">制作手册会在项目创建后生成。</p>';
@@ -1819,13 +1746,7 @@ function renderManual(project, tab = state.manualTab, animate = false) {
   }
 }
 
-function deliverRuntime(project) {
-  const seconds = (project?.storyboard || []).reduce(
-    (sum, shot) => sum + Number(shot.duration_seconds || 0),
-    0,
-  );
-  return seconds || Number(project?.duration_seconds || 0) || 0;
-}
+const deliverRuntime = (project) => MovieAgentModules.deliver.deliverRuntime(project);
 
 function mediaQualityLabel(record, video = null) {
   const explicit = String(record?.resolution_label || "").toUpperCase();
@@ -1844,22 +1765,38 @@ function mediaQualityLabel(record, video = null) {
 function renderMediaQuality(project, mode = "screening") {
   const snapshot = project?.video_quality || {};
   state.videoQuality = snapshot;
-  const record = mode === "proxy"
+  const requestedMode = state.previewQualityMode !== "auto"
+    ? state.previewQualityMode
+    : String(mode || "auto").toLowerCase();
+  const effectiveMode = requestedMode === "auto"
+    ? (state.hasFinalVideo ? "screening" : "proxy")
+    : requestedMode;
+  const record = effectiveMode === "proxy"
     ? snapshot.working_proxy
-    : state.hasFinalVideo
-      ? (snapshot.final_master || snapshot.screening_preview)
+    : effectiveMode === "original"
+      ? (snapshot.final_master || snapshot.source || snapshot.screening_preview)
       : (snapshot.screening_preview || snapshot.final_master || snapshot.working_proxy);
   const label = mediaQualityLabel(record, state.hasFinalVideo ? els.finalVideo : els.roughCutVideo);
-  const prefix = mode === "proxy" ? "PROXY" : "PREVIEW";
+  const prefix = state.previewQualityMode === "auto" ? "AUTO" : effectiveMode.toUpperCase();
   if (els.deliverQualityReadout) {
-    els.deliverQualityReadout.textContent = `${prefix} · ${label}`;
+    els.deliverQualityReadout.textContent = `QUALITY: ${prefix} · ${label}`;
     els.deliverQualityReadout.dataset.quality = label.toLowerCase().replaceAll(" ", "-");
   }
   const lowRes = label === "LOW RES SOURCE" || Boolean(snapshot.source_low_res);
+  const native = snapshot.native_resolution || record?.native_resolution || "UNKNOWN";
+  const screening = snapshot.screening_preview?.resolution_label || snapshot.screening_preview?.quality || "NOT AVAILABLE";
+  const master = snapshot.final_master?.resolution_label || snapshot.final_master?.quality || "NOT AVAILABLE";
+  if (els.deliverQualityMode) els.deliverQualityMode.textContent = state.previewQualityMode.toUpperCase();
+  els.deliverQualityModes?.querySelectorAll("[data-quality-mode]").forEach((button) => {
+    const selected = button.dataset.qualityMode === state.previewQualityMode;
+    button.classList.toggle("is-selected", selected);
+    button.setAttribute("aria-pressed", String(selected));
+  });
+  if (els.deliverQualitySource) els.deliverQualitySource.textContent = native;
+  if (els.deliverQualityScreening) els.deliverQualityScreening.textContent = screening;
+  if (els.deliverQualityMaster) els.deliverQualityMaster.textContent = master;
+  if (els.deliverQualityWarning) els.deliverQualityWarning.textContent = lowRes ? "LOW RES SOURCE · CONFORM DOES NOT RESTORE DETAIL" : "";
   if (els.deliverQualityNote) {
-    const native = snapshot.native_resolution || record?.native_resolution || "UNKNOWN";
-    const screening = snapshot.screening_preview?.resolution_label || snapshot.screening_preview?.quality || label;
-    const master = snapshot.final_master?.resolution_label || snapshot.final_master?.quality || "NOT AVAILABLE";
     els.deliverQualityNote.textContent = lowRes
       ? `SOURCE ${native} · SCREENING ${screening} · MASTER ${master} · LOW RES SOURCE：这代表 conform，不代表恢复真实细节。`
       : `SOURCE ${native} · SCREENING ${screening} · MASTER ${master} · Final Export 只使用 Final Master。`;
@@ -1871,33 +1808,17 @@ function renderMediaQuality(project, mode = "screening") {
   }
 }
 
-function canonicalProjectState(project) {
-  return String(project?.pipeline_state?.state || "");
-}
+const canonicalProjectState = (project) => MovieAgentModules.state.canonicalProjectState(project);
 
 function deliverStatus(project) {
-  const status = String(project?.status || "");
-  const canonical = canonicalProjectState(project);
-  if (canonical === "editing" || status === "editing_rough_cut") return { key: "editing", badge: "AI EDITING", title: "AI 剪辑正在组装", copy: "镜头、声音与字幕正在进入粗剪时间线。" };
-  if (canonical === "rough_cut_ready" || status === "rough_cut_ready") return { key: "rough", badge: "ROUGH CUT READY", title: "粗剪已完成，等待审片", copy: "先预览 Rough Cut，再决定是否批准最终成片。" };
-  if (canonical === "shots_ready" || status === "ready_for_ai_edit") return { key: "ready", badge: "SHOTS READY", title: "AI Edit 已就绪", copy: "全部镜头通过质检；先选择声音设计，再启动 Rough Cut。" };
-  if (status.startsWith("completed")) {
-    return state.hasFinalVideo
-      ? { key: "complete", badge: "FINAL CUT READY", title: "最终成片已完成", copy: "放映室已就绪：审片、跳转镜头并导出交付版本。" }
-      : { key: "missing", badge: "DELIVERY RECORDED", title: "FINAL CUT NOT GENERATED", copy: "交付记录已保存，但后端尚未提供可播放的最终视频文件。" };
-  }
-  return { key: "unedited", badge: "NOT EDITED", title: "FINAL CUT NOT GENERATED", copy: "镜头已就绪，下一步由 AI Edit 生成可审阅的 Rough Cut。" };
+  return MovieAgentModules.deliver.deliverStatus(project, state.hasFinalVideo);
 }
 
 function subtitleModeLabel(mode) {
   return mode === "soft" ? "SOFT / 可切换" : mode === "none" ? "NONE / 无字幕" : "BURNED / 烧录";
 }
 
-function finalVideoCandidate(project) {
-  if (project?.screening_preview_url) return project.screening_preview_url;
-  if (project?.final_video_url) return project.final_video_url;
-  return `/api/projects/${encodeURIComponent(project.project_id)}/screening-preview`;
-}
+const finalVideoCandidate = (project) => MovieAgentModules.deliver.finalVideoCandidate(project);
 
 function renderDeliverSummary(project) {
   const shots = project?.storyboard || [];
@@ -1951,46 +1872,21 @@ function renderSoundSummary(project) {
     const label = AUDIO_TRACK_LABELS[key].en;
     const statusText = track.status === "READY" ? "READY" : track.enabled ? "ON" : "OFF";
     const cls = ready ? "is-ready" : "is-pending";
-    return `<span class="sound-summary-tag ${cls}">${label} · ${statusText}</span>`;
+    return `<span class="sound-summary-tag ${cls}">${label} · ${statusText} · ${track.volume_db ?? 0} dB</span>`;
   });
-  tags.push(`<span class="sound-summary-tag ${duckingOn ? "is-ready" : "is-pending"}">DUCKING · ${duckingOn ? "ON" : "OFF"}</span>`);
+  tags.push(`<span class="sound-summary-tag ${duckingOn ? "is-ready" : "is-pending"}">DUCKING · ${duckingOn ? "ACTIVE" : "OFF"}</span>`);
+  tags.push('<span class="sound-summary-tag is-ready">MASTER · -14 LUFS</span>');
   els.soundSummaryStatus.innerHTML = tags.join("");
 }
 
 /* ── 声音设计 / Music Brief / 四轨混音 ─────────────────────── */
 
-const AUDIO_TRACK_ORDER = ["voice", "music", "sfx", "ambience"];
-const AUDIO_TRACK_LABELS = {
-  voice: { en: "VOICE", zh: "旁白 / Dialogue" },
-  music: { en: "MUSIC", zh: "配乐 / Score" },
-  sfx: { en: "SFX", zh: "动作音效 / Effects" },
-  ambience: { en: "AMBIENCE", zh: "环境声 / Atmos" },
-};
-const AUDIO_MODE_LABELS = { ai: "AI 自动配乐", library: "素材库音乐", upload: "用户上传音乐" };
+const AUDIO_TRACK_ORDER = MovieAgentModules.sound.trackKeys;
+const AUDIO_TRACK_LABELS = MovieAgentModules.sound.trackLabels;
+const AUDIO_MODE_LABELS = MovieAgentModules.sound.audioModeLabels;
 
-function audioTracksFor(project) {
-  const source = project?.audio_tracks || {};
-  return Object.fromEntries(AUDIO_TRACK_ORDER.map((key) => {
-    const fallback = {
-      key,
-      label: AUDIO_TRACK_LABELS[key].en,
-      name: AUDIO_TRACK_LABELS[key].zh,
-      status: key === "voice" && project?.script?.dialogue_locked ? "READY" : "DESIGN READY",
-      source: key === "voice" ? "DIALOGUE BOOK" : "SOUND DESIGN PLAN",
-      enabled: true,
-      volume_db: key === "voice" ? -2 : key === "music" ? -14 : key === "sfx" ? -10 : -22,
-      preview_url: null,
-      can_regenerate: key !== "voice",
-      pan: 0,
-      ducking: key === "music",
-    };
-    return [key, { ...fallback, ...(source[key] || {}), key }];
-  }));
-}
-
-function audioModeFor(project) {
-  return ["ai", "library", "upload"].includes(project?.music_mode) ? project.music_mode : "ai";
-}
+const audioTracksFor = (project) => MovieAgentModules.sound.audioTracksFor(project);
+const audioModeFor = (project) => MovieAgentModules.sound.audioModeFor(project);
 
 function renderMusicBriefMarkup(project, compact = false) {
   const brief = project?.music_brief || {};
@@ -4946,102 +4842,11 @@ function initScrollMotion() {
 }
 
 /* 全站保留浏览器原生光标；局部受光和节点状态承担上下文反馈。 */
-/* ── 主题系统：Screening Room ⇄ Production Desk ─────────────
-   首选项只存储用户的明确选择。没有手动选择时，跟随系统主题，
-   并在切换期间用一层灯光遮罩把两种材料感连起来。 */
-const THEME_STORAGE_KEY = "movie-agent-theme";
-
-function readThemePreference() {
-  try {
-    const value = localStorage.getItem(THEME_STORAGE_KEY);
-    return value === "light" || value === "dark" ? value : null;
-  } catch (_) {
-    return null;
-  }
-}
-
-function systemTheme() {
-  return window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
-}
-
-function themeDisplayName(theme) {
-  return theme === "light" ? "Production Desk" : "Screening Room";
-}
-
-function updateThemeToggle(theme) {
-  const toggle = els.themeToggle;
-  if (!toggle) return;
-  const isLight = theme === "light";
-  const nextTheme = isLight ? "Screening Room" : "Production Desk";
-  const label = toggle.querySelector(".theme-toggle-label");
-  const icon = toggle.querySelector(".theme-toggle-icon");
-  if (label) label.textContent = isLight ? "DESK" : "SCREENING";
-  if (icon) icon.classList.toggle("is-sun", isLight);
-  toggle.setAttribute("aria-pressed", String(isLight));
-  toggle.setAttribute("aria-label", `当前为 ${themeDisplayName(theme)}，切换到 ${nextTheme}`);
-  toggle.title = `切换到 ${nextTheme}`;
-  toggle.dataset.theme = theme;
-}
-
-function syncThemeColor() {
-  if (!els.themeColor) return;
-  const value = getComputedStyle(document.documentElement).getPropertyValue("--surface-0").trim();
-  if (value) els.themeColor.setAttribute("content", value);
-}
-
-function applyTheme(theme, { persist = false, animate = true } = {}) {
-  const next = theme === "light" ? "light" : "dark";
-  const root = document.documentElement;
-  const current = root.dataset.theme === "light" ? "light" : "dark";
-  if (persist) {
-    try { localStorage.setItem(THEME_STORAGE_KEY, next); } catch (_) { /* private browsing can deny storage */ }
-  }
-  if (current === next) {
-    document.body?.setAttribute("data-theme", next);
-    updateThemeToggle(next);
-    syncThemeColor();
-    return;
-  }
-
-  const wash = els.themeWash;
-  const shouldAnimate = animate && !REDUCED_MOTION && wash;
-  if (shouldAnimate) {
-    wash.dataset.to = next;
-    wash.classList.add("is-active");
-  }
-  root.dataset.theme = next;
-  document.body?.setAttribute("data-theme", next);
-  updateThemeToggle(next);
-  syncThemeColor();
-
-  if (shouldAnimate) {
-    window.setTimeout(() => {
-      wash.classList.remove("is-active");
-      window.setTimeout(() => {
-        if (!wash.classList.contains("is-active")) delete wash.dataset.to;
-      }, 560);
-    }, 56);
-  }
-}
-
 function initTheme() {
-  const root = document.documentElement;
-  const preference = readThemePreference();
-  const initial = preference || (root.dataset.theme === "light" ? "light" : systemTheme());
-  root.dataset.theme = initial;
-  document.body?.setAttribute("data-theme", initial);
-  updateThemeToggle(initial);
-  syncThemeColor();
-
-  els.themeToggle?.addEventListener("click", () => {
-    const next = root.dataset.theme === "light" ? "dark" : "light";
-    applyTheme(next, { persist: true, animate: true });
-  });
-
-  const media = window.matchMedia?.("(prefers-color-scheme: light)");
-  media?.addEventListener?.("change", () => {
-    if (!readThemePreference()) applyTheme(media.matches ? "light" : "dark", { animate: true });
-  });
+  const create = MovieAgentModules.theme.createThemeController;
+  if (typeof create === "function") {
+    create({ toggle: els.themeToggle, wash: els.themeWash, colorMeta: els.themeColor }).init();
+  }
 }
 
 function updateSoundToggle() {
@@ -5146,6 +4951,18 @@ function init() {
     els.soundSummaryToggle?.setAttribute("aria-expanded", "true");
     els.soundSummary?.scrollIntoView({ behavior: "smooth", block: "start" });
   });
+  document.querySelector("[data-audio-advanced-toggle]")?.addEventListener("click", (event) => {
+    const button = event.currentTarget;
+    const expanded = els.audioDesignConsole?.classList.toggle("is-expanded") || false;
+    button.setAttribute("aria-expanded", String(expanded));
+    button.textContent = expanded ? "HIDE MIX CONTROLS" : "SHOW MIX CONTROLS";
+  });
+  els.deliverQualityModes?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-quality-mode]");
+    if (!button || !state.project) return;
+    state.previewQualityMode = button.dataset.qualityMode || "auto";
+    renderMediaQuality(state.project, state.previewQualityMode === "auto" ? "screening" : state.previewQualityMode);
+  });
   els.btnExportFinal?.addEventListener("click", openExportSheet);
   els.btnExportClose?.addEventListener("click", closeExportSheet);
   els.btnExportRun?.addEventListener("click", exportFinalCut);
@@ -5231,6 +5048,10 @@ function init() {
     const button = event.target.closest(".tab");
     if (button) renderManual(state.project, button.dataset.tab);
   });
+  els.manualNavigation?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-manual-nav-tab]");
+    if (button) renderManual(state.project, button.dataset.manualNavTab);
+  });
   els.manualBody.addEventListener("click", (event) => {
     const save = event.target.closest("[data-script-save]");
     const lock = event.target.closest("[data-script-lock]");
@@ -5271,4 +5092,5 @@ function init() {
   updateIdeaCounter();
 }
 
-init();
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init, { once: true });
+else init();

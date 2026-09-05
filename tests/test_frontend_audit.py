@@ -4,7 +4,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 INDEX = (ROOT / "static" / "index.html").read_text(encoding="utf-8")
 APP = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
+MODULE_STATE = (ROOT / "static" / "js" / "state.js").read_text(encoding="utf-8")
+MODULE_DELIVER = (ROOT / "static" / "js" / "deliver.js").read_text(encoding="utf-8")
+MODULE_STORYBOARD = (ROOT / "static" / "js" / "storyboard.js").read_text(encoding="utf-8")
+MODULE_THEME = (ROOT / "static" / "js" / "theme.js").read_text(encoding="utf-8")
 CSS = (ROOT / "static" / "style.css").read_text(encoding="utf-8")
+REFINEMENT = (ROOT / "static" / "css" / "interaction-refinement.css").read_text(encoding="utf-8")
 
 
 def test_design_dials_and_semantic_theme_tokens_are_present():
@@ -91,6 +96,21 @@ def test_audit_record_documents_preserved_and_retired_patterns():
     assert "Homepage Hero polish" in text
 
 
+def test_production_bible_is_a_quiet_reading_workspace():
+    assert 'class="manual-reading-grid"' in INDEX
+    assert 'class="manual-navigation"' in INDEX
+    assert 'data-manual-nav-tab="brief"' in INDEX
+    assert 'data-manual-nav-tab="quality"' in INDEX
+    assert 'data-manual-nav-tab="visual"' in INDEX
+    assert ".manual-reading-grid" in REFINEMENT
+    assert "max-width: 860px" in REFINEMENT
+    assert ".manual-document .tab-body" in REFINEMENT
+    assert "font-family: var(--sans)" in REFINEMENT
+    assert "font-size: 15px" in REFINEMENT
+    assert "line-height: 1.8" in REFINEMENT
+    assert "box-shadow: none" in REFINEMENT
+
+
 def test_frontend_assets_are_versioned_and_not_cached():
     server = (ROOT / "server.py").read_text(encoding="utf-8")
     assert "/static/style.css?v=" in INDEX
@@ -113,6 +133,9 @@ def test_sound_console_uses_progressive_disclosure_and_track_inspector():
     assert "audio-wave-pulse" in CSS
     assert ".audio-timeline.is-playing" in CSS
     assert "font: 600 11px/1.1 var(--mono)" in CSS
+    assert 'data-audio-advanced-toggle' in INDEX
+    assert "SHOW MIX CONTROLS" in INDEX
+    assert "MASTER · -14 LUFS" in APP
 
 
 def test_sound_console_timeline_is_media_synced_and_semantically_sized():
@@ -189,7 +212,7 @@ def test_final_cut_workspace_is_clipped_two_column_inspector_and_progressive():
     assert "aspect-ratio: 16 / 9;" in CSS
     assert "contain: paint;" in CSS
     assert "const canStartAiEdit = showSummary" in APP
-    assert 'if (finalApproved) states.deliver = "done";' in APP
+    assert 'if (finalApproved) states.deliver = "done";' in MODULE_STATE
 
 
 def test_light_screening_room_keeps_content_sharp_and_monitor_readable():
@@ -207,16 +230,32 @@ def test_light_screening_room_keeps_content_sharp_and_monitor_readable():
 def test_video_quality_tiers_keep_screening_preview_separate_from_final_master():
     assert 'id="deliver-quality-readout"' in INDEX
     assert 'id="btn-normalize-resolution"' in INDEX
-    assert 'screening-preview' in APP
+    assert 'screening-preview' in MODULE_DELIVER
     assert "function renderMediaQuality" in APP
     assert "Final Export 只使用 Final Master" in APP
     assert "/api/projects/{project_id}/screening-preview" in (ROOT / "server.py").read_text(encoding="utf-8")
     assert "LOW RES SOURCE" in (ROOT / "movie_agent/services/media_quality.py").read_text(encoding="utf-8")
+    assert 'data-quality-mode="auto"' in INDEX
+    assert 'data-quality-mode="proxy"' in INDEX
+    assert 'data-quality-mode="screening"' in INDEX
+    assert 'data-quality-mode="original"' in INDEX
+    assert "object-fit: contain" in REFINEMENT
+    assert "transform: none !important" in REFINEMENT
+    assert "filter: none !important" in REFINEMENT
+
+
+def test_frontend_domain_modules_own_migrated_logic_and_legacy_waits_for_them():
+    assert "createThemeController" in MODULE_THEME
+    assert "formatShotDuration" in MODULE_STORYBOARD
+    assert "MovieAgentModules.storyboard.shotReady" in APP
+    assert "MovieAgentModules.theme.createThemeController" in APP
+    assert "MovieAgentModules.api.requestJSON" in APP
+    assert "document.addEventListener(\"DOMContentLoaded\", init" in APP
 
 
 def test_frontend_consumes_backend_pipeline_state_and_saved_event():
-    assert "pipeline_state?.pipeline" in APP
-    assert "function canonicalProjectState" in APP
+    assert "pipeline_state?.pipeline" in MODULE_STATE
+    assert "function canonicalProjectState" in MODULE_STATE
     assert 'event.type === "project_saved"' in APP
     assert 'appendCrewStatus("system", "SAVED"' in APP
 
