@@ -27,6 +27,7 @@ class RenderPipeline:
             shot,
             project_id=project.project_id,
             visual_bible=project.visual_bible,
+            previous_shot=previous_shot,
         )
         return f"{message}\n{review}"
 

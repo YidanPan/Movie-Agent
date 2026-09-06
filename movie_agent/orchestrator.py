@@ -20,6 +20,7 @@ from movie_agent.storage.project_store import ProjectStore
 from movie_agent.services.llm import build_creative_llm
 from movie_agent.services.quality import ContinuityQualityGate, PlanningQualityGate, SemanticCopyrightReviewer
 from movie_agent.services.continuity import build_continuity_lock, ensure_continuity_lock
+from movie_agent.services.story_world import extract_story_world
 from movie_agent.services.audio import (
     EDIT_AUDIO_STAGES,
     apply_audio_track_params,
@@ -203,10 +204,19 @@ class MovieOrchestrator:
                 "type": "artifact",
                 "agent": "story_beats",
                 "title": "Narrative Structure",
-                "content": f"Breaking the screenplay into {planned_shot_count} narrative beats for cross-shot continuity.",
+                "content": "Extracting dramatic beats independently from the shot count for cross-shot continuity.",
             }
         )
-        story_beats = self.writer.generate_story_beats(cleaned_idea, brief, script, duration)
+        emit({"type": "agent_start", "agent": "story_world"})
+        story_world = extract_story_world(cleaned_idea, brief, script, self.writer.llm)
+        emit({"type": "agent_done", "agent": "story_world", "story_world": story_world})
+        story_beats = self.writer.generate_story_beats(
+            cleaned_idea,
+            brief,
+            script,
+            duration,
+            story_world=story_world,
+        )
         emit({"type": "agent_done", "agent": "story_beats", "story_beats": story_beats})
         emit(
             {
@@ -214,7 +224,7 @@ class MovieOrchestrator:
                 "agent": "story_beats",
                 "title": "Beat Map",
                 "content": (
-                    f"{len(story_beats)} narrative beats locked. "
+                    f"{len(story_beats)} dramatic beats locked. "
                     + " → ".join(beat.get("narrative_purpose", f"beat {i+1}") for i, beat in enumerate(story_beats))
                 ),
             }
@@ -243,7 +253,7 @@ class MovieOrchestrator:
                 ),
             }
         )
-        visual_bible = self.visual_bible_agent.create(visual_style, brief, script)
+        visual_bible = self.visual_bible_agent.create(visual_style, brief, script, story_world=story_world)
         continuity_lock = build_continuity_lock(visual_bible, self.settings.film_language)
         emit({"type": "agent_done", "agent": "visual_bible", "visual_bible": visual_bible})
         emit(
@@ -280,7 +290,19 @@ class MovieOrchestrator:
         storyboard = self.storyboard_agent.create(
             cleaned_idea, duration, visual_style, project_id, brief, script, visual_bible,
             story_beats=story_beats,
+            story_world=story_world,
         )
+        storyboard_review = self.storyboard_agent.review_storyboard(storyboard, story_beats)
+        emit({"type": "storyboard_review", "review": storyboard_review})
+        if storyboard_review["decision"] == "REVIEW":
+            storyboard = self.storyboard_agent.repair_shots(
+                storyboard,
+                story_beats,
+                visual_bible=visual_bible,
+                max_passes=1,
+            )
+            storyboard_review = self.storyboard_agent.review_storyboard(storyboard, story_beats)
+            emit({"type": "storyboard_repair", "review": storyboard_review})
         # The first Writer pass creates the broad screenplay.  Once the
         # storyboard is locked, run the Script Supervisor pass so narration,
         # dialogue, and subtitle cues are grounded in the actual shot events.
@@ -292,7 +314,7 @@ class MovieOrchestrator:
             duration_seconds=duration,
         )
         script["film_language"] = self.settings.film_language
-        script = align_script_to_shots(script, storyboard)
+        script = align_script_to_shots(script, storyboard, allow_silent=True)
         emit(
             {
                 "type": "artifact",
@@ -376,6 +398,8 @@ class MovieOrchestrator:
             quality_report=quality_report,
             logs=logs + quality_report,
             story_beats=story_beats,
+            story_world=story_world,
+            storyboard_review=storyboard_review,
             film_language=self.settings.film_language,
             continuity_lock=continuity_lock,
             voice_profile={

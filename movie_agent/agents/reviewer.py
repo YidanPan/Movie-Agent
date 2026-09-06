@@ -49,6 +49,7 @@ class ReviewerAgent:
         *,
         project_id: str | None = None,
         visual_bible: dict[str, str] | None = None,
+        previous_shot: Shot | None = None,
     ) -> str:
         if shot.status != "generated_comfyui":
             raise RuntimeError(f"Shot {shot.number} has not been generated yet; cannot enter quality review.")
@@ -68,7 +69,8 @@ class ReviewerAgent:
         if project_id is None:
             project_id = "ad-hoc-review"
         frames = self._extract_keyframes(project_id, shot, video_path, duration)
-        generation_references = self.reference_bank.generation_reference_paths(project_id, shot)
+        ending_frame = self._extract_ending_frame(project_id, shot, video_path, duration)
+        generation_references = self.reference_bank.generation_reference_paths(project_id, shot, previous_shot)
         reference_inputs = {
             "character_hero": generation_references["character"],
             "current_scene": generation_references["scene"],
@@ -84,6 +86,7 @@ class ReviewerAgent:
         reference_flags = list(reference_inputs.get("reference_flags") or [])
         if self.vision_llm is None:
             self._archive_review_frames(project_id, shot, frames, approved=False)
+            self._archive_ending_frame(project_id, shot, ending_frame, approved=False)
             shot.qc_flags = list(dict.fromkeys([*shot.qc_flags, "MANUAL_VISUAL_REVIEW"]))
             shot.qc_details = {
                 **(shot.qc_details or {}),
@@ -164,6 +167,7 @@ class ReviewerAgent:
             or copyright_risk == "high"
             or len(drift_flags) >= 2
         ):
+            self._archive_ending_frame(project_id, shot, ending_frame, approved=False)
             shot.status = "qc_failed_continuity"
             flag_text = ", ".join(drift_flags) if drift_flags else "none"
             raise RuntimeError(
@@ -171,6 +175,7 @@ class ReviewerAgent:
                 f"scene consistency {scene_score}/100, copyright risk {copyright_risk or 'unknown'}, flags {flag_text}."
             )
         self._archive_review_frames(project_id, shot, frames, approved=True)
+        self._archive_ending_frame(project_id, shot, ending_frame, approved=True)
         shot.status = "approved_comfyui"
         shot.stale = False
         shot.qc_status = "PASSED_VISION"
@@ -233,13 +238,38 @@ class ReviewerAgent:
                 scene_id=shot.scene_id,
                 character_id=shot.character_ids[0] if shot.character_ids else "",
                 character_ids=list(shot.character_ids),
-                role="ending_frame" if index == len(frames) else "qc_keyframe",
+                role="qc_keyframe",
                 metadata={
-                    "role": "ending_frame" if index == len(frames) else "qc_keyframe",
+                    "role": "qc_keyframe",
                     "scene_id": shot.scene_id,
                     "character_ids": list(shot.character_ids),
                 },
             )
+
+    def _archive_ending_frame(self, project_id: str, shot: Shot, frame: Path | None, *, approved: bool) -> None:
+        if frame is None or not Path(frame).is_file():
+            return
+        self.reference_bank.register_file(
+            project_id,
+            Path(frame),
+            kind="previous_approved_shot_ending_frame" if approved else "review_keyframe",
+            source="continuity_qc",
+            approved=approved,
+            shot_number=shot.number,
+            revision=int(getattr(shot, "revision", 1) or 1),
+            name=f"shot-{shot.number:02d}-rev-{int(getattr(shot, 'revision', 1) or 1):02d}-transition-ending",
+            scene_id=shot.scene_id,
+            character_id=shot.character_ids[0] if shot.character_ids else "",
+            character_ids=list(shot.character_ids),
+            role="transition_ending_frame",
+            metadata={
+                "role": "transition_ending_frame",
+                "from_scene_id": shot.scene_id,
+                "character_ids": list(shot.character_ids),
+                "transition_type": shot.transition_type,
+                "shot_revision": int(getattr(shot, "revision", 1) or 1),
+            },
+        )
 
     def _extract_keyframes(self, project_id: str, shot: Shot, video_path: Path, duration: float) -> list[Path]:
         output_dir = self.settings.outputs_dir / project_id / "quality" / f"shot-{shot.number:02d}"
@@ -267,6 +297,33 @@ class ReviewerAgent:
                 raise RuntimeError(f"Shot {shot.number} keyframe extraction failed: {completed.stderr[-300:]}")
             frames.append(frame_path)
         return frames
+
+    def _extract_ending_frame(self, project_id: str, shot: Shot, video_path: Path, duration: float) -> Path | None:
+        """Extract a dedicated transition frame near the actual media end."""
+
+        if not video_path.is_file():
+            return None
+        output_dir = self.settings.outputs_dir / project_id / "quality" / f"shot-{shot.number:02d}"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        frame_path = output_dir / f"ending-rev-{int(getattr(shot, 'revision', 1) or 1):02d}.jpg"
+        timestamp = max(0.01, float(duration) - 0.15)
+        command = [
+            self.settings.ffmpeg_bin,
+            "-y",
+            "-ss",
+            f"{timestamp:.3f}",
+            "-i",
+            str(video_path),
+            "-frames:v",
+            "1",
+            "-q:v",
+            "3",
+            str(frame_path),
+        ]
+        completed = subprocess.run(command, capture_output=True, text=True, check=False)
+        if completed.returncode != 0 or not frame_path.is_file():
+            raise RuntimeError(f"Shot {shot.number} ending frame extraction failed: {completed.stderr[-300:]}")
+        return frame_path
 
     @staticmethod
     def _keyframe_timestamps(duration: float, count: int) -> list[float]:

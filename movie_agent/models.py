@@ -82,6 +82,8 @@ class Shot:
     continuity_to: str = ""
     shot_complexity: str = "MEDIUM"
     transition_type: str = "CONTINUOUS"
+    prop_ids: list[str] = field(default_factory=list)
+    speech_policy: str = "NARRATION"
 
     def __post_init__(self) -> None:
         if self.source_duration_seconds <= 0:
@@ -92,6 +94,13 @@ class Shot:
             self.character_ids = [item.strip() for item in self.character_ids.split(",") if item.strip()]
         else:
             self.character_ids = [str(item).strip() for item in (self.character_ids or []) if str(item).strip()]
+        if isinstance(self.prop_ids, str):
+            self.prop_ids = [item.strip() for item in self.prop_ids.split(",") if item.strip()]
+        else:
+            self.prop_ids = [str(item).strip() for item in (self.prop_ids or []) if str(item).strip()]
+        self.speech_policy = str(self.speech_policy or "NARRATION").upper()
+        if self.speech_policy not in {"SILENT", "DIALOGUE", "NARRATION", "VOICE_OVER", "SYSTEM_VOICE", "AMBIENCE_ONLY"}:
+            self.speech_policy = "NARRATION"
         self.shot_complexity = str(self.shot_complexity or "MEDIUM").upper()
         if self.shot_complexity not in {"LOW", "MEDIUM", "HIGH"}:
             self.shot_complexity = "MEDIUM"
@@ -146,6 +155,8 @@ class MovieProject:
     mix_state: dict[str, Any] = field(default_factory=dict)
     final_look: dict[str, Any] = field(default_factory=dict)
     story_beats: list[dict[str, Any]] = field(default_factory=list)
+    story_world: dict[str, Any] = field(default_factory=dict)
+    storyboard_review: dict[str, Any] = field(default_factory=dict)
     film_language: str = "en"
     continuity_lock: dict[str, Any] = field(default_factory=dict)
     voice_profile: dict[str, Any] = field(default_factory=dict)
@@ -213,6 +224,8 @@ class MovieProject:
             mix_state=data.get("mix_state") or {},
             final_look=data.get("final_look") or {},
             story_beats=data.get("story_beats") or [],
+            story_world=data.get("story_world") or {},
+            storyboard_review=data.get("storyboard_review") or {},
             film_language=str(data.get("film_language") or "en").lower(),
             continuity_lock=data.get("continuity_lock") or {},
             voice_profile=data.get("voice_profile") or {},

@@ -3,8 +3,9 @@
 from typing import Any
 
 from movie_agent.services.llm import CreativeLLM
-from movie_agent.services.subtitles import ensure_dialogue_assets, shot_count_for_duration
-from movie_agent.services.narrative import normalise_story_beats
+from movie_agent.services.subtitles import align_script_to_shots, ensure_dialogue_assets, shot_count_for_duration
+from movie_agent.services.narrative import beat_count_for_duration, normalise_story_beats
+from movie_agent.services.story_world import story_world_prompt, validate_story_world_references
 
 
 def _as_text(value: Any) -> str:
@@ -106,14 +107,14 @@ class WriterAgent:
             )
             result = self.llm.complete_json(
                 "You are a script supervisor finishing an English sci-fi short after the storyboard is locked. "
-                "Write concise, speakable narration or dialogue that is directly grounded in each shot's visible event. "
-                "Do not write generic philosophical summaries before the final beat. All output must be English. "
-                "Return one short line per shot; preserve causal and emotional continuity.",
+                "Write concise, speakable narration or dialogue only where speech adds information, inner conflict, irony, thematic contrast, foreshadowing, dialogue, or system-world information. "
+                "Do not narrate what the image already shows. Silent and ambience-only shots must have no cue. All output must be English. "
+                "Return 0..N cues, not one cue per shot; preserve causal and emotional continuity.",
                 f"Idea: {idea}\nDirector brief: {brief}\nExisting screenplay: {script.get('story', '')}\n"
                 f"Existing outline: {script.get('outline', '')}\nLOCKED STORYBOARD:\n{shot_context}\n"
-                f"Return JSON with narration (one coherent English paragraph), dialogue_book and subtitle_track arrays. "
-                f"Both arrays must contain exactly {shot_count} items with shot, speaker, kind, text, start_seconds, end_seconds. "
-                "Use speaker=NARRATOR and kind=narration when no character speaks. Keep each line natural for voice performance.",
+                "Return JSON with narration (one coherent English paragraph), dialogue_book and subtitle_track arrays. "
+                "Each cue must contain shot, speaker, kind, text, start_seconds, end_seconds; arrays may be empty and a shot may have no cue. "
+                "Use speaker=NARRATOR and kind=narration when appropriate. Keep each line natural for voice performance.",
             )
             result_script = {
                 **script,
@@ -122,11 +123,7 @@ class WriterAgent:
                 "subtitle_track": result.get("subtitle_track"),
                 "narrative_source": "storyboard_supervisor",
             }
-            return ensure_dialogue_assets(
-                result_script,
-                duration_seconds=duration_seconds,
-                shot_count=shot_count or None,
-            )
+            return align_script_to_shots(result_script, storyboard, allow_silent=True)
 
         # Mock mode still needs to demonstrate the same contract.  Build lines
         # from the actual narrative purpose/action/reaction fields rather than
@@ -134,6 +131,7 @@ class WriterAgent:
         dialogue: list[dict[str, Any]] = []
         narration_lines: list[str] = []
         for index, shot in enumerate(storyboard, start=1):
+            speech_policy = self._shot_value(shot, "speech_policy").upper() or "NARRATION"
             purpose = self._shot_value(shot, "narrative_purpose") or f"the next beat unfolds"
             action = self._shot_value(shot, "main_action") or self._shot_value(shot, "action")
             reaction = self._shot_value(shot, "character_reaction")
@@ -141,27 +139,28 @@ class WriterAgent:
             if reaction:
                 line_parts.append(self._as_sentence(reaction))
             line = " ".join(part for part in line_parts if part)
-            narration_lines.append(line)
-            dialogue.append(
-                {
-                    "shot": index,
-                    "speaker": "NARRATOR",
-                    "kind": "narration",
-                    "text": line or "The moment holds.",
-                }
-            )
+            if speech_policy not in {"SILENT", "AMBIENCE_ONLY"}:
+                narration_lines.append(line)
+                dialogue.append(
+                    {
+                        "shot": index,
+                        "speaker": "SYSTEM" if speech_policy == "SYSTEM_VOICE" else "NARRATOR",
+                        "kind": speech_policy.lower(),
+                        "text": line or "The moment holds.",
+                    }
+                )
         result_script = {
             **script,
             "narration": " ".join(line for line in narration_lines if line),
             "dialogue_book": dialogue,
             "subtitle_track": dialogue,
+            "speech_policy_by_shot": {
+                str(index): self._shot_value(shot, "speech_policy").upper() or "NARRATION"
+                for index, shot in enumerate(storyboard, start=1)
+            },
             "narrative_source": "storyboard_supervisor",
         }
-        return ensure_dialogue_assets(
-            result_script,
-            duration_seconds=duration_seconds,
-            shot_count=shot_count or None,
-        )
+        return align_script_to_shots(result_script, storyboard, allow_silent=True)
 
     @staticmethod
     def _shot_value(shot: Any, key: str) -> str:
@@ -180,6 +179,7 @@ class WriterAgent:
     def _shot_context(cls, shot: Any, index: int) -> str:
         return (
             f"Shot {index}: purpose={cls._shot_value(shot, 'narrative_purpose')}; "
+            f"speech_policy={cls._shot_value(shot, 'speech_policy')}; "
             f"starting_state={cls._shot_value(shot, 'starting_state')}; "
             f"main_action={cls._shot_value(shot, 'main_action') or cls._shot_value(shot, 'action')}; "
             f"character_reaction={cls._shot_value(shot, 'character_reaction')}; "
@@ -194,10 +194,11 @@ class WriterAgent:
         brief: dict,
         script: dict,
         duration_seconds: int,
+        story_world: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
-        """Break the screenplay into 6-10 narrative beats for storyboard continuity."""
+        """Break the screenplay into dramatic state changes, not shot slots."""
 
-        shot_count = shot_count_for_duration(duration_seconds)
+        beat_count = beat_count_for_duration(duration_seconds)
         if self.llm:
             result = self.llm.complete_json(
                 "You are a story structure analyst. Break a short film screenplay into narrative beats "
@@ -206,15 +207,16 @@ class WriterAgent:
                 f"Idea: {idea}\nDirector brief: {brief}\n"
                 f"Screenplay: {script.get('story', '')}\n"
                 f"Outline: {script.get('outline', '')}\n"
-                f"Break this into {shot_count} narrative beats. "
+                f"{story_world_prompt(story_world)}\n"
+                f"Break this into {beat_count} narrative beats. A beat is one dramatic state change, not one shot; multiple shots may express one beat. "
                 "Return JSON: {\"beats\": [{beat_id, beat_number, scene_id, character_ids, story_function, "
-                "narrative_purpose, information_gain, emotional_shift, visual_motif, starting_state, "
+                "prop_ids, narrative_purpose, information_gain, emotional_shift, visual_motif, starting_state, "
                 "ending_state, transition_hook, importance, duration_weight}]}. "
                 "narrative_purpose: why this beat exists (e.g. 'establish the ordinary world'). "
                 "emotional_arc: how the audience feels (e.g. 'calm → unease'). "
                 "starting_state: what the viewer sees at the start of this beat. "
                 "ending_state: what the viewer sees at the end. "
-                "transition_hook: how this beat connects to the next. scene_id and character_ids must be stable IDs, "
+                "transition_hook: how this beat connects to the next. scene_id, character_ids, and prop_ids must come only from the supplied Story World, "
                 "importance and duration_weight are numeric values reflecting narrative weight. Do not omit fields.",
             )
             raw_beats = result.get("beats")
@@ -228,6 +230,7 @@ class WriterAgent:
                         "beat_number": int(raw.get("beat_number", index + 1)),
                         "scene_id": str(raw.get("scene_id", "")),
                         "character_ids": raw.get("character_ids") or [],
+                        "prop_ids": raw.get("prop_ids") or [],
                         "story_function": str(raw.get("story_function") or raw.get("narrative_purpose", "")),
                         "narrative_purpose": str(raw.get("narrative_purpose", "")),
                         "information_gain": raw.get("information_gain", 0.5),
@@ -241,7 +244,12 @@ class WriterAgent:
                         "duration_weight": raw.get("duration_weight", 1.0),
                     })
                 if beats:
-                    return normalise_story_beats(beats)
+                    beats = normalise_story_beats(beats)
+                    if story_world:
+                        unknown = validate_story_world_references(beats, story_world)
+                        if any(unknown.values()):
+                            raise ValueError(f"STORY_WORLD_REVIEW_REQUIRED: {unknown}")
+                    return beats
         phases = [
             ("establish the ordinary world", "calm → curiosity", "The automated space hums with routine order.", "A faint irregularity appears at the edge of perception.", "The camera lingers on a detail that doesn't quite fit."),
             ("introduce the anomaly", "curiosity → unease", "The protagonist notices something off but dismisses it.", "The anomaly persists and grows slightly.", "A beat of hesitation before the next action."),
@@ -253,13 +261,14 @@ class WriterAgent:
             ("lingering resonance", "resonance → silence", "The aftermath settles.", "The audience is left with a question, not an answer.", "Silence over the final frame."),
         ]
         beats = []
-        for index in range(min(shot_count, len(phases))):
+        for index in range(min(beat_count, len(phases))):
             purpose, arc, start, end, hook = phases[index]
             beats.append({
                 "beat_id": f"beat-{index + 1:02d}",
                 "beat_number": index + 1,
                 "scene_id": "primary",
                 "character_ids": ["protagonist"],
+                "prop_ids": [],
                 "story_function": purpose,
                 "narrative_purpose": purpose,
                 "information_gain": 0.5 if index < 2 else 0.8,
@@ -272,12 +281,13 @@ class WriterAgent:
                 "importance": 0.5 if index < 2 else 0.8,
                 "duration_weight": 1.0 if index < 2 else 1.25,
             })
-        while len(beats) < shot_count:
+        while len(beats) < beat_count:
             beats.append({
                 "beat_id": f"beat-{len(beats) + 1:02d}",
                 "beat_number": len(beats) + 1,
                 "scene_id": "primary",
                 "character_ids": ["protagonist"],
+                "prop_ids": [],
                 "story_function": "AFTERMATH",
                 "narrative_purpose": "sustain emotional resonance",
                 "information_gain": 0.35,
@@ -290,4 +300,9 @@ class WriterAgent:
                 "importance": 0.6,
                 "duration_weight": 1.0,
             })
-        return normalise_story_beats(beats)
+        beats = normalise_story_beats(beats)
+        if story_world:
+            unknown = validate_story_world_references(beats, story_world)
+            if any(unknown.values()):
+                raise ValueError(f"STORY_WORLD_REVIEW_REQUIRED: {unknown}")
+        return beats

@@ -10,6 +10,17 @@ STORY_FUNCTIONS = {"SETUP", "ROUTINE", "ANOMALY", "RECOGNITION", "ESCALATION", "
 TRANSITION_TYPES = {"CONTINUOUS", "HARD_CUT", "MATCH_CUT", "AUDIO_BRIDGE", "ACTION_MATCH", "ELLIPSIS", "FADE", "DISSOLVE"}
 
 
+def beat_count_for_duration(duration_seconds: int) -> int:
+    duration = int(duration_seconds)
+    if duration <= 40:
+        return 4
+    if duration <= 55:
+        return 5
+    if duration <= 70:
+        return 6
+    return 7
+
+
 def _ids(value: Any) -> list[str]:
     if isinstance(value, str):
         return [item.strip() for item in value.split(",") if item.strip()]
@@ -45,6 +56,7 @@ def normalise_story_beat(raw: dict[str, Any], index: int) -> dict[str, Any]:
         "beat_number": beat_number,
         "scene_id": str(raw.get("scene_id") or "").strip(),
         "character_ids": _ids(raw.get("character_ids")),
+        "prop_ids": _ids(raw.get("prop_ids")),
         "story_function": story_function,
         "narrative_purpose": purpose,
         "information_gain": _float(raw.get("information_gain"), 0.35),
@@ -103,4 +115,90 @@ def allocate_weighted_durations(weights: Iterable[float], target_seconds: int, m
     return durations
 
 
-__all__ = ["STORY_FUNCTIONS", "TRANSITION_TYPES", "allocate_weighted_durations", "normalise_story_beat", "normalise_story_beats", "validate_beat_shot_mapping"]
+def allocate_beat_budgets(
+    beat_ids: Iterable[str],
+    beats: Iterable[dict[str, Any]],
+    target_seconds: int,
+    *,
+    minimum_per_shot: int = 4,
+    shot_counts: dict[str, int] | None = None,
+    maximum_per_shot: int = 8,
+) -> dict[str, int] | None:
+    """Allocate film time to beats before distributing time within each beat."""
+
+    ids = list(dict.fromkeys(str(value) for value in beat_ids))
+    beat_map = {str(beat.get("beat_id")): beat for beat in beats if isinstance(beat, dict)}
+    counts = shot_counts or {beat_id: 1 for beat_id in ids}
+    minimums = {beat_id: max(1, int(counts.get(beat_id, 1))) * minimum_per_shot for beat_id in ids}
+    capacities = {beat_id: max(minimums[beat_id], int(counts.get(beat_id, 1)) * maximum_per_shot) for beat_id in ids}
+    if not ids or target_seconds < sum(minimums.values()) or target_seconds > sum(capacities.values()):
+        return None
+    budgets = dict(minimums)
+    remaining = target_seconds - sum(budgets.values())
+    weights = {
+        beat_id: max(0.1, float(beat_map.get(beat_id, {}).get("duration_weight", 1.0)))
+        * max(0.1, float(beat_map.get(beat_id, {}).get("importance", 0.5)))
+        for beat_id in ids
+    }
+    order = sorted(ids, key=lambda value: (weights[value], -ids.index(value)), reverse=True)
+    cursor = 0
+    while remaining > 0:
+        beat_id = order[cursor % len(order)]
+        if budgets[beat_id] < capacities[beat_id]:
+            budgets[beat_id] += 1
+            remaining -= 1
+        cursor += 1
+        if cursor > len(order) * (target_seconds + 1):
+            return None
+    return budgets
+
+
+def allocate_two_stage_durations(
+    shot_beat_ids: Iterable[str],
+    beats: Iterable[dict[str, Any]],
+    target_seconds: int,
+    *,
+    shot_weights: Iterable[float] | None = None,
+    minimum: int = 4,
+    maximum: int = 8,
+) -> list[int] | None:
+    """Allocate Beat budget first, then Shot budget inside each Beat."""
+
+    ids = [str(value) for value in shot_beat_ids]
+    beat_order = list(dict.fromkeys(ids))
+    counts = {beat_id: ids.count(beat_id) for beat_id in beat_order}
+    budgets = allocate_beat_budgets(
+        beat_order,
+        beats,
+        target_seconds,
+        minimum_per_shot=minimum,
+        shot_counts=counts,
+        maximum_per_shot=maximum,
+    )
+    if budgets is None:
+        return None
+    weights = list(shot_weights or [])
+    result: list[int] = []
+    start = 0
+    for beat_id in beat_order:
+        size = counts[beat_id]
+        group_weights = weights[start:start + size] or [1.0] * size
+        group = allocate_weighted_durations(group_weights, budgets[beat_id], minimum, maximum)
+        if group is None:
+            return None
+        result.extend(group)
+        start += size
+    return result
+
+
+__all__ = [
+    "STORY_FUNCTIONS",
+    "TRANSITION_TYPES",
+    "allocate_beat_budgets",
+    "allocate_two_stage_durations",
+    "allocate_weighted_durations",
+    "beat_count_for_duration",
+    "normalise_story_beat",
+    "normalise_story_beats",
+    "validate_beat_shot_mapping",
+]

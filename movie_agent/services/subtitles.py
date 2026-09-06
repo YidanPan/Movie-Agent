@@ -406,7 +406,34 @@ def ensure_dialogue_assets(
     return result
 
 
-def align_script_to_shots(script: dict[str, Any], storyboard: Iterable[Any]) -> dict[str, Any]:
+def _sparse_entries(value: Any, policies: dict[int, str]) -> list[dict[str, Any]]:
+    entries: list[dict[str, Any]] = []
+    for index, raw in enumerate(_raw_entries(value), start=1):
+        item = {"text": raw} if isinstance(raw, str) else dict(raw) if isinstance(raw, dict) else {}
+        shot = int(item.get("shot") or item.get("shot_number") or index)
+        if policies.get(shot, "NARRATION") in {"SILENT", "AMBIENCE_ONLY"}:
+            continue
+        text = _entry_text(item)
+        if not text:
+            continue
+        entries.append(
+            {
+                "line_id": str(item.get("line_id") or f"L{len(entries) + 1:02d}"),
+                "shot": shot,
+                "speaker": _text(item.get("speaker")) or _DEFAULT_SPEAKER,
+                "kind": _text(item.get("kind")) or "narration",
+                "text": text,
+            }
+        )
+    return entries
+
+
+def align_script_to_shots(
+    script: dict[str, Any],
+    storyboard: Iterable[Any],
+    *,
+    allow_silent: bool = False,
+) -> dict[str, Any]:
     """Align cue timing to the actual storyboard durations after planning."""
 
     shots = list(storyboard)
@@ -419,11 +446,25 @@ def align_script_to_shots(script: dict[str, Any], storyboard: Iterable[Any]) -> 
     # Pass the real shot count through.  Calling the legacy default here would
     # normalise every project to six cues and silently replace shots 7–10 with
     # silence in longer films.
-    result = ensure_dialogue_assets(
-        script,
-        duration_seconds=max(1, int(round(target_duration))),
-        shot_count=len(shots),
-    )
+    if allow_silent:
+        policies = {
+            int(getattr(shot, "number", index + 1)): str(getattr(shot, "speech_policy", "NARRATION") or "NARRATION").upper()
+            for index, shot in enumerate(shots)
+        }
+        result = deepcopy(script or {})
+        result["dialogue_book"] = _sparse_entries(result.get("dialogue_book"), policies)
+        subtitle_source = result.get("subtitle_track") or result.get("dialogue_book")
+        result["subtitle_track"] = _sparse_entries(subtitle_source, policies)
+        result["speech_policy_by_shot"] = {str(key): value for key, value in policies.items()}
+        result["dialogue_locked"] = bool(result.get("dialogue_locked", False))
+        result["subtitle_mode"] = normalise_subtitle_mode(result.get("subtitle_mode", "burned"))
+        result["dialogue_revision"] = int(result.get("dialogue_revision", 1) or 1)
+    else:
+        result = ensure_dialogue_assets(
+            script,
+            duration_seconds=max(1, int(round(target_duration))),
+            shot_count=len(shots),
+        )
     dialogue = list(result.get("dialogue_book") or [])
     subtitle = list(result.get("subtitle_track") or [])
     cursor = 0.0
@@ -435,19 +476,26 @@ def align_script_to_shots(script: dict[str, Any], storyboard: Iterable[Any]) -> 
             number = int(getattr(shot, "number", index + 1))
             duration = float(getattr(shot, "duration_seconds", 4))
         for entries in (dialogue, subtitle):
-            if index >= len(entries):
-                entries.append({"line_id": f"L{index + 1:02d}", "speaker": _DEFAULT_SPEAKER, "kind": "narration", "text": "(silence)"})
-            entry = entries[index]
-            entry["shot"] = number
-            entry["start_seconds"] = round(cursor, 3)
-            entry["end_seconds"] = round(cursor + duration, 3)
-            entry.setdefault("line_id", f"L{index + 1:02d}")
-            entry.setdefault("speaker", _DEFAULT_SPEAKER)
-            entry.setdefault("kind", "narration")
-            entry["text"] = _entry_text(entry) or "(silence)"
+            shot_entries = [entry for entry in entries if int(entry.get("shot") or 0) == number]
+            if not allow_silent and not shot_entries:
+                shot_entries = [{"line_id": f"L{index + 1:02d}", "speaker": _DEFAULT_SPEAKER, "kind": "narration", "text": "(silence)", "shot": number}]
+                entries.append(shot_entries[0])
+            if shot_entries:
+                total_weight = sum(max(1, len(_entry_text(entry).split())) for entry in shot_entries)
+                entry_cursor = cursor
+                for entry in shot_entries:
+                    span = duration * max(1, len(_entry_text(entry).split())) / total_weight
+                    entry["shot"] = number
+                    entry["start_seconds"] = round(entry_cursor, 3)
+                    entry["end_seconds"] = round(entry_cursor + span, 3)
+                    entry.setdefault("line_id", f"L{index + 1:02d}")
+                    entry.setdefault("speaker", _DEFAULT_SPEAKER)
+                    entry.setdefault("kind", "narration")
+                    entry["text"] = _entry_text(entry) or "(silence)"
+                    entry_cursor += span
         cursor += duration
-    result["dialogue_book"] = dialogue[: len(shots)]
-    result["subtitle_track"] = subtitle[: len(shots)]
+    result["dialogue_book"] = dialogue if allow_silent else dialogue[: len(shots)]
+    result["subtitle_track"] = subtitle if allow_silent else subtitle[: len(shots)]
     return result
 
 
@@ -479,7 +527,7 @@ def align_script_to_audio(
     if native_events or forced_events:
         boundaries = normalize_word_boundaries(native_events or forced_events, duration)
         if boundaries:
-            result = ensure_dialogue_assets(script, duration_seconds=max(1, int(round(duration))))
+            result = deepcopy(script) if (script or {}).get("speech_policy_by_shot") else ensure_dialogue_assets(script, duration_seconds=max(1, int(round(duration))))
             cues = word_level_cues(result, boundaries, shot_transitions=shot_transitions)
             if cues:
                 result["dialogue_book"] = deepcopy(cues)
@@ -494,7 +542,7 @@ def align_script_to_audio(
                 }
                 return result
     if sentence_boundaries:
-        measured_script = ensure_dialogue_assets(script, duration_seconds=max(1, int(round(duration))))
+        measured_script = deepcopy(script) if (script or {}).get("speech_policy_by_shot") else ensure_dialogue_assets(script, duration_seconds=max(1, int(round(duration))))
         if isinstance(sentence_boundaries.get("dialogue_book"), list):
             measured_script["dialogue_book"] = sentence_boundaries["dialogue_book"]
         if isinstance(sentence_boundaries.get("subtitle_track"), list):
@@ -513,7 +561,7 @@ def align_script_to_audio(
             return measured_script
     source_entries = _raw_entries((script or {}).get("dialogue_book") or (script or {}).get("subtitle_track"))
     cue_count = max(1, len(source_entries))
-    result = ensure_dialogue_assets(
+    result = deepcopy(script) if (script or {}).get("speech_policy_by_shot") else ensure_dialogue_assets(
         script,
         duration_seconds=max(1, int(round(duration))),
         shot_count=cue_count,

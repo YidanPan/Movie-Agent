@@ -3,13 +3,21 @@
 from typing import Any
 
 from movie_agent.services.llm import CreativeLLM
+from movie_agent.services.story_world import story_world_prompt, world_entities, normalise_story_world
 
 
 class VisualBibleAgent:
     def __init__(self, llm: CreativeLLM | None = None) -> None:
         self.llm = llm
 
-    def create(self, visual_style: str, brief: dict[str, str], script: dict[str, str]) -> dict[str, Any]:
+    def create(
+        self,
+        visual_style: str,
+        brief: dict[str, str],
+        script: dict[str, str],
+        story_world: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        world = normalise_story_world(story_world) if story_world else None
         if self.llm:
             result = self.llm.complete_json(
                 "You are a film art director. Create reusable consistency specifications for an original sci-fi short film. "
@@ -18,23 +26,30 @@ class VisualBibleAgent:
                 "The structured characters and scenes are authoritative selectors, not decorative summaries. "
                 "Give every character a stable character_id and every scene a stable scene_id so generation and QC can resolve only the active context.",
                 f"Visual style: {visual_style}\nDirector brief: {brief}\nStory: {script.get('story', '')}\n"
+                f"{story_world_prompt(world)}\n"
                 "Return only JSON with keys: character_card, scene_card, style_card, sound_card, "
                 "character_lock, scene_lock, cinematography_lock, reference_seed, "
                 "characters, scenes, cinematography. "
                 "characters must be an array of objects with character_id, name, role, appearance_lock, face_lock, hair_lock, costume_lock, silhouette_lock, prop_lock. "
+                "Use exactly the provided character IDs and include every provided character. "
                 "scenes must be an array of objects with scene_id, name, environment_lock, architecture_lock, lighting_lock, palette_lock, prop_lock. "
+                "Use exactly the provided scene IDs and include every provided scene. "
                 "cinematography must be an object with lens_language, camera_motion, composition, film_texture, color_pipeline. "
                 "Do not omit structured fields; use an empty string only when a field is genuinely not applicable.",
             )
             structured_keys = {"characters", "scenes", "cinematography"}
-            return {
+            output = {
                 key: value if key in structured_keys and isinstance(value, (list, dict)) else str(value)
                 for key, value in result.items()
             }
+            if world:
+                output["characters"] = self._bind_entities(output.get("characters"), world, "characters")
+                output["scenes"] = self._bind_entities(output.get("scenes"), world, "scenes")
+            return output
         character_lock = "Male, early 30s, short dark hair with slight wave, clean-shaven, lean build. Wears a dark charcoal utility jacket over a muted grey crew-neck shirt, black slim trousers, matte black boots. Distinguishing feature: small scar above left eyebrow. Same appearance in every shot."
         scene_lock = "Single enclosed near-future control room. Concrete-grey walls with recessed LED strip lighting (cool 5600K). A curved console with dim amber indicator lights runs along one wall. Large window panel showing a dark cityscape. Props: a handheld scanner, a coffee mug. No other characters present."
         cinematography_lock = "Shot on anamorphic-style 35mm equivalent. Shallow depth of field (f/2.0-2.8). Lens preference: 40mm and 65mm primes. Camera movement: slow dolly, subtle push-ins, no handheld shake. Framing: favour centre-weighted compositions with leading lines from console edges. Colour grade: desaturated teal shadows, warm amber highlights, crushed blacks. No lens flares."
-        return {
+        output = {
             "character_card": "Single protagonist; neutral, restrained clothing; same hairstyle, silhouette, and emotional register across all shots.",
             "scene_card": "Single enclosed near-future space; a few recognisable consoles, window panels, and cool-toned light sources.",
             "style_card": f"{visual_style}; desaturated, limited palette, slow camera movement, close-ups and insert shots drive the narrative.",
@@ -47,3 +62,24 @@ class VisualBibleAgent:
             "cinematography": {"lock": cinematography_lock, "palette": "desaturated teal shadows, warm amber highlights"},
             "reference_seed": "42",
         }
+        if world:
+            output["characters"] = [
+                {**entity, "character_id": entity.get("character_id")}
+                for entity in world_entities(world, "characters")
+            ]
+            output["scenes"] = [
+                {**entity, "scene_id": entity.get("scene_id")}
+                for entity in world_entities(world, "scenes")
+            ]
+        return output
+
+    @staticmethod
+    def _bind_entities(value: Any, world: dict[str, Any], kind: str) -> list[dict[str, Any]]:
+        prefix = kind[:-1]
+        source = value if isinstance(value, list) else []
+        by_id = {str(item.get(f"{prefix}_id") or item.get("id")): item for item in source if isinstance(item, dict)}
+        result: list[dict[str, Any]] = []
+        for entity in world_entities(world, kind):
+            entity_id = str(entity.get(f"{prefix}_id") or "")
+            result.append({**(by_id.get(entity_id) or {}), **entity, f"{prefix}_id": entity_id})
+        return result

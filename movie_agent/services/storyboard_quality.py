@@ -13,6 +13,15 @@ _STOPWORDS = {
     "the", "to", "with", "this", "that", "same", "shot", "previous", "next",
 }
 
+PLANNING_RELEVANCE_FLAGS = {
+    "LOW_RELEVANCE_SHOT",
+    "REDUNDANT_SHOT",
+    "REPEATED_INFORMATION",
+    "SHOT_TOO_COMPLEX",
+    "NARRATIVE_STATE_DRIFT",
+    "BEAT_MAPPING_REVIEW",
+}
+
 
 def _text(value: Any) -> str:
     return str(value or "").strip()
@@ -127,14 +136,23 @@ class StoryboardRelevanceGate:
             details = dict(getattr(shot, "qc_details", {}) or {})
             planning = dict(details.get("planning") or {})
             planning["relevance"] = result
-            planning["flags"] = list(dict.fromkeys([*(planning.get("flags") or []), *result["flags"]]))
+            mapping = planning.get("beat_mapping") or {}
+            current_flags = list(result["flags"])
+            if mapping and not mapping.get("valid", True):
+                current_flags.append("BEAT_MAPPING_REVIEW")
+            planning["flags"] = list(dict.fromkeys(current_flags))
             details["planning"] = planning
             # Keep the old top-level key for saved-project/API compatibility.
             details["relevance"] = result
             shot.qc_details = details
-            for flag in result["flags"]:
-                if flag not in shot.qc_flags:
-                    shot.qc_flags.append(flag)
+            external_flags = [
+                str(flag) for flag in (shot.qc_flags or []) if str(flag) not in PLANNING_RELEVANCE_FLAGS
+            ]
+            for namespace in ("media", "visual", "manual_review"):
+                namespace_value = details.get(namespace) or {}
+                if isinstance(namespace_value, dict):
+                    external_flags.extend(str(flag) for flag in (namespace_value.get("flags") or []))
+            shot.qc_flags = list(dict.fromkeys([*external_flags, *current_flags]))
             previous = shot
         return shots
 
@@ -190,4 +208,4 @@ def review_storyboard(shots: Iterable[Any], beats: Iterable[dict[str, Any]] | No
     return StoryboardRelevanceGate().review_storyboard(shots, beats)
 
 
-__all__ = ["StoryboardRelevanceGate", "previous_ending_connects_to_next_starting_state", "review_storyboard"]
+__all__ = ["PLANNING_RELEVANCE_FLAGS", "StoryboardRelevanceGate", "previous_ending_connects_to_next_starting_state", "review_storyboard"]

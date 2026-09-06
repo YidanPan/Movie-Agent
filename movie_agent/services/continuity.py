@@ -21,6 +21,27 @@ LOCK_KEYS = (
 )
 
 
+def should_use_previous_frame(current_shot: Any, previous_shot: Any | None = None) -> bool:
+    """Choose visual conditioning from editorial transition semantics."""
+
+    transition = str(getattr(current_shot, "transition_type", "CONTINUOUS") or "CONTINUOUS").upper()
+    if transition in {"HARD_CUT", "AUDIO_BRIDGE", "ELLIPSIS"}:
+        return False
+    if transition in {"CONTINUOUS", "ACTION_MATCH", "MATCH_CUT"}:
+        if transition == "CONTINUOUS" and previous_shot is not None:
+            previous_scene = str(getattr(previous_shot, "scene_id", "") or "")
+            current_scene = str(getattr(current_shot, "scene_id", "") or "")
+            return not previous_scene or not current_scene or previous_scene == current_scene
+        return True
+    if transition in {"FADE", "DISSOLVE"}:
+        if previous_shot is None:
+            return True
+        previous_scene = str(getattr(previous_shot, "scene_id", "") or "")
+        current_scene = str(getattr(current_shot, "scene_id", "") or "")
+        return not previous_scene or not current_scene or previous_scene == current_scene
+    return False
+
+
 def _lock_text(value: Any) -> str:
     if isinstance(value, dict):
         preferred = ("appearance_lock", "face_lock", "hair_lock", "costume_lock", "silhouette_lock", "prop_lock", "environment_lock", "architecture_lock", "lighting_lock", "palette_lock")

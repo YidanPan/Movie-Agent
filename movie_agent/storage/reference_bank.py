@@ -10,6 +10,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from movie_agent.services.continuity import should_use_previous_frame
+
 
 REFERENCE_KINDS = {
     "character_hero",
@@ -166,22 +168,35 @@ class ReferenceBankStore:
 
         bank = self.load(project_id)
         promoted = 0
+        current_revision = max(1, int(revision or 1))
+        for existing in bank.assets:
+            if existing.shot_number == shot_number and existing.revision != current_revision:
+                existing.metadata["stale"] = True
         candidates = [
             asset
             for asset in bank.assets
             if asset.shot_number == shot_number
-            and asset.revision == max(1, int(revision or 1))
+            and asset.revision == current_revision
             and asset.kind == "review_keyframe"
         ]
-        for index, asset in enumerate(candidates):
-            asset.kind = "previous_approved_shot_ending_frame" if index == len(candidates) - 1 else "approved_keyframe"
+        ending = next(
+            (asset for asset in reversed(candidates) if asset.role == "transition_ending_frame" or (asset.metadata or {}).get("role") == "transition_ending_frame"),
+            candidates[-1] if candidates else None,
+        )
+        for asset in candidates:
+            asset.kind = "previous_approved_shot_ending_frame" if asset is ending else "approved_keyframe"
             asset.approved = True
             promoted += 1
         if promoted:
             self.save(bank)
         return promoted
 
-    def qc_reference_paths(self, project_id: str, shot_number: int | Any) -> dict[str, list[Path]]:
+    def qc_reference_paths(
+        self,
+        project_id: str,
+        shot_number: int | Any,
+        previous_shot: Any | None = None,
+    ) -> dict[str, list[Path]]:
         """Resolve persistent, approved inputs for a shot's visual review."""
 
         requested_scene = str(getattr(shot_number, "scene_id", "") or "")
@@ -219,13 +234,15 @@ class ReferenceBankStore:
             scene = [asset for asset in scene if field(asset, "scene_id") == requested_scene]
             if not scene:
                 reference_flags.append("MISSING_SCENE_REFERENCE")
-        previous = [
-            asset
-            for asset in usable
-            if asset.kind == "previous_approved_shot_ending_frame"
-            and asset.shot_number is not None
-            and asset.shot_number < shot_number
-        ]
+        previous = []
+        if should_use_previous_frame(shot_number, previous_shot):
+            previous = [
+                asset
+                for asset in usable
+                if asset.kind == "previous_approved_shot_ending_frame"
+                and asset.shot_number is not None
+                and asset.shot_number < shot_number
+            ]
         latest_previous: dict[int, ReferenceAsset] = {}
         for asset in previous:
             if asset.shot_number is None:
@@ -240,7 +257,12 @@ class ReferenceBankStore:
             "reference_flags": reference_flags,
         }
 
-    def generation_reference_paths(self, project_id: str, shot: Any) -> dict[str, list[Path]]:
+    def generation_reference_paths(
+        self,
+        project_id: str,
+        shot: Any,
+        previous_shot: Any | None = None,
+    ) -> dict[str, list[Path]]:
         """Resolve references for one shot without claiming T2V consumes images.
 
         The returned contract is deliberately provider-neutral.  T2V stores
@@ -280,12 +302,14 @@ class ReferenceBankStore:
             scene_assets = [asset for asset in scene_assets if field(asset, "scene_id") == scene_id]
             if not scene_assets:
                 reference_flags.append("MISSING_SCENE_REFERENCE")
-        previous = [
-            asset for asset in usable
-            if asset.kind == "previous_approved_shot_ending_frame"
-            and asset.shot_number is not None
-            and asset.shot_number < shot_number
-        ]
+        previous = []
+        if should_use_previous_frame(shot, previous_shot):
+            previous = [
+                asset for asset in usable
+                if asset.kind == "previous_approved_shot_ending_frame"
+                and asset.shot_number is not None
+                and asset.shot_number < shot_number
+            ]
         previous.sort(key=lambda asset: (int(asset.shot_number or 0), int(asset.revision or 1), asset.created_at))
         palette = [asset for asset in usable if asset.kind == "palette"]
         cinematography = [asset for asset in usable if asset.kind == "cinematography"]

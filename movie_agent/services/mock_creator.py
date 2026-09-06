@@ -88,6 +88,7 @@ def build_storyboard(
                 beat_id=str((beat or {}).get("beat_id") or (beat or {}).get("id") or f"beat-{index + 1:02d}"),
                 scene_id=str((beat or {}).get("scene_id") or (beat or {}).get("scene") or ""),
                 character_ids=[str(item) for item in ((beat or {}).get("character_ids") or [])],
+                prop_ids=[str(item) for item in ((beat or {}).get("prop_ids") or [])],
                 story_function=str((beat or {}).get("story_function") or narrative_purpose or "NARRATIVE"),
                 information_gain=float((beat or {}).get("information_gain") or 0.0),
                 emotional_shift=str((beat or {}).get("emotional_shift") or emotional_arc),
