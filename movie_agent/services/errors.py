@@ -53,6 +53,15 @@ def error_info(
     retry_count: int = 0,
     recoverable: bool | None = None,
 ) -> dict[str, Any]:
+    structured = getattr(error, "to_dict", None)
+    if callable(structured) and getattr(error, "error_code", "") == "PRODUCTION_BLOCKED":
+        payload = dict(structured())
+        payload.setdefault("error_message", payload.get("error", "Production action is blocked."))
+        payload.setdefault("stage", str(stage or "pipeline"))
+        payload.setdefault("retry_count", 0)
+        payload.setdefault("recoverable", False)
+        payload.setdefault("created_at", utc_now())
+        return payload
     code, default_recoverable = classify_error(error, stage=stage)
     try:
         safe_retry_count = max(0, int(retry_count or 0))

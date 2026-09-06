@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from movie_agent.agents.visual_bible import validate_visual_bible_bindings
 from movie_agent.services.media_quality import best_master_path
@@ -19,6 +19,46 @@ from movie_agent.state import describe_status
 
 DOMAINS = {"PLAN", "WORLD", "PREVIS", "RENDERER", "REFERENCE", "VISUAL", "AUDIO", "EDIT", "DELIVERY"}
 SEVERITIES = {"INFO", "WARNING", "BLOCKING"}
+ACTION_ORDER = (
+    "START_RENDER",
+    "REGENERATE_SHOT",
+    "START_AI_EDIT",
+    "APPROVE_FINAL_CUT",
+    "GENERATE_FINAL_MASTER",
+    "EXPORT",
+)
+DOMAIN_PRIORITY = ("PLAN", "WORLD", "PREVIS", "RENDERER", "REFERENCE", "VISUAL", "AUDIO", "EDIT", "DELIVERY")
+
+
+_DEFAULT_BLOCKER_ACTIONS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
+    "PREVIS_REVIEW_REQUIRED": (
+        ("START_RENDER", "REGENERATE_SHOT", "START_AI_EDIT", "APPROVE_FINAL_CUT", "GENERATE_FINAL_MASTER", "EXPORT"),
+        ("APPROVE_PREVIS", "REPLAN_STORYBOARD"),
+    ),
+    "UNKNOWN_SCENE_ID": (("START_RENDER", "REGENERATE_SHOT"), ("REPLAN_STORY_WORLD",)),
+    "UNKNOWN_CHARACTER_ID": (("START_RENDER", "REGENERATE_SHOT"), ("REPLAN_STORY_WORLD",)),
+    "UNKNOWN_PROP_ID": (("START_RENDER", "REGENERATE_SHOT"), ("REPLAN_STORY_WORLD",)),
+    "MISSING_CHARACTER_LOCK": (("START_RENDER", "REGENERATE_SHOT"), ("REVIEW_VISUAL_BIBLE",)),
+    "MISSING_SCENE_LOCK": (("START_RENDER", "REGENERATE_SHOT"), ("REVIEW_VISUAL_BIBLE",)),
+    "MISSING_PROP_LOCK": (("START_RENDER", "REGENERATE_SHOT"), ("REVIEW_VISUAL_BIBLE",)),
+    "WORKFLOW_MISSING": (("START_RENDER", "REGENERATE_SHOT"), ("OPEN_RENDER_DIAGNOSTICS",)),
+    "WORKFLOW_INVALID": (("START_RENDER", "REGENERATE_SHOT"), ("OPEN_RENDER_DIAGNOSTICS",)),
+    "WORKFLOW_COMPILE_FAILED": (("START_RENDER", "REGENERATE_SHOT"), ("OPEN_RENDER_DIAGNOSTICS",)),
+    "UNSUPPORTED_GENERATION_MODE": (("START_RENDER", "REGENERATE_SHOT"), ("REPLAN_STORYBOARD",)),
+    "STALE": (("START_AI_EDIT", "APPROVE_FINAL_CUT", "GENERATE_FINAL_MASTER", "EXPORT"), ("START_RENDER", "REGENERATE_SHOT")),
+    "MANUAL_VISUAL_REVIEW": (("START_AI_EDIT", "APPROVE_FINAL_CUT", "GENERATE_FINAL_MASTER", "EXPORT"), ("REVIEW_SHOT",)),
+    "CHARACTER_DRIFT": (("START_AI_EDIT", "APPROVE_FINAL_CUT", "GENERATE_FINAL_MASTER", "EXPORT"), ("REVIEW_SHOT",)),
+    "SCENE_DRIFT": (("START_AI_EDIT", "APPROVE_FINAL_CUT", "GENERATE_FINAL_MASTER", "EXPORT"), ("REVIEW_SHOT",)),
+    "PROP_DRIFT": (("START_AI_EDIT", "APPROVE_FINAL_CUT", "GENERATE_FINAL_MASTER", "EXPORT"), ("REVIEW_SHOT",)),
+    "STYLE_DRIFT": (("START_AI_EDIT", "APPROVE_FINAL_CUT", "GENERATE_FINAL_MASTER", "EXPORT"), ("REVIEW_SHOT",)),
+    "SCRIPT_TIMING_REVIEW": (("APPROVE_FINAL_CUT", "GENERATE_FINAL_MASTER", "EXPORT"), ("START_AI_EDIT", "REVIEW_AUDIO_TIMELINE")),
+    "SPEECH_OVERFLOW": (("APPROVE_FINAL_CUT", "GENERATE_FINAL_MASTER", "EXPORT"), ("START_AI_EDIT", "REVIEW_AUDIO_TIMELINE")),
+    "VOICE_PROVIDER_REQUIRED": (("APPROVE_FINAL_CUT", "GENERATE_FINAL_MASTER", "EXPORT"), ("START_AI_EDIT", "OPEN_SOUND")),
+    "DIALOGUE_UNLOCKED": (("START_AI_EDIT", "APPROVE_FINAL_CUT", "GENERATE_FINAL_MASTER", "EXPORT"), ("LOCK_DIALOGUE",)),
+    "ROUGH_CUT_MISSING": (("APPROVE_FINAL_CUT", "GENERATE_FINAL_MASTER", "EXPORT"), ("START_AI_EDIT",)),
+    "FINAL_MASTER_MISSING": (("EXPORT",), ("GENERATE_FINAL_MASTER", "VERIFY_FINAL_MASTER")),
+    "DELIVERY_PREFLIGHT_FAILED": (("EXPORT",), ("REVIEW_DELIVERY_PREFLIGHT",)),
+}
 
 
 @dataclass(frozen=True)
@@ -31,9 +71,37 @@ class ProductionBlocker:
     next_action: str | None = None
     blocking_stage: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    blocks_actions: tuple[str, ...] = ()
+    resolves_by_actions: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+
+class ProductionBlockedError(ValueError):
+    """Structured action-gate failure that is safe to return from the API."""
+
+    error_code = "PRODUCTION_BLOCKED"
+
+    def __init__(self, action: str, blockers: list[ProductionBlocker]) -> None:
+        self.action = str(action).upper()
+        self.blockers = tuple(blockers)
+        self.next_actions = tuple(dict.fromkeys(
+            action_name
+            for blocker in blockers
+            for action_name in blocker.resolves_by_actions
+        ))
+        codes = ", ".join(blocker.code for blocker in blockers[:5]) or "UNKNOWN"
+        super().__init__(f"{self.action} is blocked by {codes}.")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "error_code": self.error_code,
+            "action": self.action,
+            "blockers": [blocker.to_dict() for blocker in self.blockers],
+            "next_actions": list(self.next_actions),
+            "error": str(self),
+        }
 
 
 def _blocker(
@@ -46,7 +114,10 @@ def _blocker(
     next_action: str | None = None,
     blocking_stage: str | None = None,
     metadata: dict[str, Any] | None = None,
+    blocks_actions: tuple[str, ...] | None = None,
+    resolves_by_actions: tuple[str, ...] | None = None,
 ) -> ProductionBlocker:
+    default_blocks, default_resolves = _DEFAULT_BLOCKER_ACTIONS.get(code, ((), ()))
     return ProductionBlocker(
         code=code,
         domain=domain,
@@ -56,6 +127,8 @@ def _blocker(
         next_action=next_action,
         blocking_stage=blocking_stage or domain,
         metadata=dict(metadata or {}),
+        blocks_actions=tuple(blocks_actions if blocks_actions is not None else default_blocks),
+        resolves_by_actions=tuple(resolves_by_actions if resolves_by_actions is not None else default_resolves),
     )
 
 
@@ -111,7 +184,14 @@ def _reference_blockers(project: Any, settings: Any) -> list[ProductionBlocker]:
     # Re-reading the bank here would make readiness depend on filesystem shape
     # rather than the saved revision contract.
     result: list[ProductionBlocker] = []
+    video_mode = str(_setting(settings, "video_generation_mode", "mock") or "mock").lower()
     for shot in list(getattr(project, "storyboard", []) or []):
+        details = getattr(shot, "qc_details", {}) or {}
+        strategy = str(details.get("reference_strategy") or "") if isinstance(details, dict) else ""
+        required = bool(details.get("reference_required")) if isinstance(details, dict) else False
+        if isinstance(details, dict):
+            required = required or str(details.get("reference_policy") or "").lower() == "required"
+        required = required or strategy.upper() in {"I2V", "R2V", "RENDER_REQUIRED"}
         for code in _shot_reference_flags(shot):
             if code not in {"MISSING_CHARACTER_REFERENCE", "MISSING_SCENE_REFERENCE", "MISSING_PROP_REFERENCE", "MISSING_PREVIOUS_ENDING_REFERENCE"}:
                 continue
@@ -124,9 +204,12 @@ def _reference_blockers(project: Any, settings: Any) -> list[ProductionBlocker]:
                     "MISSING_PROP_REFERENCE": "A current approved prop reference is missing.",
                     "MISSING_PREVIOUS_ENDING_REFERENCE": "The previous approved shot ending reference is missing.",
                 }[code],
+                severity="BLOCKING" if required and video_mode == "comfyui" else "WARNING",
                 shot_number=int(getattr(shot, "number", 0) or 0) or None,
                 next_action="OPEN_REFERENCE_BANK",
                 blocking_stage="RENDER",
+                blocks_actions=("START_RENDER", "REGENERATE_SHOT") if required and video_mode == "comfyui" else (),
+                resolves_by_actions=("OPEN_REFERENCE_BANK", "REVIEW_VISUAL_BIBLE"),
             ))
     return result
 
@@ -171,6 +254,12 @@ def production_blockers(project: Any, settings: Any = None) -> list[ProductionBl
     if video_mode == "comfyui" and renderer_status in renderer_codes:
         blockers.append(_blocker(renderer_status, "RENDERER", f"Renderer contract is {renderer_status.replace('_', ' ').lower()}.", next_action="OPEN_RENDER_DIAGNOSTICS", blocking_stage="RENDER"))
 
+    reference_blockers = _reference_blockers(project, settings)
+    reference_by_shot: dict[int, list[ProductionBlocker]] = {}
+    for item in reference_blockers:
+        if item.shot_number is not None:
+            reference_by_shot.setdefault(item.shot_number, []).append(item)
+
     for shot in storyboard:
         number = int(getattr(shot, "number", 0) or 0) or None
         source = _shot_source(shot)
@@ -180,9 +269,7 @@ def production_blockers(project: Any, settings: Any = None) -> list[ProductionBl
         elif verification == "UNVERIFIED_LEGACY":
             blockers.append(_blocker("UNVERIFIED_LEGACY", "RENDERER", "Legacy shot media has not been verified against the renderer contract.", severity="WARNING", shot_number=number, next_action="REVIEW_RENDER_DIAGNOSTICS", blocking_stage="RENDER"))
 
-        for code in _reference_blockers(project, settings):
-            if code.shot_number == number:
-                blockers.append(code)
+        blockers.extend(reference_by_shot.get(number or 0, []))
         flags = _shot_qc_flags(shot)
         if str(getattr(shot, "status", "")).lower() == "awaiting_visual_review" or str(getattr(shot, "qc_status", "")).upper() in {"AWAITING_VISUAL_REVIEW", "PASSED_MANUAL_REVIEW_REQUIRED"} or "MANUAL_VISUAL_REVIEW" in flags:
             blockers.append(_blocker("MANUAL_VISUAL_REVIEW", "VISUAL", "Generated media is waiting for explicit human visual review.", shot_number=number, next_action="REVIEW_SHOT", blocking_stage="EDIT"))
@@ -230,7 +317,24 @@ def production_blockers(project: Any, settings: Any = None) -> list[ProductionBl
             seen.add(key)
             deduped.append(item)
     severity_order = {"BLOCKING": 0, "WARNING": 1, "INFO": 2}
-    return sorted(deduped, key=lambda item: (severity_order.get(item.severity, 9), item.domain, item.shot_number or 0, item.code))
+    stage = describe_status(status)["stage"]
+    stage_domains = {
+        "PLAN": {"PLAN", "WORLD", "PREVIS"},
+        "PREVIS": {"PLAN", "WORLD", "PREVIS"},
+        "RENDER": {"RENDERER", "REFERENCE", "VISUAL"},
+        "DELIVER": {"VISUAL", "AUDIO", "EDIT", "DELIVERY"},
+    }.get(stage, set())
+    domain_rank = {domain: index for index, domain in enumerate(DOMAIN_PRIORITY)}
+    return sorted(
+        deduped,
+        key=lambda item: (
+            severity_order.get(item.severity, 9),
+            0 if item.domain in stage_domains else 1,
+            domain_rank.get(item.domain, 99),
+            item.shot_number or 0,
+            item.code,
+        ),
+    )
 
 
 def production_readiness(project: Any, settings: Any = None) -> dict[str, Any]:
@@ -241,6 +345,10 @@ def production_readiness(project: Any, settings: Any = None) -> dict[str, Any]:
     warnings = [item for item in blockers if item.severity == "WARNING"]
     next_action = next((item.next_action for item in blockers if item.next_action), None)
     state = describe_status(getattr(project, "status", "planning_live"))
+    actions = {
+        action: _action_readiness_from_blockers(blockers, action)
+        for action in ACTION_ORDER
+    }
     return {
         "ready": not blocking,
         "current_stage": state["stage"],
@@ -248,35 +356,63 @@ def production_readiness(project: Any, settings: Any = None) -> dict[str, Any]:
         "next_action": next_action,
         "blocking_count": len(blocking),
         "warning_count": len(warnings),
+        "actions": actions,
     }
 
 
-_ACTION_DOMAINS = {
-    "START_RENDER": {"PLAN", "WORLD", "PREVIS", "RENDERER", "REFERENCE"},
-    "START_AI_EDIT": {"VISUAL", "REFERENCE", "AUDIO", "EDIT", "RENDERER"},
-    "APPROVE_FINAL_CUT": {"VISUAL", "AUDIO", "EDIT"},
-    "GENERATE_FINAL_MASTER": {"DELIVERY", "VISUAL", "AUDIO", "EDIT"},
-    "EXPORT": {"DELIVERY", "VISUAL", "AUDIO", "EDIT"},
-}
+def _action_readiness_from_blockers(
+    blockers: list[ProductionBlocker],
+    action: str,
+) -> dict[str, Any]:
+    action = str(action).upper()
+    blocking = [item for item in blockers if item.severity == "BLOCKING" and action in item.blocks_actions]
+    warnings = [item for item in blockers if item.severity != "BLOCKING" and (not item.blocks_actions or action in item.blocks_actions)]
+    resolution_actions = list(dict.fromkeys(
+        action_name
+        for item in blocking
+        for action_name in item.resolves_by_actions
+    ))
+    return {
+        "action": action,
+        "ready": not blocking,
+        "blockers": [item.to_dict() for item in blocking],
+        "warnings": [item.to_dict() for item in warnings],
+        "resolution_actions": resolution_actions,
+        "blocking_count": len(blocking),
+    }
 
 
 def action_blockers(project: Any, settings: Any, action: str) -> list[ProductionBlocker]:
-    domains = _ACTION_DOMAINS.get(str(action).upper(), set(DOMAINS))
-    return [item for item in production_blockers(project, settings) if item.severity == "BLOCKING" and item.domain in domains]
+    """Return blockers that explicitly declare this action unsafe."""
+
+    action = str(action).upper()
+    return [
+        item
+        for item in production_blockers(project, settings)
+        if item.severity == "BLOCKING" and action in item.blocks_actions
+    ]
+
+
+def action_readiness(project: Any, settings: Any, action: str) -> dict[str, Any]:
+    blockers = production_blockers(project, settings)
+    return _action_readiness_from_blockers(blockers, action)
 
 
 def ensure_action_ready(project: Any, settings: Any, action: str) -> None:
     blockers = action_blockers(project, settings, action)
     if blockers:
-        codes = ", ".join(item.code for item in blockers[:5])
-        raise ValueError(f"PRODUCTION_BLOCKED: {codes}. {blockers[0].message}")
+        raise ProductionBlockedError(action, blockers)
 
 
 __all__ = [
+    "ACTION_ORDER",
     "DOMAINS",
+    "DOMAIN_PRIORITY",
     "SEVERITIES",
     "ProductionBlocker",
+    "ProductionBlockedError",
     "action_blockers",
+    "action_readiness",
     "ensure_action_ready",
     "production_blockers",
     "production_readiness",

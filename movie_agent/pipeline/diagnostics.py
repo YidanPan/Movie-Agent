@@ -211,6 +211,7 @@ def diagnostics_snapshot(
     ffprobe_bin: str = "ffprobe",
     outputs_dir: Path | None = None,
     settings: Any = None,
+    readiness: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build a safe, resumability-oriented snapshot for one project.
 
@@ -256,7 +257,7 @@ def diagnostics_snapshot(
         dialogue_locked=dialogue_locked,
         has_rough_cut=bool(editing.get("has_output")) and status in {"editing_rough_cut", "rough_cut_ready"},
     )
-    readiness = production_readiness(project, settings)
+    readiness = readiness if readiness is not None else production_readiness(project, settings)
     readiness_actions = list(dict.fromkeys(
         item["next_action"]
         for item in readiness["blockers"]

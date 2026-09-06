@@ -1287,6 +1287,11 @@ function shotStatusInfo(status) {
   return SHOT_STATUS[status] || status || "QUEUED";
 }
 
+function productionActionReady(project, action) {
+  const entry = project?.readiness?.actions?.[action] || project?.diagnostics?.readiness?.actions?.[action];
+  return entry ? Boolean(entry.ready) : null;
+}
+
 function renderProductionAttention(project = state.project) {
   const readiness = project?.readiness || project?.diagnostics?.readiness;
   const blockers = Array.isArray(readiness?.blockers) ? readiness.blockers : [];
@@ -1637,7 +1642,8 @@ function renderMonitor(project, live = false) {
     els.renderReadiness.classList.toggle("hidden", !allReady || finalDelivered);
   }
   if (els.btnAiEdit) {
-    els.btnAiEdit.disabled = state.editing || !allReady;
+    const actionReady = productionActionReady(project, "START_AI_EDIT");
+    els.btnAiEdit.disabled = state.editing || (actionReady === null ? !allReady : !actionReady);
     els.btnAiEdit.innerHTML = state.editing
       ? "AI Edit 粗剪中…"
       : 'AI 剪辑成片 <span class="cta-arrow" aria-hidden="true">→</span>';
@@ -2875,7 +2881,8 @@ function renderDeliverProgress(project, description = "") {
   }
   if (els.btnApproveEdit) {
     els.btnApproveEdit.classList.toggle("hidden", !roughReady);
-    els.btnApproveEdit.disabled = state.editing || !roughReady;
+    const actionReady = productionActionReady(project, "APPROVE_FINAL_CUT");
+    els.btnApproveEdit.disabled = state.editing || !roughReady || (actionReady === false);
   }
   if (els.btnRecut) els.btnRecut.classList.toggle("hidden", !preApproval);
   if (els.subtitleModeControl) els.subtitleModeControl.classList.toggle("hidden", !preApproval);
@@ -3085,17 +3092,25 @@ async function renderScreening(project) {
   renderSoundSummary(project);
   if (els.btnAiEdit) {
     const canStartAiEdit = showSummary && !["rough", "editing"].includes(resolvedState.key);
+    const actionReady = productionActionReady(project, "START_AI_EDIT");
     els.btnAiEdit.classList.toggle("hidden", !canStartAiEdit);
-    els.btnAiEdit.disabled = state.editing || !((project?.storyboard || []).length && (project.storyboard || []).every((shot) => shotCapabilities(shot).canEnterCut));
+    els.btnAiEdit.disabled = state.editing || (actionReady === null
+      ? !((project?.storyboard || []).length && (project.storyboard || []).every((shot) => shotCapabilities(shot).canEnterCut))
+      : !actionReady);
     els.btnAiEdit.innerHTML = state.editing ? "AI Edit 粗剪中…" : 'AI 剪辑成片 <span class="cta-arrow" aria-hidden="true">→</span>';
   }
   if (els.btnApproveEdit) {
     const showApprove = status === "rough_cut_ready" && !state.editing;
+    const actionReady = productionActionReady(project, "APPROVE_FINAL_CUT");
     els.btnApproveEdit.classList.toggle("hidden", !showApprove);
-    els.btnApproveEdit.disabled = state.editing;
+    els.btnApproveEdit.disabled = state.editing || (actionReady === false);
     if (!state.editing) els.btnApproveEdit.innerHTML = '批准最终成片 <span class="cta-arrow" aria-hidden="true">→</span>';
   }
-  if (els.btnExportFinal) els.btnExportFinal.classList.toggle("hidden", !showFinal);
+  if (els.btnExportFinal) {
+    els.btnExportFinal.classList.toggle("hidden", !showFinal);
+    const actionReady = productionActionReady(project, "EXPORT");
+    els.btnExportFinal.disabled = actionReady === false;
+  }
   if (els.btnReedit) els.btnReedit.classList.toggle("hidden", !state.hasFinalVideo);
   if (els.btnEditSubtitles) els.btnEditSubtitles.classList.toggle("hidden", !project);
   if (els.editStatus && !state.editing) {
@@ -3279,7 +3294,8 @@ function renderWorkspace(project, options = {}) {
   const shots = project.storyboard || [];
   const allShotsReady = shots.length > 0 && shots.every((shot) => shotCapabilities(shot).canEnterCut);
   if (videoMode === "comfyui") {
-    els.btnRender.disabled = state.rendering || allShotsReady;
+    const actionReady = productionActionReady(project, "START_RENDER");
+    els.btnRender.disabled = state.rendering || allShotsReady || actionReady === false;
     els.renderNote.textContent = allShotsReady
       ? "镜头已全部通过质检，请先锁定台词本，再启动 AI Edit Rough Cut。"
       : state.project?.script?.dialogue_locked

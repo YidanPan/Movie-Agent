@@ -32,7 +32,7 @@ from movie_agent.services.errors import error_info, record_failure
 from movie_agent.services.subtitles import render_srt, render_vtt, script_subtitle_track
 from movie_agent.services.media_quality import best_master_path, best_screening_path, quality_snapshot
 from movie_agent.pipeline.diagnostics import delivery_preflight, diagnostics_snapshot
-from movie_agent.services.readiness import ensure_action_ready, production_readiness
+from movie_agent.services.readiness import ProductionBlockedError, ensure_action_ready, production_readiness
 from movie_agent.pipeline.jobs import JobAlreadyRunning, JobLedger
 from movie_agent.services.cache_cleanup import clean_working_cache, storage_summary
 from movie_agent.services.state_ledger import validate_state_delta_shape
@@ -310,15 +310,17 @@ def serialized_project(project) -> dict[str, Any]:
     # Diagnostics contain only status, counts, redacted errors and media
     # availability.  Paths and prompts remain inside the project payload's
     # existing compatibility fields and are never copied into this view.
+    readiness = production_readiness(project, settings)
     diagnostics = diagnostics_snapshot(
         project,
         ffprobe_bin=settings.ffprobe_bin,
         outputs_dir=settings.outputs_dir,
         settings=settings,
+        readiness=readiness,
     )
     diagnostics["job"] = job_ledger.summary(project.project_id)
     payload["diagnostics"] = diagnostics
-    payload["readiness"] = production_readiness(project, settings)
+    payload["readiness"] = readiness
     payload["delivery_preflight"] = delivery_preflight(
         project,
         ffmpeg_ready=_binary_ready(settings.ffmpeg_bin),
@@ -462,7 +464,9 @@ def run_with_sse(
                     # specific failure (for example a per-shot retry). Keep
                     # that metadata and avoid incrementing it twice here.
                     existing = getattr(project, "last_error", {}) or {}
-                    if existing.get("error_code") and existing.get("error_message"):
+                    if getattr(error, "error_code", "") == "PRODUCTION_BLOCKED":
+                        info = error_info(error, stage=stage)
+                    elif existing.get("error_code") and existing.get("error_message"):
                         info = {
                             **info,
                             **{
@@ -869,6 +873,8 @@ async def approve_edit(project_id: str, request: Request):
             project = orchestrator.approve_edit(project_id, payload.subtitle_mode)
     except FileNotFoundError:
         return project_not_found(project_id)
+    except ProductionBlockedError as error:
+        return structured_error_response(error, status_code=409, stage="final_cut")
     except ValueError as error:
         return JSONResponse({"error": str(error)}, status_code=400)
     except RuntimeError as error:
@@ -945,6 +951,8 @@ def regenerate_shot(project_id: str, shot_number: int):
             project = orchestrator.regenerate_shot(project_id, shot_number)
     except FileNotFoundError:
         return project_not_found(project_id)
+    except ProductionBlockedError as error:
+        return structured_error_response(error, status_code=409, stage="generation")
     except ValueError as error:
         return JSONResponse({"error": str(error)}, status_code=400)
     return serialized_project(project)
@@ -981,6 +989,8 @@ def render_single_shot(project_id: str, shot_number: int):
             project = orchestrator.render_shot(project_id, shot_number)
     except FileNotFoundError:
         return project_not_found(project_id)
+    except ProductionBlockedError as error:
+        return structured_error_response(error, status_code=409, stage="generation")
     except ValueError as error:
         return JSONResponse({"error": str(error)}, status_code=400)
     except Exception as error:  # noqa: BLE001 - surface generation failures to the inspector
@@ -1219,7 +1229,7 @@ async def export_video(project_id: str, request: Request):
             project = orchestrator.store.load(project_id)
             try:
                 ensure_action_ready(project, settings, "EXPORT")
-            except ValueError as error:
+            except ProductionBlockedError as error:
                 preflight = delivery_preflight(
                     project,
                     resolution=payload.resolution,
@@ -1236,6 +1246,9 @@ async def export_video(project_id: str, request: Request):
                         "stage": "export",
                         "preflight": preflight,
                         "readiness": production_readiness(project, settings),
+                        "action": error.action,
+                        "blockers": [item.to_dict() for item in error.blockers],
+                        "next_actions": list(error.next_actions),
                     },
                     status_code=409,
                 )
@@ -1261,6 +1274,8 @@ async def export_video(project_id: str, request: Request):
             path = orchestrator.editor.export_variant(project, **payload.model_dump())
     except FileNotFoundError:
         return project_not_found(project_id)
+    except ProductionBlockedError as error:
+        return structured_error_response(error, status_code=409, stage="generation")
     except ValueError as error:
         return JSONResponse({"error": str(error)}, status_code=400)
     except RuntimeError as error:
