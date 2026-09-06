@@ -83,6 +83,16 @@ def build_storyboard(
                 character_reaction=character_reaction,
                 ending_state=ending_state or f"Shot {index + 1} resolves into the next beat.",
                 transition_hook=transition_hook or "Cut to next shot.",
+                beat_id=str((beat or {}).get("beat_id") or (beat or {}).get("id") or (beat or {}).get("beat_number") or f"beat-{index + 1:02d}"),
+                scene_id=str((beat or {}).get("scene_id") or (beat or {}).get("scene") or ""),
+                character_ids=[str(item) for item in ((beat or {}).get("character_ids") or [])],
+                story_function=str((beat or {}).get("story_function") or narrative_purpose or "NARRATIVE"),
+                information_gain=float((beat or {}).get("information_gain") or 0.0),
+                emotional_shift=str((beat or {}).get("emotional_shift") or emotional_arc),
+                visual_motif=str((beat or {}).get("visual_motif") or ""),
+                continuity_from=starting_state or f"Shot {index} conclusion.",
+                continuity_to=ending_state or f"Shot {index + 1} resolves into the next beat.",
+                shot_complexity="MEDIUM",
             )
         )
     return shots

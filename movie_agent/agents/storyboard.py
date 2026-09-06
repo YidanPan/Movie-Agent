@@ -5,6 +5,7 @@ from typing import Any
 from movie_agent.models import Shot
 from movie_agent.services.mock_creator import build_storyboard
 from movie_agent.services.llm import CreativeLLM
+from movie_agent.services.storyboard_quality import StoryboardRelevanceGate
 
 _MIN_SHOT_SECONDS = 4
 _MAX_SHOT_SECONDS = 8
@@ -52,6 +53,52 @@ def _beat_for_shot(story_beats: list[dict[str, Any]], shot_index: int, total_sho
         ratio = shot_index / max(1, total_shots - 1)
         beat_index = min(int(ratio * (len(story_beats) - 1)), len(story_beats) - 1)
     return story_beats[beat_index]
+
+
+def _beat_id(beat: dict[str, Any], index: int) -> str:
+    return str(beat.get("beat_id") or beat.get("id") or beat.get("beat_number") or f"beat-{index + 1:02d}")
+
+
+def _character_ids(value: Any) -> list[str]:
+    if isinstance(value, str):
+        return [item.strip() for item in value.split(",") if item.strip()]
+    if isinstance(value, (list, tuple, set)):
+        return [str(item).strip() for item in value if str(item).strip()]
+    return []
+
+
+def _complexity(raw: Any, action: str, image_description: str) -> str:
+    value = str(raw or "").upper().strip()
+    if value in {"LOW", "MEDIUM", "HIGH"}:
+        return value
+    clauses = sum(action.count(marker) for marker in (",", ";", " and ", " then "))
+    if clauses >= 3 or len(image_description.split()) > 42:
+        return "HIGH"
+    if clauses >= 1:
+        return "MEDIUM"
+    return "LOW"
+
+
+def _enrich_shot(shot: Shot, beat: dict[str, Any], index: int) -> Shot:
+    """Fill canonical fields without discarding legacy storyboard data."""
+
+    shot.beat_id = _beat_id(beat, index) if beat else shot.beat_id or f"beat-{index + 1:02d}"
+    shot.scene_id = str(beat.get("scene_id") or beat.get("scene") or shot.scene_id or "")
+    shot.character_ids = _character_ids(beat.get("character_ids") if beat else None) or shot.character_ids
+    shot.story_function = str(
+        beat.get("story_function") or beat.get("narrative_purpose") or shot.story_function or shot.narrative_purpose
+    )
+    raw_gain = beat.get("information_gain") if beat else None
+    try:
+        shot.information_gain = float(raw_gain if raw_gain is not None else shot.information_gain or 0.0)
+    except (TypeError, ValueError):
+        shot.information_gain = 0.0
+    shot.emotional_shift = str(beat.get("emotional_shift") or beat.get("emotional_arc") or shot.emotional_shift or "")
+    shot.visual_motif = str(beat.get("visual_motif") or shot.visual_motif or "")
+    shot.continuity_from = str(beat.get("continuity_from") or shot.continuity_from or shot.starting_state or "")
+    shot.continuity_to = str(beat.get("continuity_to") or shot.continuity_to or shot.ending_state or "")
+    shot.shot_complexity = _complexity(shot.shot_complexity, shot.action, shot.image_description)
+    return shot
 
 
 def _previous_ending(shots: list[Shot], current_index: int) -> str:
@@ -137,7 +184,7 @@ class StoryboardAgent:
                     raise ValueError(f"Storyboard agent used unsupported generation mode: {mode} (only {allowed} supported).")
                 beat = _beat_for_shot(beats, number - 1, len(raw_shots))
                 shots.append(
-                    Shot(
+                    _enrich_shot(Shot(
                         number=number,
                         duration_seconds=shot_duration,
                         framing=str(raw_shot["framing"]),
@@ -153,13 +200,25 @@ class StoryboardAgent:
                         character_reaction=str(raw_shot.get("character_reaction", "")),
                         ending_state=str(raw_shot.get("ending_state") or beat.get("ending_state", "")),
                         transition_hook=str(raw_shot.get("transition_hook") or beat.get("transition_hook", "")),
-                    )
+                        beat_id=str(raw_shot.get("beat_id") or _beat_id(beat, number - 1)),
+                        scene_id=str(raw_shot.get("scene_id") or beat.get("scene_id") or beat.get("scene") or ""),
+                        character_ids=_character_ids(raw_shot.get("character_ids") or beat.get("character_ids")),
+                        story_function=str(raw_shot.get("story_function") or raw_shot.get("narrative_purpose") or beat.get("story_function") or beat.get("narrative_purpose", "")),
+                        information_gain=float(raw_shot.get("information_gain") or beat.get("information_gain") or 0.0),
+                        emotional_shift=str(raw_shot.get("emotional_shift") or beat.get("emotional_shift") or beat.get("emotional_arc", "")),
+                        visual_motif=str(raw_shot.get("visual_motif") or beat.get("visual_motif", "")),
+                        continuity_from=str(raw_shot.get("continuity_from") or beat.get("continuity_from") or raw_shot.get("starting_state") or ""),
+                        continuity_to=str(raw_shot.get("continuity_to") or beat.get("continuity_to") or raw_shot.get("ending_state") or ""),
+                        shot_complexity=_complexity(raw_shot.get("shot_complexity"), str(raw_shot["action"]), str(raw_shot["image_description"])),
+                    ), beat, number - 1)
                 )
+            StoryboardRelevanceGate().annotate(shots, beats)
             return shots
         shots = build_storyboard(idea, duration_seconds, visual_style, project_id, story_beats=beats)
         if self.allowed_generation_modes == {"T2V"}:
             for shot in shots:
                 shot.generation_mode = "T2V"
+        StoryboardRelevanceGate().annotate(shots, beats)
         return shots
 
     def revise(self, shot: Shot, visual_bible: dict[str, str], previous_shot: Shot | None = None) -> Shot:
@@ -207,4 +266,14 @@ class StoryboardAgent:
             source_duration=shot.source_duration,
             stale=True,
             asset_history=list(shot.asset_history),
+            beat_id=shot.beat_id,
+            scene_id=shot.scene_id,
+            character_ids=list(shot.character_ids),
+            story_function=shot.story_function,
+            information_gain=shot.information_gain,
+            emotional_shift=shot.emotional_shift,
+            visual_motif=shot.visual_motif,
+            continuity_from=shot.continuity_from,
+            continuity_to=shot.continuity_to,
+            shot_complexity=shot.shot_complexity,
         )

@@ -67,12 +67,35 @@ class Shot:
     recoverable: bool = True
     last_error_at: str = ""
     last_error: dict[str, Any] = field(default_factory=dict)
+    # Canonical narrative/continuity fields. Appended for old positional
+    # constructors and saved projects.
+    beat_id: str = ""
+    scene_id: str = ""
+    character_ids: list[str] = field(default_factory=list)
+    story_function: str = ""
+    information_gain: float = 0.0
+    emotional_shift: str = ""
+    visual_motif: str = ""
+    continuity_from: str = ""
+    continuity_to: str = ""
+    shot_complexity: str = "MEDIUM"
 
     def __post_init__(self) -> None:
         if self.source_duration_seconds <= 0:
             self.source_duration_seconds = int(self.duration_seconds)
         if not self.desired_duration:
             self.desired_duration = float(self.duration_seconds)
+        if isinstance(self.character_ids, str):
+            self.character_ids = [item.strip() for item in self.character_ids.split(",") if item.strip()]
+        else:
+            self.character_ids = [str(item).strip() for item in (self.character_ids or []) if str(item).strip()]
+        self.shot_complexity = str(self.shot_complexity or "MEDIUM").upper()
+        if self.shot_complexity not in {"LOW", "MEDIUM", "HIGH"}:
+            self.shot_complexity = "MEDIUM"
+        try:
+            self.information_gain = max(0.0, min(1.0, float(self.information_gain or 0.0)))
+        except (TypeError, ValueError):
+            self.information_gain = 0.0
 
     @property
     def edit_duration_seconds(self) -> int:
