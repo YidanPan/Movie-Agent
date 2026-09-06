@@ -307,6 +307,10 @@ function isShotReady(shot) {
   return MovieAgentModules.storyboard.shotReady(shot);
 }
 
+function isShotPreviewable(shot) {
+  return MovieAgentModules.storyboard.shotPreviewable(shot);
+}
+
 function normalizeCrewSummary(summary) {
   if (summary && typeof summary === "object") {
     return {
@@ -1337,6 +1341,7 @@ function renderTimeline(project) {
     segment.className = "timeline-segment";
     segment.dataset.shot = shot.number;
     segment.dataset.status = shot.status || "planned";
+    segment.dataset.previewable = String(isShotPreviewable(shot));
     segment.style.flexGrow = String(Math.max(1, shot.duration_seconds || 1));
     segment.title = `镜头 ${shot.number} · ${shot.duration_seconds} 秒 · ${shotStateInfo(shot).label}`;
     segment.setAttribute("aria-label", segment.title);
@@ -1389,7 +1394,7 @@ function renderTimeline(project) {
 
 function attachShotPreviews(project) {
   for (const shot of project.storyboard || []) {
-    if (!["approved_comfyui", "generated_comfyui"].includes(shot.status)) continue;
+    if (!isShotPreviewable(shot)) continue;
     const url = `/api/projects/${project.project_id}/shots/${shot.number}/video`;
     fetch(url, { method: "HEAD" }).then((response) => {
       if (!response.ok) return;
@@ -3191,7 +3196,7 @@ function renderDrawerContent(markup, { swap = false, onReady } = {}) {
 }
 
 function inspectorShotPreviewMarkup(shot) {
-  const previewReady = ["approved_comfyui", "generated_comfyui", "awaiting_visual_review"].includes(shot.status) && shot.stale !== true;
+  const previewReady = isShotPreviewable(shot);
   return `
     <section class="inspector-preview-section">
       <header class="inspector-section-head type-system-meta"><span>SHOT PREVIEW / 16:9</span><span class="inspector-preview-state type-system-meta ${previewReady ? "is-ready" : ""}">${previewReady ? "MEDIA READY" : "UNEXPOSED FRAME"}</span></header>
@@ -3349,7 +3354,7 @@ function bindShotInspector(project, shot, { initial = false } = {}) {
 }
 
 function attachInspectorPreview(project, shot) {
-  if (!["approved_comfyui", "generated_comfyui", "awaiting_visual_review"].includes(shot.status) || shot.stale === true) return;
+  if (!isShotPreviewable(shot)) return;
   const preview = els.drawer.querySelector(`[data-inspector-preview="${shot.number}"]`);
   if (!preview) return;
   const url = `/api/projects/${project.project_id}/shots/${shot.number}/video`;

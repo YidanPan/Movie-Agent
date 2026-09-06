@@ -1,6 +1,7 @@
 /** Film-strip helpers kept independent from DOM rendering. */
 export const shotDuration = (shot = {}) => Math.max(0, Number(shot.duration_seconds || shot.desired_duration || 0));
 export const shotReady = (shot = {}) => String(shot.status || "").startsWith("approved") && shot.stale !== true;
+export const shotPreviewable = (shot = {}) => ["generated_comfyui", "awaiting_visual_review", "approved_comfyui"].includes(String(shot.status || "")) && shot.stale !== true;
 
 export const formatShotDuration = (value) => {
   const seconds = Math.max(0, Number(value || 0));
@@ -32,6 +33,6 @@ export const shotStateInfo = (shot = {}) => {
 };
 
 export function moduleStoryboard() {
-  return { shotDuration, shotReady, formatShotDuration, timingModeLabel, shotStateInfo };
+  return { shotDuration, shotReady, shotPreviewable, formatShotDuration, timingModeLabel, shotStateInfo };
 }
 

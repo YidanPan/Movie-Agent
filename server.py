@@ -1114,12 +1114,28 @@ def _resolve_screening_preview(project_id: str) -> Path:
     return _guard_project_media(project_id, path, "Screening Preview has not been rendered yet.")
 
 
+SHOT_PREVIEWABLE_STATUSES = frozenset({
+    "generated_comfyui",
+    "awaiting_visual_review",
+    "approved_comfyui",
+})
+
+
+def _shot_previewable(shot: Any) -> bool:
+    """A generated shot may be viewed before it is approved for the edit."""
+
+    return (
+        str(getattr(shot, "status", "")) in SHOT_PREVIEWABLE_STATUSES
+        and not bool(getattr(shot, "stale", False))
+    )
+
+
 def _resolve_shot_video(project_id: str, shot_number: int) -> Path:
     project = _load_project_or_http(project_id)
     if not 1 <= shot_number <= len(project.storyboard):
         raise HTTPException(status_code=400, detail="Shot number out of range.")
     shot = project.storyboard[shot_number - 1]
-    if bool(getattr(shot, "stale", False)) or not str(getattr(shot, "status", "")).startswith(("generated", "approved")):
+    if not _shot_previewable(shot):
         raise HTTPException(status_code=404, detail="This shot revision is not ready for playback.")
     assets = getattr(shot, "media_assets", {}) or {}
     has_current_record = False
