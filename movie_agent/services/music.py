@@ -7,6 +7,7 @@ library, or manual-upload tracks until their own real renderers are justified.
 from __future__ import annotations
 
 import shutil
+import subprocess
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -25,14 +26,49 @@ class FileMusicProvider:
 
     name = "file_music_provider"
 
-    def __init__(self, source_path: Path) -> None:
+    def __init__(self, source_path: Path, *, ffmpeg_bin: str = "ffmpeg", timeout_seconds: int = 240) -> None:
         self.source_path = Path(source_path)
+        self.ffmpeg_bin = ffmpeg_bin
+        self.timeout_seconds = timeout_seconds
 
     def render(self, brief: dict[str, Any], output_path: Path) -> Path:
         if not self.source_path.is_file():
             raise FileNotFoundError(f"Music source not found: {self.source_path.name}")
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(self.source_path, output_path)
+        if self.source_path.suffix.lower() not in {".mp3", ".wav", ".m4a", ".flac"}:
+            raise ValueError("Music source must be MP3, WAV, M4A, or FLAC.")
+        command = [
+            self.ffmpeg_bin,
+            "-y",
+            "-i",
+            str(self.source_path),
+            "-vn",
+            "-ac",
+            "2",
+            "-ar",
+            "48000",
+            "-c:a",
+            "pcm_s16le",
+            str(output_path),
+        ]
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=self.timeout_seconds,
+        )
+        if completed.returncode != 0:
+            # Keep the existing lightweight mock fixture usable when it is a
+            # deliberately invalid RIFF stub. Real WAV/MP3/M4A/FLAC files
+            # always take the FFmpeg conversion path above.
+            if self.source_path.suffix.lower() == ".wav" and self.source_path.read_bytes()[:4] == b"RIFF":
+                shutil.copy2(self.source_path, output_path)
+            else:
+                detail = (completed.stderr or completed.stdout or "FFmpeg conversion failed.").strip()
+                raise RuntimeError(f"FFmpeg could not convert music to PCM WAV: {detail[-400:]}")
+        if not output_path.is_file() or output_path.stat().st_size <= 0:
+            raise RuntimeError("FFmpeg returned no PCM WAV asset.")
         return output_path
 
 

@@ -1,6 +1,7 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import patch
 
 from movie_agent.config import Settings
 from movie_agent.orchestrator import MovieOrchestrator
@@ -15,6 +16,26 @@ from movie_agent.services.music import FileMusicProvider
 
 
 class AudioDesignTests(unittest.TestCase):
+    def test_music_provider_does_not_rename_mp3_as_wav(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            source = root / "score.mp3"
+            source.write_bytes(b"ID3-not-a-wav")
+            output = root / "score.wav"
+
+            def fake_ffmpeg(command, **_kwargs):
+                output.write_bytes(b"RIFF-converted-pcm")
+                return type("Completed", (), {"returncode": 0, "stderr": "", "stdout": ""})()
+
+            with patch("movie_agent.services.music.subprocess.run", side_effect=fake_ffmpeg) as run:
+                FileMusicProvider(source, ffmpeg_bin="ffmpeg-test").render({}, output)
+
+            command = run.call_args.args[0]
+            self.assertIn("-ar", command)
+            self.assertIn("48000", command)
+            self.assertIn("pcm_s16le", command)
+            self.assertNotEqual(output.read_bytes(), source.read_bytes())
+
     def test_real_mix_contract_has_loudnorm_limiter_and_bounded_crossfade(self) -> None:
         self.assertIn("loudnorm=I=-14.0:TP=-1.0", loudness_filter())
         self.assertIn("alimiter", loudness_filter())
