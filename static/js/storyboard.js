@@ -2,6 +2,72 @@
 export const shotDuration = (shot = {}) => Math.max(0, Number(shot.duration_seconds || shot.desired_duration || 0));
 export const shotReady = (shot = {}) => String(shot.status || "").startsWith("approved") && shot.stale !== true;
 export const shotPreviewable = (shot = {}) => ["generated_comfyui", "awaiting_visual_review", "approved_comfyui"].includes(String(shot.status || "")) && shot.stale !== true;
+
+const SCENE_AMBIENTS = [
+  { test: /hospital|clinic|ward|fluorescent|medical|医院|病房|诊所/i, ambientRgb: "92 155 171", accentRgb: "109 194 204", intensity: 0.045, label: "COOL CYAN" },
+  { test: /home|house|room|apartment|interior|warm|家|住宅|房间|室内/i, ambientRgb: "190 132 69", accentRgb: "220 171 88", intensity: 0.04, label: "WARM AMBER" },
+  { test: /night|street|city|exterior|rain|夜|街|城市|雨/i, ambientRgb: "67 91 126", accentRgb: "126 151 190", intensity: 0.035, label: "NIGHT BLUE" },
+];
+
+const sceneEntity = (project = {}, sceneId = "") => {
+  const scenes = project?.story_world?.scenes;
+  if (Array.isArray(scenes)) return scenes.find((item) => String(item?.scene_id || item?.id || "") === String(sceneId)) || {};
+  return scenes && typeof scenes === "object" ? scenes[sceneId] || {} : {};
+};
+
+export const sceneAmbientForShot = (shot = {}, project = {}) => {
+  const sceneId = String(shot.scene_id || "").trim();
+  const scene = sceneEntity(project, sceneId);
+  const bible = project?.visual_bible || {};
+  const source = [
+    scene.name, scene.label, scene.role, scene.lighting, scene.lighting_lock,
+    scene.palette, scene.palette_lock, bible.palette, bible.lighting, bible.scene_lock,
+  ].filter(Boolean).join(" ");
+  const match = SCENE_AMBIENTS.find((item) => item.test.test(source));
+  return {
+    sceneId,
+    ambientRgb: match?.ambientRgb || "151 119 79",
+    accentRgb: match?.accentRgb || "194 138 62",
+    intensity: match?.intensity || 0.028,
+    label: match?.label || "NEUTRAL TUNGSTEN",
+  };
+};
+
+export function initFilmGateFocus(viewport, { reduced = false } = {}) {
+  if (!viewport) return () => {};
+  let frame = null;
+  let disposed = false;
+  const update = () => {
+    frame = null;
+    if (disposed) return;
+    const cards = [...viewport.querySelectorAll(".shot-card")];
+    if (!cards.length) return;
+    const center = viewport.getBoundingClientRect().left + viewport.clientWidth / 2;
+    for (const card of cards) {
+      const rect = card.getBoundingClientRect();
+      const distance = Math.abs(rect.left + rect.width / 2 - center);
+      const proximity = Math.max(0, Math.min(1, 1 - distance / Math.max(1, viewport.clientWidth * 0.72)));
+      card.style.setProperty("--film-gate-focus", proximity.toFixed(3));
+      card.classList.toggle("is-gate-center", distance <= Math.max(12, rect.width * 0.22));
+    }
+  };
+  const schedule = () => {
+    if (frame === null) frame = requestAnimationFrame(update);
+  };
+  viewport.addEventListener("scroll", schedule, { passive: true });
+  window.addEventListener("resize", schedule, { passive: true });
+  schedule();
+  return () => {
+    disposed = true;
+    if (frame !== null) cancelAnimationFrame(frame);
+    viewport.removeEventListener("scroll", schedule);
+    window.removeEventListener("resize", schedule);
+  };
+}
+
+export const centerShotCard = (card, reduced = false) => {
+  card?.scrollIntoView?.({ block: "nearest", inline: "center", behavior: reduced ? "auto" : "smooth" });
+};
 const REVIEW_FLAG_DOMAIN = {
   PLANNING: "planning",
   LOW_RELEVANCE_SHOT: "planning",
@@ -116,6 +182,6 @@ export const shotStateInfo = (shot = {}, project = {}) => {
 };
 
 export function moduleStoryboard() {
-  return { shotDuration, shotReady, shotPreviewable, shotCapabilities, reviewDomains, formatShotDuration, timingModeLabel, shotStateInfo };
+  return { shotDuration, shotReady, shotPreviewable, shotCapabilities, reviewDomains, formatShotDuration, timingModeLabel, shotStateInfo, sceneAmbientForShot, initFilmGateFocus, centerShotCard };
 }
 

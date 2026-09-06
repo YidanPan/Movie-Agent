@@ -315,6 +315,18 @@ function shotCapabilities(shot) {
   return MovieAgentModules.storyboard.shotCapabilities(shot, state.project || {});
 }
 
+function updateSceneAmbient(shot, project = state.project) {
+  const resolver = MovieAgentModules.storyboard.sceneAmbientForShot;
+  if (typeof resolver !== "function" || !project || !shot) return null;
+  const ambient = resolver(shot, project);
+  const root = document.documentElement;
+  root.style.setProperty("--scene-ambient-rgb", ambient.ambientRgb);
+  root.style.setProperty("--scene-accent-rgb", ambient.accentRgb);
+  root.style.setProperty("--scene-light-intensity", String(ambient.intensity));
+  root.dataset.sceneId = ambient.sceneId || "neutral";
+  return ambient;
+}
+
 function normalizeCrewSummary(summary) {
   if (summary && typeof summary === "object") {
     return {
@@ -1403,6 +1415,8 @@ function renderFilmstrip(project, entranceFrom = Number.POSITIVE_INFINITY) {
     els.filmstrip.appendChild(card);
   }
   attachShotPreviews(project);
+  const selectedShot = shots.find((shot) => Number(shot.number) === Number(state.activeShotNumber));
+  if (selectedShot) updateSceneAmbient(selectedShot, project);
   syncInspectorSelection();
 }
 
@@ -1486,7 +1500,8 @@ function attachShotPreviews(project) {
       card.appendChild(video);
       const shotCard = card.closest(".shot-card");
       shotCard.classList.add("has-media");
-      window.setTimeout(() => shotCard.classList.remove("is-developing"), REDUCED_MOTION ? 0 : 720);
+      shotCard.classList.remove("is-developing");
+      MovieAgentModules.motion.triggerDarkroomDevelopment?.(shotCard, { key: url });
       shotCard.addEventListener("mouseenter", () => video.play().catch(() => {}));
       shotCard.addEventListener("mouseleave", () => {
         video.pause();
@@ -2941,8 +2956,10 @@ async function renderScreening(project) {
     try {
       const response = await fetch(`/api/projects/${encodeURIComponent(project.project_id)}/rough-cut`, { method: "HEAD" });
       if (response.ok && els.roughCutVideo && probeRun === state.finalVideoProbeRun) {
-        els.roughCutVideo.src = `/api/projects/${encodeURIComponent(project.project_id)}/rough-cut`;
+        const roughCutUrl = `/api/projects/${encodeURIComponent(project.project_id)}/rough-cut`;
+        els.roughCutVideo.src = roughCutUrl;
         els.roughCutStage?.classList.add("has-media");
+        MovieAgentModules.motion.triggerDarkroomDevelopment?.(els.roughCutStage, { key: roughCutUrl });
         renderMediaQuality(project, "proxy");
       }
     } catch { /* mock mode may only expose rough-cut metadata */ }
@@ -2960,6 +2977,7 @@ async function renderScreening(project) {
           els.finalVideoAfter.src = candidate;
           els.finalVideoAfter.load();
         }
+        MovieAgentModules.motion.triggerDarkroomDevelopment?.(els.screen, { key: candidate });
         renderMediaQuality(project, "screening");
       }
     } catch { /* final media is optional in mock mode */ }
@@ -3298,7 +3316,7 @@ function inspectorShotPreviewMarkup(shot) {
   return `
     <section class="inspector-preview-section">
       <header class="inspector-section-head type-system-meta"><span>SHOT PREVIEW / 16:9</span><span class="inspector-preview-state type-system-meta ${previewReady ? "is-ready" : ""}">${previewReady ? "MEDIA READY" : "UNEXPOSED FRAME"}</span></header>
-      <div class="inspector-preview" data-inspector-preview="${esc(shot.number)}">
+      <div class="inspector-preview" data-inspector-preview="${esc(shot.number)}" data-shared-frame="shot-frame">
         <div class="inspector-preview-empty"><span class="preview-code type-system-meta">${previewReady ? "LOADING MEDIA" : "UNEXPOSED FRAME"}</span><strong class="type-control">${esc(shot.framing || "待定景别")}</strong><span class="type-helper">${previewReady ? "正在读取镜头媒体…" : "生成后首帧将在这里显影"}</span></div>
         <div class="inspector-viewfinder" aria-hidden="true"><i class="vf tl"></i><i class="vf tr"></i><i class="vf bl"></i><i class="vf br"></i><i class="vf-safe"></i><i class="vf-cross"></i></div>
         <span class="inspector-preview-stamp type-system-meta">${String(shot.number).padStart(2, "0")} · 24 FPS · ${esc(shot.generation_mode || "T2V")}</span>
@@ -3475,6 +3493,7 @@ function attachInspectorPreview(project, shot) {
     preview.querySelector(".inspector-preview-empty")?.remove();
     preview.appendChild(video);
     preview.classList.add("has-media");
+    MovieAgentModules.motion.triggerDarkroomDevelopment?.(preview, { key: url });
   }).catch(() => {});
 }
 
@@ -3482,38 +3501,57 @@ function openDrawer(project, shotNumber) {
   const shot = (project.storyboard || []).find((s) => s.number === shotNumber);
   if (!shot) return;
   const wasOpen = drawerIsOpen();
+  const sourceFrame = !wasOpen
+    ? document.querySelector(`.shot-card[data-shot="${shot.number}"] .shot-frame`)
+    : null;
+  if (sourceFrame) MovieAgentModules.storyboard.centerShotCard?.(sourceFrame.closest(".shot-card"), REDUCED_MOTION);
   if (!wasOpen) state.previousFocusedElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   state.drawerType = "shot";
   state.activeAgentId = null;
   state.activeShotNumber = shotNumber;
+  updateSceneAmbient(shot, project);
   els.drawer.setAttribute("aria-label", `镜头 ${shotNumber} Inspector`);
   clearCrewCardSelection();
   syncInspectorSelection();
-  renderDrawerContent(buildShotInspectorMarkup(project, shot), {
-    swap: wasOpen,
-    onReady: () => bindShotInspector(project, shot, { initial: !wasOpen }),
-  });
-  if (!wasOpen) openDrawerShell();
+  const commit = () => {
+    renderDrawerContent(buildShotInspectorMarkup(project, shot), {
+      swap: wasOpen,
+      onReady: () => bindShotInspector(project, shot, { initial: !wasOpen }),
+    });
+    if (!wasOpen) openDrawerShell();
+    return els.drawer.querySelector('[data-shared-frame="shot-frame"]');
+  };
+  if (sourceFrame && !wasOpen) MovieAgentModules.motion.runSharedFrameTransition?.(sourceFrame, commit, { name: "shot-frame" });
+  else commit();
 }
 
 function closeDrawer() {
   const returnFocus = state.previousFocusedElement;
-  drawerContentRun += 1;
-  els.drawer.classList.remove("open", "is-expanded");
-  els.drawerBackdrop.classList.remove("open");
-  clearCrewCardSelection();
-  state.drawerType = null;
-  state.activeAgentId = null;
-  state.previousFocusedElement = null;
-  state.inspectorExpanded = false;
-  syncInspectorSelection();
-  clearTimeout(drawerHideTimer);
-  drawerHideTimer = setTimeout(() => els.drawerBackdrop.classList.add("hidden"), 300);
-  els.drawer.setAttribute("aria-hidden", "true");
-  els.drawer.removeAttribute("aria-modal");
-  if (returnFocus?.isConnected && typeof returnFocus.focus === "function") {
-    requestAnimationFrame(() => returnFocus.focus({ preventScroll: true }));
-  }
+  const sourceFrame = state.drawerType === "shot" ? els.drawer.querySelector('[data-shared-frame="shot-frame"]') : null;
+  const targetFrame = state.drawerType === "shot" && state.activeShotNumber != null
+    ? document.querySelector(`.shot-card[data-shot="${state.activeShotNumber}"] .shot-frame`)
+    : null;
+  const finish = () => {
+    drawerContentRun += 1;
+    els.drawer.classList.remove("open", "is-expanded");
+    els.drawerBackdrop.classList.remove("open");
+    clearCrewCardSelection();
+    state.drawerType = null;
+    state.activeAgentId = null;
+    state.previousFocusedElement = null;
+    state.inspectorExpanded = false;
+    syncInspectorSelection();
+    clearTimeout(drawerHideTimer);
+    drawerHideTimer = setTimeout(() => els.drawerBackdrop.classList.add("hidden"), 300);
+    els.drawer.setAttribute("aria-hidden", "true");
+    els.drawer.removeAttribute("aria-modal");
+    if (returnFocus?.isConnected && typeof returnFocus.focus === "function") {
+      requestAnimationFrame(() => returnFocus.focus({ preventScroll: true }));
+    }
+    return targetFrame;
+  };
+  if (sourceFrame && targetFrame) MovieAgentModules.motion.runSharedFrameTransition?.(sourceFrame, finish, { name: "shot-frame" });
+  else finish();
 }
 
 function crewValueMarkup(value, depth = 0) {
@@ -4587,6 +4625,7 @@ function initProductionRouteInteraction() {
   const stageNames = ["greenlight", "crew", "delivery"];
   const reset = () => {
     route.style.setProperty("--route-pointer-opacity", "0");
+    route.style.setProperty("--director-light-intensity", "0");
     for (const element of [...rulerStages, ...cards]) element.classList.remove("is-route-active");
     if (line) line.style.setProperty("--route-progress", "33.333%");
   };
@@ -4596,6 +4635,14 @@ function initProductionRouteInteraction() {
     route.style.setProperty("--route-pointer-x", `${event.clientX - routeRect.left}px`);
     route.style.setProperty("--route-pointer-y", `${event.clientY - routeRect.top}px`);
     route.style.setProperty("--route-pointer-opacity", "1");
+    const lightX = ((event.clientX - routeRect.left) / Math.max(1, routeRect.width)) * 100;
+    const lightY = ((event.clientY - routeRect.top) / Math.max(1, routeRect.height)) * 100;
+    const angle = -18 + ((event.clientX - routeRect.left) / Math.max(1, routeRect.width) - 0.5) * 16;
+    const edgeDistance = Math.min(lightX, 100 - lightX, lightY, 100 - lightY);
+    route.style.setProperty("--director-light-x", `${lightX.toFixed(2)}%`);
+    route.style.setProperty("--director-light-y", `${lightY.toFixed(2)}%`);
+    route.style.setProperty("--director-light-angle", `${angle.toFixed(2)}deg`);
+    route.style.setProperty("--director-light-intensity", `${Math.max(0.18, Math.min(0.86, edgeDistance / 24)).toFixed(3)}`);
     const index = rulerStages.reduce((closest, stage, stageIndex) => {
       const rect = stage.getBoundingClientRect();
       const distance = Math.abs(event.clientX - (rect.left + rect.width / 2));
@@ -4962,6 +5009,7 @@ function initFilmstripInteractions() {
       event.preventDefault();
     }
   }, { passive: false });
+  MovieAgentModules.storyboard.initFilmGateFocus?.(viewport, { reduced: REDUCED_MOTION });
 }
 
 /* 分镜显影：距离最近的 Shot 从线稿推到彩色 keyframe，已生成视频仍由视频层接管。 */

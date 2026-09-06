@@ -8,6 +8,8 @@ MODULE_STATE = (ROOT / "static" / "js" / "state.js").read_text(encoding="utf-8")
 MODULE_DELIVER = (ROOT / "static" / "js" / "deliver.js").read_text(encoding="utf-8")
 MODULE_STORYBOARD = (ROOT / "static" / "js" / "storyboard.js").read_text(encoding="utf-8")
 MODULE_THEME = (ROOT / "static" / "js" / "theme.js").read_text(encoding="utf-8")
+MODULE_MOTION = (ROOT / "static" / "js" / "motion.js").read_text(encoding="utf-8")
+MOTION_CSS = (ROOT / "static" / "css" / "motion.css").read_text(encoding="utf-8")
 CSS = (ROOT / "static" / "style.css").read_text(encoding="utf-8")
 REFINEMENT = (ROOT / "static" / "css" / "interaction-refinement.css").read_text(encoding="utf-8")
 BIBLE = (ROOT / "static" / "css" / "production-bible.css").read_text(encoding="utf-8")
@@ -359,8 +361,25 @@ def test_frontend_domain_modules_own_migrated_logic_and_legacy_waits_for_them():
     assert "MovieAgentModules.theme.createThemeController" in APP
     assert "MovieAgentModules.api.requestJSON" in APP
     assert "document.addEventListener(\"DOMContentLoaded\", init" in APP
-    assert 'await import("../app.js?v=ui-20260906-p0-correctness")' in (ROOT / "static" / "js" / "app.js").read_text(encoding="utf-8")
+    assert 'await import("../app.js?v=ui-20260906-signature-motion")' in (ROOT / "static" / "js" / "app.js").read_text(encoding="utf-8")
     assert '<script src="/static/app.js?v=ui-20260905-p2"></script>' not in INDEX
+
+
+def test_signature_motion_is_state_driven_and_reduced_motion_safe():
+    assert 'motion.css?v=ui-20260906-signature-motion' in INDEX
+    assert "MOTION_TOKENS" in MODULE_MOTION
+    assert "triggerDarkroomDevelopment" in MODULE_MOTION
+    assert "runSharedFrameTransition" in MODULE_MOTION
+    assert "sceneAmbientForShot" in MODULE_STORYBOARD
+    assert "initFilmGateFocus" in MODULE_STORYBOARD
+    assert 'data-shared-frame="shot-frame"' in APP
+    assert "triggerDarkroomDevelopment" in APP
+    assert "--director-light-intensity" in APP
+    assert "--scene-ambient-rgb" in MOTION_CSS
+    assert "scroll-snap-type: x proximity" in MOTION_CSS
+    assert "filter: blur" not in MOTION_CSS
+    assert "@media (prefers-reduced-motion: reduce)" in MOTION_CSS
+    assert "@media (hover: none), (pointer: coarse)" in MOTION_CSS
 
 
 def test_frontend_consumes_backend_pipeline_state_and_saved_event():
