@@ -16,10 +16,10 @@ ROOT = Path(__file__).resolve().parents[1]
 def _node_contract(*statuses: str, stale: bool = False) -> dict[str, bool]:
     payload = json.dumps([{"status": status, "stale": stale} for status in statuses])
     script = (
-        "import { shotPreviewable, shotReady } from './static/js/storyboard.js';"
+        "import { shotCapabilities, shotPreviewable, shotReady } from './static/js/storyboard.js';"
         f"const shots = {payload};"
         "console.log(JSON.stringify({previewable: shotPreviewable(shots[0]), ready: shotReady(shots[0]), "
-        "allReady: shots.every(shotReady)}));"
+        "allReady: shots.every(shotReady), capabilities: shotCapabilities(shots[0])}));"
     )
     try:
         result = subprocess.run(
@@ -86,6 +86,16 @@ class ShotPreviewContractTests(unittest.TestCase):
     def test_awaiting_visual_review_is_not_shot_ready(self):
         contract = _node_contract("awaiting_visual_review")
         self.assertFalse(contract["ready"])
+
+    def test_shot_capabilities_keep_review_and_ready_semantics_separate(self):
+        review = _node_contract("awaiting_visual_review")["capabilities"]
+        ready = _node_contract("approved_comfyui")["capabilities"]
+        self.assertTrue(review["canPreview"])
+        self.assertTrue(review["canApprove"])
+        self.assertFalse(review["canEnterCut"])
+        self.assertTrue(ready["canPreview"])
+        self.assertFalse(ready["canApprove"])
+        self.assertTrue(ready["canEnterCut"])
 
     def test_shot_video_endpoint_serves_awaiting_visual_review_media(self):
         import server

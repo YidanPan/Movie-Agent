@@ -32,7 +32,7 @@
 <link rel="stylesheet" href="/static/css/storyboard.css?v=p5-20260904">
 <link rel="stylesheet" href="/static/css/sound.css?v=p5-20260904">
 <link rel="stylesheet" href="/static/css/deliver.css?v=p5-20260904">
-<link rel="stylesheet" href="/static/css/interaction-refinement.css?v=ui-20260905-p3">
+<link rel="stylesheet" href="/static/css/interaction-refinement.css?v=ui-20260906-p0">
 <link rel="stylesheet" href="/static/css/production-bible.css?v=ui-20260905-p3">
 </head>
 <body data-view="landing" data-design="archive-console">
@@ -48,10 +48,10 @@
     </div>
     <div class="header-center">
       <nav class="pipeline" id="pipeline" aria-label="制作阶段">
-        <span class="step" data-step="plan"><b>01</b><span>PLAN</span><small class="step-state mono type-status" aria-hidden="true"></small></span><i class="sep" aria-hidden="true"></i>
-        <span class="step" data-step="previs"><b>02</b><span>PREVIS</span><small class="step-state mono type-status" aria-hidden="true"></small></span><i class="sep" aria-hidden="true"></i>
-        <span class="step" data-step="render"><b>03</b><span>RENDER</span><small class="step-state mono type-status" aria-hidden="true"></small></span><i class="sep" aria-hidden="true"></i>
-        <span class="step" data-step="deliver"><b>04</b><span>DELIVER</span><small class="step-state mono type-status" aria-hidden="true"></small></span>
+        <button class="step" data-step="plan" type="button" aria-label="PLAN · QUEUED"><b>01</b><span>PLAN</span><small class="step-state mono type-status"></small></button><i class="sep" aria-hidden="true"></i>
+        <button class="step" data-step="previs" type="button" aria-label="PREVIS · QUEUED"><b>02</b><span>PREVIS</span><small class="step-state mono type-status"></small></button><i class="sep" aria-hidden="true"></i>
+        <button class="step" data-step="render" type="button" aria-label="RENDER · QUEUED"><b>03</b><span>RENDER</span><small class="step-state mono type-status"></small></button><i class="sep" aria-hidden="true"></i>
+        <button class="step" data-step="deliver" type="button" aria-label="DELIVER · QUEUED"><b>04</b><span>DELIVER</span><small class="step-state mono type-status"></small></button>
       </nav>
     </div>
     <div class="header-right">
@@ -616,7 +616,7 @@
 
 <!-- Inspector：镜头 / 剧组详情 -->
 <div class="drawer-backdrop hidden" id="drawer-backdrop"></div>
-<aside class="drawer" id="drawer" aria-label="详情 Inspector" aria-live="polite"></aside>
+<aside class="drawer" id="drawer" aria-label="详情 Inspector" aria-live="polite" aria-hidden="true"></aside>
 
 <!-- 首映遮罩 -->
 <div class="premiere hidden" id="premiere" role="dialog" aria-label="成片首映">
@@ -632,6 +632,6 @@
 
 <div class="toast mono" id="toast" role="status"></div>
 
-<script type="module" src="/static/js/app.js?v=ui-20260906-shot-preview-contract"></script>
+<script type="module" src="/static/js/app.js?v=ui-20260906-p0-shot-capabilities"></script>
 </body>
 </html>

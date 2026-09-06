@@ -355,11 +355,11 @@ def test_video_quality_tiers_keep_screening_preview_separate_from_final_master()
 def test_frontend_domain_modules_own_migrated_logic_and_legacy_waits_for_them():
     assert "createThemeController" in MODULE_THEME
     assert "formatShotDuration" in MODULE_STORYBOARD
-    assert "MovieAgentModules.storyboard.shotReady" in APP
+    assert "MovieAgentModules.storyboard.shotCapabilities" in APP
     assert "MovieAgentModules.theme.createThemeController" in APP
     assert "MovieAgentModules.api.requestJSON" in APP
     assert "document.addEventListener(\"DOMContentLoaded\", init" in APP
-    assert 'await import("../app.js?v=ui-20260906-shot-preview-contract")' in (ROOT / "static" / "js" / "app.js").read_text(encoding="utf-8")
+    assert 'await import("../app.js?v=ui-20260906-p0-shot-capabilities")' in (ROOT / "static" / "js" / "app.js").read_text(encoding="utf-8")
     assert '<script src="/static/app.js?v=ui-20260905-p2"></script>' not in INDEX
 
 

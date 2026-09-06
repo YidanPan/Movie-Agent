@@ -2,6 +2,35 @@
 export const shotDuration = (shot = {}) => Math.max(0, Number(shot.duration_seconds || shot.desired_duration || 0));
 export const shotReady = (shot = {}) => String(shot.status || "").startsWith("approved") && shot.stale !== true;
 export const shotPreviewable = (shot = {}) => ["generated_comfyui", "awaiting_visual_review", "approved_comfyui"].includes(String(shot.status || "")) && shot.stale !== true;
+export const shotCapabilities = (shot = {}) => {
+  const status = String(shot.status || "planned");
+  const qcStatus = String(shot.qc_status || "").toUpperCase();
+  const flags = Array.isArray(shot.qc_flags) ? shot.qc_flags : [];
+  const hasLastError = shot.last_error && typeof shot.last_error === "object"
+    ? Object.keys(shot.last_error).length > 0
+    : Boolean(shot.last_error);
+  const isStale = shot.stale === true || qcStatus.includes("STALE");
+  const isGenerating = status === "generating_mock" || status === "generating_comfyui";
+  const isFailed = status === "generation_failed" || hasLastError;
+  const needsReview = status === "awaiting_visual_review"
+    || qcStatus === "AWAITING_VISUAL_REVIEW"
+    || flags.some((flag) => String(flag).toUpperCase().includes("REVIEW"));
+  const isReady = shotReady(shot);
+  const canPreview = shotPreviewable(shot);
+  return {
+    canPreview,
+    canApprove: canPreview && status === "awaiting_visual_review" && !isGenerating,
+    canRegenerate: !isGenerating,
+    canReplan: !isGenerating,
+    canEditMetadata: !isGenerating,
+    canEnterCut: isReady,
+    needsReview,
+    isGenerating,
+    isFailed,
+    isStale,
+    isReady,
+  };
+};
 
 export const formatShotDuration = (value) => {
   const seconds = Math.max(0, Number(value || 0));
@@ -33,6 +62,6 @@ export const shotStateInfo = (shot = {}) => {
 };
 
 export function moduleStoryboard() {
-  return { shotDuration, shotReady, shotPreviewable, formatShotDuration, timingModeLabel, shotStateInfo };
+  return { shotDuration, shotReady, shotPreviewable, shotCapabilities, formatShotDuration, timingModeLabel, shotStateInfo };
 }
 

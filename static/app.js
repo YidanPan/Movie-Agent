@@ -304,11 +304,15 @@ const AGENT_DEFS = [
 ];
 
 function isShotReady(shot) {
-  return MovieAgentModules.storyboard.shotReady(shot);
+  return shotCapabilities(shot).isReady;
 }
 
 function isShotPreviewable(shot) {
-  return MovieAgentModules.storyboard.shotPreviewable(shot);
+  return shotCapabilities(shot).canPreview;
+}
+
+function shotCapabilities(shot) {
+  return MovieAgentModules.storyboard.shotCapabilities(shot);
 }
 
 function normalizeCrewSummary(summary) {
@@ -420,6 +424,7 @@ const state = {
   viewingHistorical: false,
   drawerType: null,
   activeAgentId: null,
+  previousFocusedElement: null,
   inspectorExpanded: false,
   exportOptions: { container: "mp4", resolution: "1080p", aspect: "16:9", subtitle_mode: "burned" },
   finalVideoUrl: null,
@@ -676,7 +681,8 @@ function createPacedHandler(onEvent) {
 
 function setPipeline(states = {}) {
   const order = ["plan", "previs", "render", "deliver"];
-  const stateLabels = { active: "ACTIVE", review: "REVIEW", failed: "FAILED", stale: "STALE", done: "✓", archived: "", todo: "" };
+  const stateLabels = { active: "ACTIVE", review: "REVIEW", failed: "FAILED", stale: "STALE", done: "DONE", archived: "ARCHIVED", todo: "QUEUED" };
+  const stateGlyphs = { active: "●", review: "!", failed: "×", stale: "↻", done: "✓", archived: "", todo: "" };
   const separators = $$("#pipeline .sep");
   const hasExplicitFocus = order.some((key) => ["active", "ready", "review", "failed", "stale"].includes(states[key]));
   const resolvedStates = {};
@@ -698,7 +704,7 @@ function setPipeline(states = {}) {
     el.dataset.state = currentState;
     el.setAttribute("aria-label", `${key.toUpperCase()} · ${stateLabels[currentState] || "QUEUED"}`);
     const stateLabel = el.querySelector(".step-state");
-    if (stateLabel) stateLabel.textContent = stateLabels[currentState];
+    if (stateLabel) stateLabel.textContent = stateGlyphs[currentState] || "";
     if (currentState === "active") {
       el.classList.add("is-active");
       el.setAttribute("aria-current", "step");
@@ -725,6 +731,39 @@ function setPipeline(states = {}) {
       separators[index].dataset.state = currentState === "done" || currentState === "archived" ? "done" : ["active", "review", "failed", "stale"].includes(nextState) ? "active" : "todo";
     }
   }
+}
+
+function navigatePipelineStage(stage) {
+  const target = String(stage || "");
+  const panelByStage = {
+    plan: { panel: ".manual-panel", tab: "brief" },
+    previs: { panel: ".filmstrip-panel", tab: "quality" },
+    render: { panel: ".monitor-panel", tab: "quality" },
+    deliver: { panel: ".screening-panel", tab: "brief" },
+  }[target];
+  if (!panelByStage) return;
+  if (!state.project) {
+    toast("请先开机创建项目，再进入生产阶段。", true);
+    gotoView("studio");
+    return;
+  }
+  const focus = () => {
+    renderWorkspace(state.project, { tab: panelByStage.tab });
+    const panel = document.querySelector(panelByStage.panel);
+    panel?.scrollIntoView({ behavior: REDUCED_MOTION ? "auto" : "smooth", block: "start" });
+  };
+  if (currentView() !== "studio") {
+    gotoView("studio");
+    window.setTimeout(focus, REDUCED_MOTION ? 0 : 500);
+  } else {
+    focus();
+  }
+}
+
+function bindPipelineNavigation() {
+  els.pipeline?.querySelectorAll(".step[data-step]").forEach((step) => {
+    step.addEventListener("click", () => navigatePipelineStage(step.dataset.step));
+  });
 }
 
 function pipelineFromProject(project, hasVideo) {
@@ -768,7 +807,7 @@ function buildCrewBoard() {
         <div class="crew-node-progress" aria-hidden="true"><i></i></div>
       </footer>`;
     renderCrewSummary(card.querySelector(".crew-summary"), def.summarize({}));
-    card.addEventListener("click", (event) => openCrewDrawer(def.id));
+    card.addEventListener("click", () => { card.focus({ preventScroll: true }); openCrewDrawer(def.id); });
     card.addEventListener("keydown", (event) => {
       if (event.key === "Enter" || event.key === " ") {
         event.preventDefault();
@@ -1026,7 +1065,7 @@ function deriveCrewStates(project = state.project) {
   const states = Object.fromEntries(AGENT_DEFS.map((def) => [def.id, "idle"]));
   const status = String(project?.status || "");
   const shots = project?.storyboard || [];
-  const allShotsReady = shots.length > 0 && shots.every(isShotReady);
+  const allShotsReady = shots.length > 0 && shots.every((shot) => shotCapabilities(shot).canEnterCut);
   const explicit = (agentId) => state.crewDetails[agentId]?.status;
   for (const def of AGENT_DEFS) {
     if (["working", "failed"].includes(explicit(def.id))) states[def.id] = explicit(def.id);
@@ -1288,6 +1327,38 @@ function bindShotDurationRail(card, project, shot) {
   });
 }
 
+function storyWorldEntityName(project, kind, id) {
+  const value = project?.story_world?.[kind];
+  const key = String(id || "").trim();
+  if (!key) return "";
+  if (Array.isArray(value)) {
+    const item = value.find((entry) => String(entry?.[`${kind.slice(0, -1)}_id`] || entry?.id || "") === key);
+    return String(item?.name || item?.label || key);
+  }
+  const item = value && typeof value === "object" ? value[key] : null;
+  return String(item?.name || item?.label || key);
+}
+
+function shotBeatLabel(project, shot) {
+  const beat = (project?.story_beats || []).find((item) => String(item?.beat_id || "") === String(shot.beat_id || ""));
+  const rawNumber = beat?.beat_number || String(shot.beat_id || "").match(/(\d+)$/)?.[1] || "";
+  const number = rawNumber ? String(rawNumber).padStart(2, "0") : "·";
+  const functionLabel = String(shot.story_function || beat?.story_function || "").trim();
+  return `BEAT ${number}${functionLabel ? ` · ${functionLabel.toUpperCase()}` : ""}`;
+}
+
+function shotWorldLabel(project, shot) {
+  const scene = storyWorldEntityName(project, "scenes", shot.scene_id);
+  const characters = (shot.character_ids || []).map((id) => storyWorldEntityName(project, "characters", id)).filter(Boolean);
+  return [scene, characters.join(" / ")].filter(Boolean).join(" · ");
+}
+
+function shotTransitionLabel(shots, index, shot) {
+  const transition = String(shot.transition_type || "").trim().replaceAll("_", " ");
+  const next = shots[index + 1]?.number;
+  return transition && next ? `${transition} → ${String(next).padStart(2, "0")}` : "";
+}
+
 function renderFilmstrip(project, entranceFrom = Number.POSITIVE_INFINITY) {
   const shots = project.storyboard || [];
   els.filmstripMeta.textContent = `${shots.length} 镜 · 共 ${shots.reduce((sum, s) => sum + (s.duration_seconds || 0), 0)} 秒 · ${esc(project.visual_style)}`;
@@ -1305,18 +1376,23 @@ function renderFilmstrip(project, entranceFrom = Number.POSITIVE_INFINITY) {
     card.setAttribute("role", "button");
     card.setAttribute("aria-label", `镜头 ${shot.number} 详情`);
     const stateInfo = shotStateInfo(shot);
+    const capabilities = shotCapabilities(shot);
     const duration = Number(shot.duration_seconds || 0);
     const revision = Number(shot.revision || shot.attempts || 1);
+    const beatLabel = shotBeatLabel(project, shot);
+    const worldLabel = shotWorldLabel(project, shot);
+    const transitionLabel = shotTransitionLabel(shots, index, shot);
     card.innerHTML = `
       <header class="shot-head type-system-meta"><span>SHOT ${String(shot.number).padStart(2, "0")}</span><span class="shot-duration-value">${formatShotDuration(duration)}</span></header>
-      <div class="shot-frame"><span class="shot-frame-lens" aria-hidden="true"><i class="shot-frame-sketch"></i><i class="shot-frame-color"></i></span><span class="film-stamp type-system-meta">${String(shot.number).padStart(2, "0")} · 24 FPS</span><span class="shot-framing type-control">${esc(shot.framing)}</span><span class="shot-mode type-system-meta">${esc(shot.generation_mode)}</span></div>
+      <div class="shot-frame"><span class="shot-frame-lens" aria-hidden="true"><i class="shot-frame-sketch"></i><i class="shot-frame-color"></i></span><span class="film-stamp type-system-meta">${String(shot.number).padStart(2, "0")} · 24 FPS</span><span class="shot-framing type-control">${esc(shot.framing)}</span><span class="shot-mode type-system-meta">${esc(shot.generation_mode)}</span><span class="shot-media-state type-system-meta">${capabilities.canPreview ? "VIDEO / PREVIS" : "PREVIS / QUEUED"}</span></div>
+      <div class="shot-narrative" aria-label="镜头叙事上下文">${beatLabel !== "BEAT ·" ? `<span class="shot-beat type-system-meta">${esc(beatLabel)}</span>` : ""}${worldLabel ? `<strong class="shot-world type-control">${esc(worldLabel)}</strong>` : ""}${transitionLabel ? `<span class="shot-transition type-system-meta">${esc(transitionLabel)}</span>` : ""}</div>
       <footer class="shot-foot type-system-meta">
         <span class="shot-status" data-state="${stateInfo.key}"><span class="shot-status-symbol" aria-hidden="true">${stateInfo.symbol}</span><span>${stateInfo.label}</span></span>
         <span class="shot-attempts">${shot.attempts > 0 ? `↻${shot.attempts}` : ""}</span>
         <span class="shot-technical-meta">REV ${String(revision).padStart(2, "0")} · ${String(shot.generation_mode || "T2V").toUpperCase()} · ${duration.toFixed(1)}s · ${timingModeLabel(shot)}</span>
         <span class="shot-duration-rail" style="--shot-duration-share: ${durationRailShare(duration)}" aria-label="拖动修改镜头 ${shot.number} 时长"><button class="shot-duration-handle" type="button" role="slider" aria-label="镜头 ${shot.number} 时长" aria-valuemin="1" aria-valuemax="80" aria-valuenow="${duration}" aria-valuetext="${duration.toFixed(1)} 秒"></button></span>
       </footer>`;
-    card.addEventListener("click", () => openDrawer(project, shot.number));
+    card.addEventListener("click", () => { card.focus({ preventScroll: true }); openDrawer(project, shot.number); });
     card.addEventListener("keydown", (event) => {
       if (event.key === "Enter" || event.key === " ") {
         event.preventDefault();
@@ -1424,8 +1500,11 @@ function renderShotMap(project) {
   els.shotMap.innerHTML = "";
   for (const shot of project.storyboard || []) {
     const cell = document.createElement("i");
+    const capabilities = shotCapabilities(shot);
     cell.dataset.status = shot.status || "planned";
-    cell.title = `镜头 ${shot.number} · ${shotStatusInfo(shot.status)}`;
+    cell.dataset.previewable = String(capabilities.canPreview);
+    cell.dataset.ready = String(capabilities.isReady);
+    cell.title = `镜头 ${shot.number} · ${shotStateInfo(shot).label}`;
     els.shotMap.appendChild(cell);
   }
 }
@@ -1458,7 +1537,7 @@ function renderMonitor(project, live = false) {
   els.projectIdLabel.textContent = project.project_id;
   els.renderRec.classList.toggle("live", live);
   const shots = project.storyboard || [];
-  const approved = shots.filter(isShotReady).length;
+  const approved = shots.filter((shot) => shotCapabilities(shot).isReady).length;
   const allReady = shots.length > 0 && approved === shots.length;
   const finalDelivered = String(project.status || "").startsWith("completed");
   if (els.shotsReady) els.shotsReady.textContent = `${approved}/${shots.length} SHOTS READY`;
@@ -1618,8 +1697,8 @@ function shotSceneNumber(number, total) {
   return Math.min(3, Math.max(1, Math.ceil((Number(number) / total) * 3)));
 }
 
-function shotWorkflowState(status) {
-  return shotStateInfo({ status });
+function shotWorkflowState(shot) {
+  return shotStateInfo(shot && typeof shot === "object" ? shot : { status: shot });
 }
 
 function shotCameraAngle(shot) {
@@ -1636,7 +1715,7 @@ function shotMovement(shot) {
 }
 
 function shotChecks(shot) {
-  const stateInfo = shotWorkflowState(shot.status);
+  const stateInfo = shotWorkflowState(shot);
   const complete = stateInfo.key === "complete";
   const failed = stateInfo.key === "failed";
   const review = stateInfo.key === "review";
@@ -1751,7 +1830,7 @@ function renderShotSheet(project) {
   if (!shots.length) return '<p class="empty-note">分镜师完成拆解后，Shot Sheet 会在这里逐张冲印。</p>';
   if (!shots.some((shot) => shot.number === state.manualShotNumber)) state.manualShotNumber = shots[0].number;
   const active = shots.find((shot) => shot.number === state.manualShotNumber) || shots[0];
-  const activeState = shotWorkflowState(active.status);
+  const activeState = shotWorkflowState(active);
   const nav = [];
   let lastScene = 0;
   for (const shot of shots) {
@@ -1760,7 +1839,7 @@ function renderShotSheet(project) {
       lastScene = scene;
       nav.push(`<div class="shot-scene-label type-system-meta">SCENE ${String(scene).padStart(2, "0")}</div>`);
     }
-    const status = shotWorkflowState(shot.status);
+    const status = shotWorkflowState(shot);
       nav.push(`<button class="shot-nav-item type-control${shot.number === active.number ? " is-active" : ""}" type="button" data-manual-shot="${shot.number}" aria-label="打开镜头 ${shot.number}"><span class="shot-nav-no type-system-meta">${String(shot.number).padStart(2, "0")}</span><span class="shot-nav-copy"><b>${esc(truncate(shot.image_description, 30))}</b><small class="type-status">${esc(status.label)}</small></span><span class="shot-nav-duration type-system-meta">${shot.duration_seconds}s</span><span class="shot-nav-state ${status.key}" aria-label="${status.label}">${status.symbol}</span></button>`);
   }
   const qc = shotChecks(active);
@@ -2733,8 +2812,8 @@ function renderDeliverTimeline(project) {
       const duration = Math.max(1, Number(shot.duration_seconds || 1));
       const start = offset;
       offset += duration;
-      const stateInfo = shotWorkflowState(shot.status);
-      return `<button class="deliver-timeline-shot type-control ${stateInfo.key}" type="button" role="listitem" data-deliver-start="${start}" data-deliver-duration="${duration}" data-deliver-shot="${shot.number}" style="--shot-duration:${duration};" aria-label="跳转到镜头 ${shot.number}"><span class="type-system-meta">SHOT ${String(shot.number).padStart(2, "0")}</span><small class="type-system-meta">${compactDuration(start)} · ${compactDuration(start + duration)}</small><i class="type-status">${duration}s</i><span class="deliver-shot-preview" aria-hidden="true"><i class="deliver-shot-preview-frame"></i><b class="type-system-meta">SHOT ${String(shot.number).padStart(2, "0")} · ${compactDuration(start)}</b></span></button>`;
+      const stateInfo = shotWorkflowState(shot);
+      return `<button class="deliver-timeline-shot type-control ${stateInfo.key}" type="button" role="listitem" data-deliver-start="${start}" data-deliver-duration="${duration}" data-deliver-shot="${shot.number}" data-previewable="${shotCapabilities(shot).canPreview}" style="--shot-duration:${duration};" aria-label="跳转到镜头 ${shot.number}"><span class="type-system-meta">SHOT ${String(shot.number).padStart(2, "0")}</span><small class="type-system-meta">${compactDuration(start)} · ${compactDuration(start + duration)}</small><i class="type-status">${duration}s</i><span class="deliver-shot-preview" aria-hidden="true"><i class="deliver-shot-preview-frame"></i><b class="type-system-meta">SHOT ${String(shot.number).padStart(2, "0")} · ${compactDuration(start)}</b></span></button>`;
     }).join("")
     : '<p class="empty-note">镜头生成后，这里会出现可跳转的时间线。</p>';
   els.deliverShotTimeline.querySelectorAll("[data-deliver-start]").forEach((button) => {
@@ -2760,6 +2839,8 @@ function ensureDeliverShotPreview(project, button) {
   if (!frame || !project || frame.querySelector("video")) return;
   const shotNumber = Number(button.dataset.deliverShot || 0);
   if (!shotNumber) return;
+  const shot = (project.storyboard || []).find((item) => Number(item.number) === shotNumber);
+  if (!shot || !shotCapabilities(shot).canPreview) return;
   const key = `${project.project_id}:${shotNumber}`;
   if (state.deliverShotPreviewMedia[key] === null) return;
   const url = `/api/projects/${encodeURIComponent(project.project_id)}/shots/${shotNumber}/video`;
@@ -2910,7 +2991,7 @@ async function renderScreening(project) {
   if (els.btnAiEdit) {
     const canStartAiEdit = showSummary && !["rough", "editing"].includes(resolvedState.key);
     els.btnAiEdit.classList.toggle("hidden", !canStartAiEdit);
-    els.btnAiEdit.disabled = state.editing || !((project?.storyboard || []).length && (project.storyboard || []).every(isShotReady));
+    els.btnAiEdit.disabled = state.editing || !((project?.storyboard || []).length && (project.storyboard || []).every((shot) => shotCapabilities(shot).canEnterCut));
     els.btnAiEdit.innerHTML = state.editing ? "AI Edit 粗剪中…" : 'AI 剪辑成片 <span class="cta-arrow" aria-hidden="true">→</span>';
   }
   if (els.btnApproveEdit) {
@@ -3100,7 +3181,7 @@ function renderWorkspace(project, options = {}) {
   updatePipelineForProject(project);
   const videoMode = state.health ? state.health.video_mode : "mock";
   const shots = project.storyboard || [];
-  const allShotsReady = shots.length > 0 && shots.every(isShotReady);
+  const allShotsReady = shots.length > 0 && shots.every((shot) => shotCapabilities(shot).canEnterCut);
   if (videoMode === "comfyui") {
     els.btnRender.disabled = state.rendering || allShotsReady;
     els.renderNote.textContent = allShotsReady
@@ -3155,7 +3236,21 @@ function openDrawerShell() {
   clearTimeout(drawerHideTimer);
   els.drawerBackdrop.classList.remove("hidden");
   els.drawer.classList.add("open");
+  els.drawer.setAttribute("aria-modal", "true");
+  els.drawer.setAttribute("aria-hidden", "false");
   requestAnimationFrame(() => els.drawerBackdrop.classList.add("open"));
+}
+
+function drawerFocusableElements() {
+  if (!els.drawer) return [];
+  return Array.from(els.drawer.querySelectorAll("button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex=\"-1\"])"))
+    .filter((element) => element.getClientRects().length > 0);
+}
+
+function focusDrawerHeading() {
+  const heading = els.drawer.querySelector("h2, h3");
+  const close = els.drawer.querySelector(".drawer-close");
+  (heading || close)?.focus({ preventScroll: true });
 }
 
 function setInspectorExpanded(expanded) {
@@ -3196,7 +3291,10 @@ function renderDrawerContent(markup, { swap = false, onReady } = {}) {
 }
 
 function inspectorShotPreviewMarkup(shot) {
-  const previewReady = isShotPreviewable(shot);
+  const capabilities = shotCapabilities(shot);
+  const previewReady = capabilities.canPreview;
+  const references = shot.qc_details?.reference_inputs || {};
+  const referenceState = (key, required) => required ? (references[key] ? "✓" : "MISSING") : "N/A";
   return `
     <section class="inspector-preview-section">
       <header class="inspector-section-head type-system-meta"><span>SHOT PREVIEW / 16:9</span><span class="inspector-preview-state type-system-meta ${previewReady ? "is-ready" : ""}">${previewReady ? "MEDIA READY" : "UNEXPOSED FRAME"}</span></header>
@@ -3206,6 +3304,7 @@ function inspectorShotPreviewMarkup(shot) {
         <span class="inspector-preview-stamp type-system-meta">${String(shot.number).padStart(2, "0")} · 24 FPS · ${esc(shot.generation_mode || "T2V")}</span>
       </div>
       <p class="inspector-preview-note type-helper">${previewReady ? "视频预览可播放 · 关键帧质检已归档" : "当前显示未冲洗胶片帧 · 完成真实生成后自动替换"}</p>
+      ${capabilities.needsReview || capabilities.isReady ? `<dl class="inspector-review-checks" aria-label="视觉审核状态"><div><dt class="type-system-meta">MEDIA INTEGRITY</dt><dd class="type-status">${previewReady ? "✓ PASSED" : "PENDING"}</dd></div><div><dt class="type-system-meta">CHARACTER REFERENCE</dt><dd class="type-status">${referenceState("character", Boolean(shot.character_ids?.length))}</dd></div><div><dt class="type-system-meta">SCENE REFERENCE</dt><dd class="type-status">${referenceState("scene", Boolean(shot.scene_id))}</dd></div><div><dt class="type-system-meta">VISUAL QC</dt><dd class="type-status">${capabilities.needsReview ? "MANUAL" : capabilities.isReady ? "PASSED" : "QUEUED"}</dd></div></dl>` : ""}
     </section>`;
 }
 
@@ -3236,7 +3335,8 @@ function buildShotInspectorMarkup(project, shot) {
   const index = Math.max(0, shots.findIndex((item) => item.number === shot.number));
   const previous = shots[(index - 1 + shots.length) % shots.length];
   const next = shots[(index + 1) % shots.length];
-  const status = shotWorkflowState(shot.status);
+  const status = shotWorkflowState(shot);
+  const capabilities = shotCapabilities(shot);
   const scene = String(shotSceneNumber(shot.number, shots.length)).padStart(2, "0");
   const output = shot.output_placeholder || "生成后写入项目 outputs/";
   return `
@@ -3244,7 +3344,7 @@ function buildShotInspectorMarkup(project, shot) {
       <header class="inspector-head">
         <div class="inspector-head-main">
           <p class="inspector-kicker type-system-meta">SHOT INSPECTOR / SCENE ${scene}</p>
-          <div class="inspector-title-row"><h2>镜头 ${String(shot.number).padStart(2, "0")}</h2><span class="inspector-status ${status.key} type-status"><i>${status.symbol}</i>${status.label}</span></div>
+          <div class="inspector-title-row"><h2 tabindex="-1">镜头 ${String(shot.number).padStart(2, "0")}</h2><span class="inspector-status ${status.key} type-status"><i>${status.symbol}</i>${status.label}</span></div>
           <p class="inspector-subtitle type-helper">${esc(truncate(shot.image_description || "镜头尚未补充画面描述。", 180))}</p>
         </div>
         <div class="inspector-head-actions">
@@ -3297,15 +3397,15 @@ function buildShotInspectorMarkup(project, shot) {
           <label><span class="inspector-label type-ui-label">SOUND / 声音</span><textarea data-shot-field="sound_design" rows="4">${esc(shot.sound_design || "")}</textarea></label>
           <label class="inspector-editor-prompt"><span class="inspector-label type-ui-label">FINAL PROMPT / 最终提示词</span><textarea data-shot-field="prompt" rows="7">${esc(shot.prompt || "")}</textarea></label>
         </div>
-        <div class="inspector-editor-actions"><button class="ghost type-control" data-save-shot type="button">保存镜头编辑</button><span class="type-helper">保存后写入项目档案，可继续质检或生成。</span></div>
+        <div class="inspector-editor-actions"><button class="ghost type-control" data-save-shot type="button"${capabilities.canEditMetadata ? "" : " disabled"}>保存镜头编辑</button><span class="type-helper">保存后写入项目档案，可继续质检或生成。</span></div>
       </section>
 
       <div class="inspector-output"><span class="inspector-label type-ui-label">OUTPUT PATH</span><span class="type-system-meta">${esc(output)}</span></div>
 
        <footer class="inspector-actions">
-         ${shot.status === "awaiting_visual_review" ? '<button class="cta inspector-action-primary" data-inspector-action="approve" type="button">APPROVE SHOT <span aria-hidden="true">✓</span></button>' : ""}
-         <button class="ghost type-control" data-inspector-action="replan" type="button">↻ 重新规划</button>
-        <button class="cta inspector-action-primary" data-inspector-action="regenerate" type="button">重新生成素材 <span aria-hidden="true">→</span></button>
+         ${capabilities.canApprove ? '<button class="cta inspector-action-primary" data-inspector-action="approve" type="button">APPROVE SHOT <span aria-hidden="true">✓</span></button>' : ""}
+         <button class="ghost type-control" data-inspector-action="replan" type="button"${capabilities.canReplan ? "" : " disabled"}>↻ 重新规划</button>
+        <button class="cta inspector-action-primary" data-inspector-action="regenerate" type="button"${capabilities.canRegenerate ? "" : " disabled"}>重新生成素材 <span aria-hidden="true">→</span></button>
       </footer>
     </div>`;
 }
@@ -3350,7 +3450,7 @@ function bindShotInspector(project, shot, { initial = false } = {}) {
   els.drawer.querySelector('[data-inspector-action="approve"]')?.addEventListener("click", () => approveShot(shot.number));
   els.drawer.querySelector("[data-save-shot]")?.addEventListener("click", () => saveShotEdits(shot.number));
   attachInspectorPreview(project, shot);
-  if (initial) closeButton?.focus({ preventScroll: true });
+  if (initial) focusDrawerHeading();
 }
 
 function attachInspectorPreview(project, shot) {
@@ -3376,6 +3476,7 @@ function openDrawer(project, shotNumber) {
   const shot = (project.storyboard || []).find((s) => s.number === shotNumber);
   if (!shot) return;
   const wasOpen = drawerIsOpen();
+  if (!wasOpen) state.previousFocusedElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   state.drawerType = "shot";
   state.activeAgentId = null;
   state.activeShotNumber = shotNumber;
@@ -3390,16 +3491,23 @@ function openDrawer(project, shotNumber) {
 }
 
 function closeDrawer() {
+  const returnFocus = state.previousFocusedElement;
   drawerContentRun += 1;
   els.drawer.classList.remove("open", "is-expanded");
   els.drawerBackdrop.classList.remove("open");
   clearCrewCardSelection();
   state.drawerType = null;
   state.activeAgentId = null;
+  state.previousFocusedElement = null;
   state.inspectorExpanded = false;
   syncInspectorSelection();
   clearTimeout(drawerHideTimer);
   drawerHideTimer = setTimeout(() => els.drawerBackdrop.classList.add("hidden"), 300);
+  els.drawer.setAttribute("aria-hidden", "true");
+  els.drawer.removeAttribute("aria-modal");
+  if (returnFocus?.isConnected && typeof returnFocus.focus === "function") {
+    requestAnimationFrame(() => returnFocus.focus({ preventScroll: true }));
+  }
 }
 
 function crewValueMarkup(value, depth = 0) {
@@ -3466,7 +3574,7 @@ function buildCrewInspectorMarkup(agentId) {
       <header class="inspector-head">
         <div class="inspector-head-main">
           <p class="inspector-kicker type-system-meta">AGENT INSPECTOR / ${esc(def.en)}</p>
-          <div class="inspector-title-row"><h2>${esc(def.name)} Agent</h2><span class="inspector-status ${card?.classList.contains("working") || card?.classList.contains("ready") || card?.classList.contains("next") ? "active" : card?.classList.contains("failed") ? "failed" : "complete"} type-status"><i>●</i>${esc(card?.querySelector(".crew-state-text")?.textContent || "候场")}</span></div>
+          <div class="inspector-title-row"><h2 tabindex="-1">${esc(def.name)} Agent</h2><span class="inspector-status ${card?.classList.contains("working") || card?.classList.contains("ready") || card?.classList.contains("next") ? "active" : card?.classList.contains("failed") ? "failed" : "complete"} type-status"><i>●</i>${esc(card?.querySelector(".crew-state-text")?.textContent || "候场")}</span></div>
           <p class="inspector-subtitle type-helper">${esc(def.role)} · 点击卡片即可查看实时产出、沟通和决策记录。</p>
         </div>
         <div class="inspector-head-actions">
@@ -3487,6 +3595,7 @@ function openCrewDrawer(agentId) {
   const def = AGENT_DEFS.find((item) => item.id === agentId);
   if (!def) return;
   const wasOpen = drawerIsOpen();
+  if (!wasOpen) state.previousFocusedElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   state.drawerType = "agent";
   state.activeAgentId = agentId;
   state.activeShotNumber = null;
@@ -3501,6 +3610,7 @@ function openCrewDrawer(agentId) {
     onReady: () => {
       els.drawer.querySelector(".drawer-close")?.addEventListener("click", closeDrawer);
       els.drawer.querySelector("[data-inspector-expand]")?.addEventListener("click", () => setInspectorExpanded(!state.inspectorExpanded));
+      if (!wasOpen) focusDrawerHeading();
     },
   });
   if (!wasOpen) openDrawerShell();
@@ -3803,10 +3913,10 @@ function handleCreateEvent(event) {
         renderCrewSummary(summary, {
           headline: "ACTIVE",
           primary: `SHOT ${String(event.shot.number).padStart(2, "0")}`,
-          secondary: shotStatusInfo(event.shot.status),
+          secondary: shotStateInfo(event.shot).label,
         });
       }
-      appendCrewStatus("generation", "SHOT UPDATE", `SHOT ${String(event.shot.number).padStart(2, "0")} · ${shotStatusInfo(event.shot.status)}`);
+      appendCrewStatus("generation", "SHOT UPDATE", `SHOT ${String(event.shot.number).padStart(2, "0")} · ${shotStateInfo(event.shot).label}`);
     }
   } else if (event.type === "done") {
     storyboardStageRun += 1;
@@ -4970,6 +5080,7 @@ function init() {
   initTheme();
   if (LOW_PERFORMANCE) document.body.classList.add("low-performance");
   applyView(currentView());
+  bindPipelineNavigation();
   setPipeline({ plan: "active" });
   setBrowserActivity("idle");
   updateSoundToggle();
@@ -5157,6 +5268,24 @@ function init() {
     closeDrawer();
   });
   document.addEventListener("keydown", (event) => {
+    if (event.key === "Tab" && drawerIsOpen()) {
+      const focusable = drawerFocusableElements();
+      if (!focusable.length) {
+        event.preventDefault();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const activeIndex = focusable.indexOf(document.activeElement);
+      if (event.shiftKey && (activeIndex <= 0 || !els.drawer.contains(document.activeElement))) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (activeIndex === focusable.length - 1 || activeIndex === -1)) {
+        event.preventDefault();
+        first.focus();
+      }
+      return;
+    }
     if (event.key === "Escape") {
       closeDrawer();
       closePremiere(false);
