@@ -27,6 +27,7 @@ class ProjectState(str, Enum):
 
 
 STATUS_TO_STATE: dict[str, ProjectState] = {
+    **{state.value: state for state in ProjectState},
     "planning_live": ProjectState.PLANNING,
     "planned_mock": ProjectState.PREVIS_READY,
     "planned_text_ai": ProjectState.PREVIS_READY,

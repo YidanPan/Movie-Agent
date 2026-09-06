@@ -144,6 +144,10 @@ class ContinuityPipelineTests(unittest.TestCase):
         self.assertEqual(payload["pipeline_state"]["state"], "final_ready")
         self.assertFalse(payload["pipeline_state"]["archived"])
 
+    def test_project_state_round_trip_for_all_enum_values(self) -> None:
+        for state in ProjectState:
+            self.assertIs(state_for_status(state.value), state)
+
     def test_manual_review_gate_blocks_legacy_approved_status(self) -> None:
         shot = make_shot(1)
         shot.qc_status = "AWAITING_VISUAL_REVIEW"

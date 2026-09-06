@@ -56,7 +56,13 @@ class ReviewerAgent:
         if project_id is None:
             project_id = "ad-hoc-review"
         frames = self._extract_keyframes(project_id, shot, video_path, duration)
-        reference_inputs = self.reference_bank.qc_reference_paths(project_id, shot.number)
+        generation_references = self.reference_bank.generation_reference_paths(project_id, shot)
+        reference_inputs = {
+            "character_hero": generation_references["character"],
+            "current_scene": generation_references["scene"],
+            "previous_approved_shot_ending_frame": generation_references["previous_frame"],
+            "palette": generation_references["palette"],
+        }
         reference_strategy = {
             key: [str(path) for path in paths]
             for key, paths in reference_inputs.items()
@@ -100,7 +106,9 @@ class ReviewerAgent:
         drift_flags = [
             str(flag).strip().upper()
             for flag in (review.get("drift_flags") or [])
-            if str(flag).strip().upper() in {"STYLE_DRIFT", "CHARACTER_DRIFT", "SCENE_DRIFT"}
+            if str(flag).strip().upper() in {
+                "STYLE_DRIFT", "CHARACTER_DRIFT", "SCENE_DRIFT", "NARRATIVE_STATE_DRIFT", "PROP_DRIFT"
+            }
         ]
         shot.qc_flags = drift_flags
         shot.qc_details = {
@@ -108,6 +116,11 @@ class ReviewerAgent:
             "reference_strategy": reference_strategy,
             "dimensions": review.get("dimensions") or {},
             "drift_details": review.get("drift_details") or {},
+            "scores": {
+                key: self._score(review.get(key))
+                for key in ("character_consistency", "scene_consistency", "costume_consistency", "face_hair_consistency", "props_consistency", "palette_consistency", "lighting_consistency", "camera_language_consistency", "film_texture_consistency")
+                if review.get(key) is not None
+            },
             "copyright_risk": review.get("copyright_risk"),
         }
         copyright_risk = str(review.get("copyright_risk", "")).strip().lower()

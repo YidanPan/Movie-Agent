@@ -134,9 +134,12 @@ def word_level_cues(
         for group in _cue_groups(assigned):
             subgroups: list[list[WordBoundary]] = [[]]
             for boundary in group:
-                subgroups[-1].append(boundary)
-                if any(boundary.start_time < cut <= boundary.end_time for cut in transitions):
+                if subgroups[-1] and any(
+                    subgroups[-1][-1].end_time < cut <= boundary.start_time
+                    for cut in transitions
+                ):
                     subgroups.append([])
+                subgroups[-1].append(boundary)
             for subgroup in [part for part in subgroups if part]:
                 first, last = subgroup[0], subgroup[-1]
                 cue = dict(entry or {})

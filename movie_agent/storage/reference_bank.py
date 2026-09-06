@@ -35,6 +35,11 @@ class ReferenceAsset:
     revision: int = 1
     created_at: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
+    # Explicit selectors keep reference choice addressable for future I2V/R2V
+    # conditioning while remaining compatible with older manifests.
+    character_id: str = ""
+    scene_id: str = ""
+    role: str = ""
 
 
 @dataclass
@@ -94,6 +99,9 @@ class ReferenceBankStore:
         revision: int = 1,
         name: str | None = None,
         metadata: dict[str, Any] | None = None,
+        character_id: str = "",
+        scene_id: str = "",
+        role: str = "",
     ) -> ReferenceAsset:
         if kind not in REFERENCE_KINDS:
             raise ValueError(f"Unsupported reference kind: {kind}")
@@ -113,6 +121,10 @@ class ReferenceBankStore:
         target = self.project_dir(project_id) / f"{safe_name}{suffix}"
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source_path, target)
+        asset_metadata = dict(metadata or {})
+        for key, value in (("character_id", character_id), ("scene_id", scene_id), ("role", role or kind)):
+            if value:
+                asset_metadata.setdefault(key, str(value))
         asset = ReferenceAsset(
             reference_id=reference_id,
             kind=kind,
@@ -122,7 +134,10 @@ class ReferenceBankStore:
             shot_number=shot_number,
             revision=current_revision,
             created_at=timestamp,
-            metadata=dict(metadata or {}),
+            metadata=asset_metadata,
+            character_id=str(character_id or (metadata or {}).get("character_id") or ""),
+            scene_id=str(scene_id or (metadata or {}).get("scene_id") or ""),
+            role=str(role or (metadata or {}).get("role") or kind),
         )
         bank.assets.append(asset)
         self.save(bank)
@@ -179,4 +194,51 @@ class ReferenceBankStore:
             "character_hero": [Path(asset.path) for asset in character[:2]],
             "current_scene": [Path(asset.path) for asset in scene[:3]],
             "previous_approved_shot_ending_frame": [Path(asset.path) for asset in latest_previous.values()][-1:] if latest_previous else [],
+        }
+
+    def generation_reference_paths(self, project_id: str, shot: Any) -> dict[str, list[Path]]:
+        """Resolve references for one shot without claiming T2V consumes images.
+
+        The returned contract is deliberately provider-neutral.  T2V stores
+        these inputs for audit and uses the textual locks; an I2V/R2V provider
+        can later bind the same paths to actual conditioning inputs.
+        """
+
+        shot_number = int(getattr(shot, "number", shot) or 0)
+        scene_id = str(getattr(shot, "scene_id", "") or "")
+        character_ids = {str(item) for item in (getattr(shot, "character_ids", []) or [])}
+        bank = self.load(project_id)
+        usable = [
+            asset for asset in bank.assets
+            if asset.approved
+            and not bool((asset.metadata or {}).get("stale"))
+            and Path(asset.path).is_file()
+        ]
+
+        def field(asset: ReferenceAsset, key: str) -> str:
+            return str(getattr(asset, key, "") or (asset.metadata or {}).get(key) or "")
+
+        character_assets = [asset for asset in usable if asset.kind in {"character", "character_hero"}]
+        if character_ids:
+            matched = [asset for asset in character_assets if field(asset, "character_id") in character_ids]
+            character_assets = matched or character_assets
+        scene_assets = [asset for asset in usable if asset.kind == "scene"]
+        if scene_id:
+            matched = [asset for asset in scene_assets if field(asset, "scene_id") == scene_id]
+            scene_assets = matched or scene_assets
+        previous = [
+            asset for asset in usable
+            if asset.kind == "previous_approved_shot_ending_frame"
+            and asset.shot_number is not None
+            and asset.shot_number < shot_number
+        ]
+        previous.sort(key=lambda asset: (int(asset.shot_number or 0), int(asset.revision or 1), asset.created_at))
+        palette = [asset for asset in usable if asset.kind == "palette"]
+        cinematography = [asset for asset in usable if asset.kind == "cinematography"]
+        return {
+            "character": [Path(asset.path) for asset in character_assets[:3]],
+            "scene": [Path(asset.path) for asset in scene_assets[:2]],
+            "previous_frame": [Path(previous[-1].path)] if previous else [],
+            "palette": [Path(asset.path) for asset in palette[:1]],
+            "cinematography": [Path(asset.path) for asset in cinematography[:1]],
         }

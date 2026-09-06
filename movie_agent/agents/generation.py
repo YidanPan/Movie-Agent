@@ -13,6 +13,7 @@ from movie_agent.services.media_quality import asset_record
 from movie_agent.services.continuity import derive_shot_seed
 from movie_agent.services.errors import clear_failure, error_info, record_failure
 from movie_agent.services.revisions import ensure_shot_metadata, hash_shot_prompt, utc_now
+from movie_agent.storage.reference_bank import ReferenceBankStore
 
 
 def _field(value: object, fallback: str = "Not specified") -> str:
@@ -53,6 +54,9 @@ def build_continuity_prompt(
         f"FILM LANGUAGE\n{_field(film_language).lower()} only. All dialogue, narration, subtitles, title cards, credits, on-screen text, and monitor text must be in English.",
         f"GLOBAL CHARACTER LOCK\n{character}",
         f"GLOBAL SCENE LOCK\n{scene}",
+        f"SHOT SCENE ID\n{_field(shot.scene_id, 'not specified')}",
+        f"ACTIVE CHARACTER IDS\n{_field(', '.join(shot.character_ids), 'not specified')}",
+        f"STORY FUNCTION\n{_field(shot.story_function or shot.narrative_purpose)}",
         f"CINEMATOGRAPHY LOCK\n{cinema}",
         f"PROJECT REFERENCE SEED\n{reference_seed}",
         f"PREVIOUS SHOT ENDING STATE\n{previous_ending}",
@@ -77,6 +81,7 @@ class GenerationAgent:
     def __init__(self, settings: Settings, client: ComfyUIClient | None = None) -> None:
         self.settings = settings
         self.client = client or ComfyUIClient(settings.comfy_base_url, settings.comfy_timeout_seconds)
+        self.reference_bank = ReferenceBankStore(settings.outputs_dir)
 
     def generate_mock(self, shot: Shot) -> str:
         ensure_shot_metadata(shot, provider="mock", model="mock-rule-engine")
@@ -132,6 +137,12 @@ class GenerationAgent:
         shot.attempts += 1
         visual_context = visual_bible or {}
         reference_seed = str(visual_context.get("reference_seed") or "42")
+        reference_inputs = self.reference_bank.generation_reference_paths(project_id, shot)
+        shot.qc_details = {
+            **(shot.qc_details or {}),
+            "reference_inputs": {key: [str(path) for path in paths] for key, paths in reference_inputs.items()},
+            "reference_strategy": "TEXTUAL_LOCK_ONLY_T2V",
+        }
         seed = derive_shot_seed(project_id, reference_seed, shot.number)
         continuity_prompt = build_continuity_prompt(
             shot,

@@ -3,6 +3,7 @@ from tempfile import TemporaryDirectory
 import unittest
 
 from movie_agent.storage.reference_bank import ReferenceBankStore
+from movie_agent.models import Shot
 
 
 class ReferenceBankTests(unittest.TestCase):
@@ -80,6 +81,28 @@ class ReferenceBankTests(unittest.TestCase):
             bank = store.load("film-test")
             inputs = store.qc_reference_paths("film-test", 2)
             self.assertEqual(inputs["previous_approved_shot_ending_frame"], [Path(bank.assets[-1].path)])
+
+    def test_generation_references_filter_by_scene_and_character(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            character_a = root / "character-a.webp"
+            character_b = root / "character-b.webp"
+            scene_a = root / "scene-a.webp"
+            scene_b = root / "scene-b.webp"
+            palette = root / "palette.webp"
+            for path in (character_a, character_b, scene_a, scene_b, palette):
+                path.touch()
+            store = ReferenceBankStore(root / "outputs")
+            store.register_file("film-test", character_a, kind="character", source="visual_bible", approved=True, character_id="mother")
+            store.register_file("film-test", character_b, kind="character", source="visual_bible", approved=True, character_id="child")
+            store.register_file("film-test", scene_a, kind="scene", source="visual_bible", approved=True, scene_id="home")
+            store.register_file("film-test", scene_b, kind="scene", source="visual_bible", approved=True, scene_id="hospital")
+            store.register_file("film-test", palette, kind="palette", source="visual_bible", approved=True, role="palette")
+            shot = Shot(2, 6, "medium", "image", "action", "sound", "T2V", "delta", "shot.mp4", scene_id="hospital", character_ids=["child"])
+            refs = store.generation_reference_paths("film-test", shot)
+            self.assertEqual(refs["character"], [Path(store.load("film-test").assets[1].path)])
+            self.assertEqual(refs["scene"], [Path(store.load("film-test").assets[3].path)])
+            self.assertEqual(len(refs["palette"]), 1)
 
 
 if __name__ == "__main__":
