@@ -163,9 +163,12 @@ class ReferenceBankStore:
             self.save(bank)
         return promoted
 
-    def qc_reference_paths(self, project_id: str, shot_number: int) -> dict[str, list[Path]]:
+    def qc_reference_paths(self, project_id: str, shot_number: int | Any) -> dict[str, list[Path]]:
         """Resolve persistent, approved inputs for a shot's visual review."""
 
+        requested_scene = str(getattr(shot_number, "scene_id", "") or "")
+        requested_characters = {str(item) for item in (getattr(shot_number, "character_ids", []) or [])}
+        shot_number = int(getattr(shot_number, "number", shot_number) or 0)
         bank = self.load(project_id)
         usable = [
             asset
@@ -174,8 +177,17 @@ class ReferenceBankStore:
             and not bool((asset.metadata or {}).get("stale"))
             and Path(asset.path).is_file()
         ]
+        def field(asset: ReferenceAsset, key: str) -> str:
+            return str(getattr(asset, key, "") or (asset.metadata or {}).get(key) or "")
+
         character = [asset for asset in usable if asset.kind in {"character_hero", "character", "approved_keyframe"}]
+        if requested_characters:
+            matched = [asset for asset in character if field(asset, "character_id") in requested_characters]
+            character = matched or character
         scene = [asset for asset in usable if asset.kind in {"scene", "palette", "cinematography"}]
+        if requested_scene:
+            matched = [asset for asset in scene if field(asset, "scene_id") == requested_scene]
+            scene = matched or scene
         previous = [
             asset
             for asset in usable

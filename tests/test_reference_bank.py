@@ -103,6 +103,8 @@ class ReferenceBankTests(unittest.TestCase):
             self.assertEqual(refs["character"], [Path(store.load("film-test").assets[1].path)])
             self.assertEqual(refs["scene"], [Path(store.load("film-test").assets[3].path)])
             self.assertEqual(len(refs["palette"]), 1)
+            qc_refs = store.qc_reference_paths("film-test", shot)
+            self.assertEqual(qc_refs["current_scene"], [Path(store.load("film-test").assets[3].path)])
 
 
 if __name__ == "__main__":

@@ -69,8 +69,7 @@ class ReviewerAgent:
         }
         if self.vision_llm is None:
             self._archive_review_frames(project_id, shot, frames, approved=False)
-            shot.qc_flags = []
-            shot.qc_flags = ["MANUAL_VISUAL_REVIEW"]
+            shot.qc_flags = list(dict.fromkeys([*shot.qc_flags, "MANUAL_VISUAL_REVIEW"]))
             shot.qc_details = {
                 "review_state": "MEDIA_INTEGRITY_PASSED",
                 "next_action": "APPROVE_SHOT",
