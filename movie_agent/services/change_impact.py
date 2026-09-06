@@ -5,10 +5,22 @@ VISUAL_FIELDS = {"framing", "image_description", "prompt", "generation_mode", "v
 NARRATIVE_FIELDS = {
     "story_function", "narrative_purpose", "starting_state", "main_action", "secondary_action",
     "environment_reaction", "character_reaction", "ending_state", "action", "scene_id", "character_ids",
-    "prop_ids", "transition_type",
+    "prop_ids", "transition_hook", "transition_type",
     "state_delta",
 }
 SPEECH_FIELDS = {"speech_policy", "sound_design"}
+SHOT_EDITABLE_FIELDS = frozenset(
+    TIMING_FIELDS
+    | VISUAL_FIELDS
+    | NARRATIVE_FIELDS
+    | SPEECH_FIELDS
+    | {
+        "action",
+        "shot_complexity",
+        "emotional_shift",
+        "information_gain",
+    }
+)
 
 
 def resolve_change_impact(fields: set[str]) -> dict[str, object]:
@@ -35,4 +47,11 @@ def resolve_change_impact(fields: set[str]) -> dict[str, object]:
     }
 
 
-__all__ = ["TIMING_FIELDS", "VISUAL_FIELDS", "NARRATIVE_FIELDS", "SPEECH_FIELDS", "resolve_change_impact"]
+__all__ = [
+    "TIMING_FIELDS",
+    "VISUAL_FIELDS",
+    "NARRATIVE_FIELDS",
+    "SPEECH_FIELDS",
+    "SHOT_EDITABLE_FIELDS",
+    "resolve_change_impact",
+]

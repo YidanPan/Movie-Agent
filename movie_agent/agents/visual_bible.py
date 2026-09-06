@@ -1,9 +1,50 @@
 """Visual-bible agent: locks character, setting, style, and sound rules."""
 
+import re
 from typing import Any
 
 from movie_agent.services.llm import CreativeLLM
 from movie_agent.services.story_world import story_world_prompt, world_entities, normalise_story_world
+
+
+UI_PALETTE_FALLBACK = {
+    "dominant": "#6B665B",
+    "accent": "#A88752",
+    "temperature": "neutral",
+    "luminance": 0.5,
+}
+_HEX_COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
+
+
+def validate_ui_palette(value: Any) -> dict[str, list[str]]:
+    errors: dict[str, list[str]] = {"dominant": [], "accent": [], "temperature": [], "luminance": []}
+    if not isinstance(value, dict):
+        return {"palette": ["ui_palette must be an object"]}
+    for key in ("dominant", "accent"):
+        if not isinstance(value.get(key), str) or not _HEX_COLOR.fullmatch(value[key].strip()):
+            errors[key].append("must be a #RRGGBB color")
+    if str(value.get("temperature", "")).lower() not in {"warm", "neutral", "cool"}:
+        errors["temperature"].append("must be warm, neutral, or cool")
+    try:
+        luminance = float(value.get("luminance"))
+        if not 0 <= luminance <= 1:
+            errors["luminance"].append("must be between 0 and 1")
+    except (TypeError, ValueError):
+        errors["luminance"].append("must be between 0 and 1")
+    return {key: value for key, value in errors.items() if value}
+
+
+def normalise_ui_palette(value: Any) -> dict[str, Any]:
+    """Return a safe machine-readable palette; malformed model output is neutral."""
+
+    if validate_ui_palette(value):
+        return dict(UI_PALETTE_FALLBACK)
+    return {
+        "dominant": str(value["dominant"]).upper(),
+        "accent": str(value["accent"]).upper(),
+        "temperature": str(value["temperature"]).lower(),
+        "luminance": round(float(value["luminance"]), 3),
+    }
 
 
 class VisualBibleAgent:
@@ -32,7 +73,8 @@ class VisualBibleAgent:
                 "characters, scenes, props, cinematography. "
                 "characters must be an array of objects with character_id, name, role, appearance_lock, face_lock, hair_lock, costume_lock, silhouette_lock, prop_lock. "
                 "Use exactly the provided character IDs and include every provided character. "
-                "scenes must be an array of objects with scene_id, name, environment_lock, architecture_lock, lighting_lock, palette_lock, prop_lock. "
+                "scenes must be an array of objects with scene_id, name, environment_lock, architecture_lock, lighting_lock, palette_lock, prop_lock, and optional ui_palette. "
+                "ui_palette must be {dominant:#RRGGBB, accent:#RRGGBB, temperature:warm|neutral|cool, luminance:0..1}. "
                 "props must be an array of objects with prop_id, name, appearance_lock, material_lock, color_lock, state_rules, screen_language. "
                 "Use exactly the provided scene IDs and include every provided scene. "
                 "cinematography must be an object with lens_language, camera_motion, composition, film_texture, color_pipeline. "
@@ -47,6 +89,10 @@ class VisualBibleAgent:
                 output["characters"] = self._bind_entities(output.get("characters"), world, "characters")
                 output["scenes"] = self._bind_entities(output.get("scenes"), world, "scenes")
                 output["props"] = self._bind_entities(output.get("props"), world, "props")
+                output["scenes"] = [
+                    {**scene, "ui_palette": normalise_ui_palette(scene.get("ui_palette"))}
+                    for scene in output["scenes"]
+                ]
                 missing = validate_visual_bible_bindings(output, world)
                 if any(missing.values()):
                     raise ValueError(f"VISUAL_BIBLE_REVIEW_REQUIRED: {missing}")
@@ -64,7 +110,7 @@ class VisualBibleAgent:
             "prop_lock": "Small set of story-critical props; appearance, material, colour, and state remain stable unless a shot delta changes them.",
             "cinematography_lock": cinematography_lock,
             "characters": [{"character_id": "protagonist", "role": "hero", "lock": character_lock}],
-            "scenes": [{"scene_id": "primary", "role": "hero_environment", "lock": scene_lock}],
+            "scenes": [{"scene_id": "primary", "role": "hero_environment", "lock": scene_lock, "ui_palette": dict(UI_PALETTE_FALLBACK)}],
             "props": [],
             "cinematography": {"lock": cinematography_lock, "palette": "desaturated teal shadows, warm amber highlights"},
             "reference_seed": "42",
@@ -91,6 +137,7 @@ class VisualBibleAgent:
                     "architecture_lock": entity.get("architecture_lock") or "Stable architecture, entrances, and major planes.",
                     "lighting_lock": entity.get("lighting_lock") or "Stable key light direction and practical sources.",
                     "palette_lock": entity.get("palette_lock") or "Stable scene palette with restrained contrast.",
+                    "ui_palette": normalise_ui_palette(entity.get("ui_palette")),
                     "lock": entity.get("lock") or "Stable original environment geometry, lighting, and palette.",
                 }
                 for entity in world_entities(world, "scenes")
@@ -142,3 +189,12 @@ def validate_visual_bible_bindings(visual_bible: dict[str, Any], story_world: di
             if not any(str(value.get(field) or "").strip() for field in lock_fields):
                 missing[output_key].append(entity_id)
     return missing
+
+
+__all__ = [
+    "UI_PALETTE_FALLBACK",
+    "VisualBibleAgent",
+    "normalise_ui_palette",
+    "validate_ui_palette",
+    "validate_visual_bible_bindings",
+]

@@ -29,15 +29,15 @@ from movie_agent.services.audio import (
     regenerate_track,
 )
 from movie_agent.services.voice import ContinuousVoiceService, mark_voice_alignment_stale
-from movie_agent.services.state_ledger import rebuild_state_ledger_from_shot
-from movie_agent.services.state_ledger import build_state_ledger
-from movie_agent.services.change_impact import TIMING_FIELDS, VISUAL_FIELDS, NARRATIVE_FIELDS, SPEECH_FIELDS, resolve_change_impact
+from movie_agent.services.state_ledger import rebuild_state_ledger_from_shot, build_state_ledger, validate_state_delta_or_raise
+from movie_agent.services.change_impact import SHOT_EDITABLE_FIELDS, TIMING_FIELDS, resolve_change_impact
 from movie_agent.services.final_look import ensure_final_look, normalise_final_look, reset_final_look
 from movie_agent.services.errors import clear_failure, error_info, record_failure
 from movie_agent.services.revisions import (
     ensure_project_revision_metadata,
     ensure_shot_metadata,
     hash_shot_prompt,
+    reconcile_generation_fingerprints,
     invalidate_downstream,
     mark_shot_stale,
 )
@@ -429,6 +429,10 @@ class MovieOrchestrator:
             provider="modelscope" if self.using_creative_llm else "mock",
             model=self.settings.modelscope_model if self.using_creative_llm else "mock-rule-engine",
         )
+        reconcile_generation_fingerprints(
+            project,
+            workflow_identity=self.settings.comfy_workflow_template or "verified-comfyui-workflow",
+        )
         # Prepare the sound department as soon as the shot rhythm exists. The
         # brief is reviewable before AI Edit, while actual media remains a
         # later renderer concern.
@@ -506,6 +510,10 @@ class MovieOrchestrator:
         clear_failure(project)
         self._require_dialogue_locked(project)
         ensure_continuity_lock(project)
+        reconcile_generation_fingerprints(
+            project,
+            workflow_identity=self.settings.comfy_workflow_template or "verified-comfyui-workflow",
+        )
         self.continuity_gate.review(
             visual_bible=project.visual_bible,
             storyboard=project.storyboard,
@@ -600,6 +608,10 @@ class MovieOrchestrator:
         clear_failure(project)
         if not 1 <= shot_number <= len(project.storyboard):
             raise ValueError(f"Shot number must be between 1 and {len(project.storyboard)}.")
+        reconcile_generation_fingerprints(
+            project,
+            workflow_identity=self.settings.comfy_workflow_template or "verified-comfyui-workflow",
+        )
         render_context = shot_render_context(project, shot_number)
         shot = render_context["shot"]
         ensure_continuity_lock(project)
@@ -856,12 +868,11 @@ class MovieOrchestrator:
         """
 
         incoming = {str(key): value for key, value in (updates or {}).items() if value is not None}
-        editable = TIMING_FIELDS | VISUAL_FIELDS | NARRATIVE_FIELDS | SPEECH_FIELDS | {
-            "action", "transition_hook", "beat_id", "shot_complexity", "emotional_shift", "information_gain"
-        }
-        unknown = sorted(set(incoming) - editable)
+        unknown = sorted(set(incoming) - SHOT_EDITABLE_FIELDS)
         if unknown:
             raise ValueError(f"Unsupported shot fields: {', '.join(unknown)}.")
+        timing_updates = {key: incoming[key] for key in TIMING_FIELDS if key in incoming}
+        incoming = {key: value for key, value in incoming.items() if key not in TIMING_FIELDS}
         project = self.store.load(project_id)
         if not 1 <= shot_number <= len(project.storyboard):
             raise ValueError(f"Shot number must be between 1 and {len(project.storyboard)}.")
@@ -890,6 +901,8 @@ class MovieOrchestrator:
             candidate["character_ids"] = [item.strip() for item in candidate["character_ids"].split(",") if item.strip()]
         if isinstance(candidate.get("prop_ids"), str):
             candidate["prop_ids"] = [item.strip() for item in candidate["prop_ids"].split(",") if item.strip()]
+        if "state_delta" in candidate:
+            candidate["state_delta"] = validate_state_delta_or_raise(candidate["state_delta"], project.story_world)
         if project.story_world:
             world_errors = validate_story_world_references([candidate], project.story_world)
             if any(world_errors.values()):
@@ -922,12 +935,20 @@ class MovieOrchestrator:
             project.script = align_script_to_shots(project.script, project.storyboard, allow_silent=True)
             mark_voice_alignment_stale(project, "shot_timeline_changed")
         visual_or_narrative = bool(impact["visual"] or impact["narrative"])
-        if visual_or_narrative:
-            mark_shot_stale(shot, "shot_context_changed")
         if "state_delta" in incoming or impact["narrative"]:
             rebuild_state_ledger_from_shot(project, shot_number)
-        self._invalidate_edit_outputs(project, reason="shot_fields_changed", source="shot" if visual_or_narrative else "shot_timing")
-        project.invalidation_events[-1]["impact"] = impact
+        edit_event = self._invalidate_edit_outputs(
+            project,
+            reason="shot_fields_changed",
+            source="shot" if visual_or_narrative else "shot_timing",
+            shot=shot if visual_or_narrative else None,
+        )
+        edit_event["impact"] = impact
+        if visual_or_narrative:
+            reconcile_generation_fingerprints(
+                project,
+                workflow_identity=self.settings.comfy_workflow_template or "verified-comfyui-workflow",
+            )
         project.status = "ready_for_ai_edit" if self._shots_ready(project) else "ready_for_comfyui_render"
         project.logs.append(
             f"Script Supervisor: Applied atomic Shot {shot_number} update ({', '.join(impact['fields'])}); downstream production marked stale."

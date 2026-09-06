@@ -34,6 +34,8 @@ from movie_agent.services.media_quality import best_master_path, best_screening_
 from movie_agent.pipeline.diagnostics import delivery_preflight, diagnostics_snapshot
 from movie_agent.pipeline.jobs import JobAlreadyRunning, JobLedger
 from movie_agent.services.cache_cleanup import clean_working_cache, storage_summary
+from movie_agent.services.state_ledger import validate_state_delta_shape
+from movie_agent.services.change_impact import SHOT_EDITABLE_FIELDS
 
 settings = Settings.from_env()
 orchestrator = MovieOrchestrator(settings)
@@ -166,6 +168,16 @@ class UpdateShotPayload(BaseModel):
     shot_complexity: Literal["LOW", "MEDIUM", "HIGH"] | None = None
     state_delta: dict[str, Any] | None = None
 
+    @field_validator("state_delta")
+    @classmethod
+    def validate_state_delta_payload(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        if value is None:
+            return value
+        errors = validate_state_delta_shape(value)
+        if errors:
+            raise ValueError("; ".join(errors))
+        return value
+
     @field_validator(
         "framing",
         "image_description",
@@ -194,6 +206,11 @@ class UpdateShotPayload(BaseModel):
         if not cleaned:
             raise ValueError("Cannot save empty text.")
         return cleaned
+
+
+UPDATE_SHOT_FIELDS = frozenset(UpdateShotPayload.model_fields)
+if UPDATE_SHOT_FIELDS != SHOT_EDITABLE_FIELDS:
+    raise RuntimeError("UpdateShotPayload and SHOT_EDITABLE_FIELDS are out of sync.")
 
 
 class UpdateDialoguePayload(BaseModel):

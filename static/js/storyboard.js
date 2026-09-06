@@ -15,15 +15,58 @@ const sceneEntity = (project = {}, sceneId = "") => {
   return scenes && typeof scenes === "object" ? scenes[sceneId] || {} : {};
 };
 
+const visualSceneEntity = (project = {}, sceneId = "") => {
+  const scenes = project?.visual_bible?.scenes;
+  if (Array.isArray(scenes)) return scenes.find((item) => String(item?.scene_id || item?.id || "") === String(sceneId)) || {};
+  return scenes && typeof scenes === "object" ? scenes[sceneId] || {} : {};
+};
+
+const hexRgb = (value) => {
+  const match = /^#([0-9a-f]{6})$/i.exec(String(value || "").trim());
+  if (!match) return null;
+  const hex = match[1];
+  return `${parseInt(hex.slice(0, 2), 16)} ${parseInt(hex.slice(2, 4), 16)} ${parseInt(hex.slice(4, 6), 16)}`;
+};
+
+const paletteFromMachineData = (palette) => {
+  if (!palette || typeof palette !== "object") return null;
+  const dominant = hexRgb(palette.dominant);
+  const accent = hexRgb(palette.accent);
+  const luminance = Number(palette.luminance);
+  const temperature = String(palette.temperature || "").toLowerCase();
+  if (!dominant || !accent || !Number.isFinite(luminance) || luminance < 0 || luminance > 1 || !["warm", "neutral", "cool"].includes(temperature)) return null;
+  return {
+    ambientRgb: dominant,
+    accentRgb: accent,
+    intensity: Math.min(0.065, Math.max(0.018, 0.018 + (1 - luminance) * 0.045)),
+    label: `${temperature.toUpperCase()} BIBLE PALETTE`,
+  };
+};
+
+const paletteFromText = (value) => {
+  const text = String(value || "");
+  const hexes = text.match(/#[0-9a-f]{6}/gi) || [];
+  if (hexes.length >= 2) {
+    const dominant = hexRgb(hexes[0]);
+    const accent = hexRgb(hexes[1]);
+    if (dominant && accent) return { ambientRgb: dominant, accentRgb: accent, intensity: 0.032, label: "VISUAL BIBLE LOCK" };
+  }
+  return SCENE_AMBIENTS.find((item) => item.test.test(text)) || null;
+};
+
 export const sceneAmbientForShot = (shot = {}, project = {}) => {
   const sceneId = String(shot.scene_id || "").trim();
   const scene = sceneEntity(project, sceneId);
+  const visualScene = visualSceneEntity(project, sceneId);
   const bible = project?.visual_bible || {};
-  const source = [
+  const explicitPalette = paletteFromMachineData(visualScene.ui_palette || visualScene.palette_tokens);
+  const lockedPalette = paletteFromText(visualScene.palette_lock || visualScene.palette || "");
+  const globalPalette = paletteFromText(bible.cinematography?.palette || bible.palette || bible.style_card || "");
+  const keywordSource = [
     scene.name, scene.label, scene.role, scene.lighting, scene.lighting_lock,
-    scene.palette, scene.palette_lock, bible.palette, bible.lighting, bible.scene_lock,
+    scene.palette, scene.palette_lock, visualScene.name, visualScene.label,
   ].filter(Boolean).join(" ");
-  const match = SCENE_AMBIENTS.find((item) => item.test.test(source));
+  const match = explicitPalette || lockedPalette || globalPalette || SCENE_AMBIENTS.find((item) => item.test.test(keywordSource));
   return {
     sceneId,
     ambientRgb: match?.ambientRgb || "151 119 79",

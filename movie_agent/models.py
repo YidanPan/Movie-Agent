@@ -138,7 +138,7 @@ class MovieProject:
     status: str
     brief: dict[str, str]
     script: dict[str, Any]
-    visual_bible: dict[str, str]
+    visual_bible: dict[str, Any]
     storyboard: list[Shot]
     quality_report: list[str] = field(default_factory=list)
     logs: list[str] = field(default_factory=list)

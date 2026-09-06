@@ -134,6 +134,91 @@ def hash_generation_input(
     return hashlib.sha256(encoded).hexdigest()[:24]
 
 
+def _shot_has_current_source(shot: Any) -> bool:
+    """Return whether a shot has a current renderer output worth invalidating."""
+
+    assets = getattr(shot, "media_assets", {}) or {}
+    if isinstance(assets, dict):
+        for record in assets.values():
+            if not isinstance(record, dict) or record.get("stale") is True:
+                continue
+            if any(record.get(key) for key in ("path", "media_path", "source_path", "url")):
+                return True
+    status = str(getattr(shot, "status", "") or "")
+    output = str(getattr(shot, "output_placeholder", "") or "")
+    return status.startswith(("generated", "approved")) and bool(output)
+
+
+def reconcile_generation_fingerprints(
+    project: Any,
+    *,
+    workflow_identity: str = "verified-comfyui-workflow",
+) -> dict[str, Any]:
+    """Recompute every shot context and stale only rendered shots that changed."""
+
+    from movie_agent.services.shot_context import resolve_shot_context
+    from movie_agent.services.state_ledger import build_state_ledger, state_record_for_shot
+
+    build_state_ledger(project)
+    shots = sorted(
+        list(getattr(project, "storyboard", []) or []),
+        key=lambda item: int(getattr(item, "number", 0) or 0),
+    )
+    previous = None
+    changed: list[int] = []
+    old_hashes: dict[str, str] = {}
+    new_hashes: dict[str, str] = {}
+    for shot in shots:
+        number = int(getattr(shot, "number", 0) or 0)
+        record = state_record_for_shot(project, number)
+        context = resolve_shot_context(
+            shot,
+            getattr(project, "visual_bible", {}) or {},
+            getattr(project, "story_world", {}) or {},
+            previous,
+            entity_state_before=record.get("before"),
+            entity_state_delta=record.get("delta"),
+            entity_state_after=record.get("after"),
+        )
+        new_hash = hash_generation_input(shot, context, workflow_identity=workflow_identity)
+        old_hash = str(getattr(shot, "generation_input_hash", "") or "")
+        new_hashes[str(number)] = new_hash
+        if old_hash and old_hash != new_hash and _shot_has_current_source(shot):
+            old_hashes[str(number)] = old_hash
+            changed.append(number)
+            if not bool(getattr(shot, "stale", False)):
+                mark_shot_stale(shot, "generation_input_fingerprint_changed")
+            else:
+                shot.qc_status = "STALE"
+            shot.generation_input_hash = new_hash
+        elif not old_hash or not _shot_has_current_source(shot):
+            # Planned shots may learn their future hash without being called stale.
+            shot.generation_input_hash = new_hash
+        previous = shot
+
+    event = None
+    if changed:
+        event = {
+            "source": "generation_fingerprint",
+            "source_shot": min(changed),
+            "source_shots": sorted(changed),
+            "affected_shots": sorted(changed),
+            "reason": "generation_input_fingerprint_changed",
+            "old_hashes": old_hashes,
+            "new_hashes": {str(number): new_hashes[str(number)] for number in changed},
+            "created_at": utc_now(),
+        }
+        if not isinstance(getattr(project, "invalidation_events", None), list):
+            project.invalidation_events = []
+        project.invalidation_events.append(event)
+    return {
+        "affected_shots": sorted(changed),
+        "old_hashes": old_hashes,
+        "new_hashes": new_hashes,
+        "event": event,
+    }
+
+
 def ensure_shot_metadata(
     shot: Any,
     *,

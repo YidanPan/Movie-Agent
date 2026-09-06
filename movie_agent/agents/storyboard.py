@@ -7,7 +7,8 @@ from movie_agent.services.mock_creator import build_storyboard
 from movie_agent.services.llm import CreativeLLM
 from movie_agent.services.storyboard_quality import StoryboardRelevanceGate
 from movie_agent.services.narrative import allocate_two_stage_durations, normalise_story_beats, validate_beat_shot_mapping
-from movie_agent.services.story_world import story_world_prompt, validate_story_world_references
+from movie_agent.services.state_ledger import validate_state_delta
+from movie_agent.services.story_world import story_world_prompt, validate_story_world_references, world_entities
 
 _MIN_SHOT_SECONDS = 4
 _MAX_SHOT_SECONDS = 8
@@ -112,6 +113,34 @@ def _previous_ending(shots: list[Shot], current_index: int) -> str:
     return shots[current_index - 1].ending_state or shots[current_index - 1].action
 
 
+def _normalise_state_delta(raw: Any, story_world: dict[str, Any] | None) -> dict[str, Any]:
+    delta = raw if isinstance(raw, dict) else {}
+    validation = validate_state_delta(delta, story_world)
+    if not validation["valid"]:
+        raise ValueError(f"STATE_LEDGER_REVIEW_REQUIRED: {validation['errors']}")
+    return delta
+
+
+def _mock_state_delta(shot: Shot, index: int, total_shots: int, story_world: dict[str, Any] | None) -> dict[str, Any]:
+    """Emit small deterministic deltas so Mock exercises the real state ledger."""
+
+    characters = world_entities(story_world, "characters") if story_world else []
+    props = world_entities(story_world, "props") if story_world else []
+    character_id = str((characters[0] if characters else {}).get("character_id") or (shot.character_ids or ["protagonist"])[0])
+    prop_id = str((props[0] if props else {}).get("prop_id") or (shot.prop_ids or [""])[0])
+    scene_entities = world_entities(story_world, "scenes") if story_world else []
+    scene_id = str(shot.scene_id or ((scene_entities[0] if scene_entities else {}).get("scene_id") or "primary"))
+    if index == 0:
+        return {character_id: {"emotion": "focused", "location": scene_id}}
+    if index == min(2, max(0, total_shots - 1)):
+        if prop_id:
+            return {prop_id: {"status": "anomalous", "screen_state": "signal detected"}}
+        return {character_id: {"emotion": "alert"}}
+    if index == total_shots - 1:
+        return {character_id: {"emotion": "resolved"}, scene_id: {"time_state": "after the turning point"}}
+    return {}
+
+
 class StoryboardAgent:
     def __init__(
         self,
@@ -167,6 +196,13 @@ class StoryboardAgent:
                     "Keep text concise to control generation time: image_description and action each no more than 40 words, "
                     "sound_design no more than 15 words, prompt is a video generation prompt describing only the DELTA "
                     "from the previous shot in no more than 60 words. "
+                    "STATE DELTA RULES: Only emit mutable production state that changes during this shot. "
+                    "Good examples: prop.status, prop.owner, prop.position, prop.screen_state; "
+                    "character.emotion, character.location, character.held_props, character.costume_state, character.physical_condition; "
+                    "scene.time_state, scene.lighting_state, scene.environment_change. "
+                    "Bad examples: character.name, character.face, scene architecture, permanent appearance. "
+                    "Those belong to Story World or Visual Bible. Every state_delta top-level key MUST be a canonical "
+                    "character_id, scene_id, or prop_id from the registry; use {} when no mutable state changes. "
                     "Use English framing terms (wide shot, medium close-up, close-up, over-the-shoulder, low-angle medium, insert shot). "
                     "Return JSON: {\"shots\":[{\"duration_seconds\":6,\"framing\":\"medium close-up\","
                     "\"image_description\":\"...\",\"action\":\"...\",\"sound_design\":\"...\","
@@ -176,7 +212,7 @@ class StoryboardAgent:
                     "\"visual_motif\":\"...\",\"starting_state\":\"...\",\"main_action\":\"...\","
                     "\"secondary_action\":\"...\",\"environment_reaction\":\"...\",\"character_reaction\":\"...\","
                     "\"ending_state\":\"...\",\"transition_hook\":\"...\",\"transition_type\":\"CONTINUOUS\",\"speech_policy\":\"SILENT|DIALOGUE|NARRATION|VOICE_OVER|SYSTEM_VOICE|AMBIENCE_ONLY\","
-                    "\"shot_complexity\":\"LOW|MEDIUM|HIGH\"}]}."
+                    "\"shot_complexity\":\"LOW|MEDIUM|HIGH\",\"state_delta\":{}}]}."
                 ),
             )
             raw_shots = result.get("shots")
@@ -241,6 +277,7 @@ class StoryboardAgent:
                         shot_complexity=_complexity(raw_shot.get("shot_complexity"), str(raw_shot["action"]), str(raw_shot["image_description"])),
                         transition_type=str(raw_shot.get("transition_type") or "CONTINUOUS").upper(),
                         speech_policy=str(raw_shot.get("speech_policy") or "NARRATION").upper(),
+                        state_delta=_normalise_state_delta(raw_shot.get("state_delta") or {}, story_world),
                     ), beat, number - 1)
                 )
             if story_world:
@@ -270,6 +307,11 @@ class StoryboardAgent:
         if self.allowed_generation_modes == {"T2V"}:
             for shot in shots:
                 shot.generation_mode = "T2V"
+        for index, shot in enumerate(shots):
+            shot.state_delta = _normalise_state_delta(
+                _mock_state_delta(shot, index, len(shots), story_world),
+                story_world,
+            )
         mapping = validate_beat_shot_mapping(shots, beats)
         if story_world:
             unknown = validate_story_world_references([shot.to_dict() for shot in shots], story_world)
@@ -322,7 +364,9 @@ class StoryboardAgent:
                     "Return JSON with beat_id, scene_id, character_ids, prop_ids, story_function, narrative_purpose, "
                     "information_gain, emotional_shift, visual_motif, starting_state, main_action, "
                     "secondary_action, environment_reaction, character_reaction, ending_state, transition_hook, "
-                    "transition_type, shot_complexity, prompt.",
+                    "transition_type, shot_complexity, prompt, state_delta. Preserve the existing state_delta for "
+                    "ordinary relevance repairs; if main_action or ending_state changes its meaning, return a new "
+                    "canonical state_delta that matches the repaired action.",
                 )
                 payload = result.get("shot") if isinstance(result.get("shot"), dict) else result
             if not isinstance(payload, dict):
@@ -362,6 +406,8 @@ class StoryboardAgent:
             ):
                 if key in payload:
                     setattr(shot, key, payload[key])
+            if "state_delta" in payload:
+                shot.state_delta = _normalise_state_delta(payload["state_delta"], story_world)
         if story_world:
             unknown = validate_story_world_references([shot.to_dict() for shot in shots], story_world)
             if any(unknown.values()):
@@ -429,4 +475,5 @@ class StoryboardAgent:
             shot_complexity=shot.shot_complexity,
             transition_type=shot.transition_type,
             speech_policy=shot.speech_policy,
+            state_delta=dict(shot.state_delta or {}),
         )
