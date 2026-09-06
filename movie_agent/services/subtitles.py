@@ -18,6 +18,7 @@ from movie_agent.services.alignment import (
     WORD_LEVEL,
     normalize_word_boundaries,
     sentence_level_cues,
+    word_level_alignment_score,
     word_level_cues,
 )
 
@@ -534,13 +535,15 @@ def align_script_to_audio(
     forced_events = list(forced_alignment or [])
     if native_events or forced_events:
         boundaries = normalize_word_boundaries(native_events or forced_events, duration)
-        if boundaries:
-            result = deepcopy(script) if (script or {}).get("speech_policy_by_shot") else ensure_dialogue_assets(script, duration_seconds=max(1, int(round(duration))))
-            cues = word_level_cues(result, boundaries, shot_transitions=shot_transitions)
+        aligned_script = deepcopy(script) if (script or {}).get("speech_policy_by_shot") else ensure_dialogue_assets(
+            script, duration_seconds=max(1, int(round(duration)))
+        )
+        if boundaries and word_level_alignment_score(aligned_script, boundaries) >= 0.45:
+            cues = word_level_cues(aligned_script, boundaries, shot_transitions=shot_transitions)
             if cues:
-                result["dialogue_book"] = deepcopy(cues)
-                result["subtitle_track"] = deepcopy(cues)
-                result["voice_alignment"] = {
+                aligned_script["dialogue_book"] = deepcopy(cues)
+                aligned_script["subtitle_track"] = deepcopy(cues)
+                aligned_script["voice_alignment"] = {
                     "status": "MEASURED",
                     "media_duration_seconds": round(duration, 3),
                     "method": WORD_LEVEL,
@@ -548,7 +551,7 @@ def align_script_to_audio(
                     "source": "tts_native" if native_events else "forced_alignment",
                     "words": [item.to_dict() for item in boundaries],
                 }
-                return result
+                return aligned_script
     if sentence_boundaries:
         measured_script = deepcopy(script) if (script or {}).get("speech_policy_by_shot") else ensure_dialogue_assets(script, duration_seconds=max(1, int(round(duration))))
         if isinstance(sentence_boundaries.get("dialogue_book"), list):

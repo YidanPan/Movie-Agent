@@ -6,6 +6,7 @@ from typing import Any
 
 from movie_agent.services.continuity import ensure_continuity_lock
 from movie_agent.services.shot_context import resolve_shot_context
+from movie_agent.services.state_ledger import build_state_ledger, state_record_for_shot
 
 
 class RenderPipeline:
@@ -16,11 +17,16 @@ class RenderPipeline:
         self.reviewer = reviewer
 
     def render_shot(self, project: Any, shot: Any, *, previous_shot: Any = None) -> str:
+        build_state_ledger(project)
+        record = state_record_for_shot(project, int(getattr(shot, "number", 0) or 0))
         context = resolve_shot_context(
             shot,
             project.visual_bible,
             getattr(project, "story_world", {}) or {},
             previous_shot,
+            entity_state_before=record.get("before"),
+            entity_state_delta=record.get("delta"),
+            entity_state_after=record.get("after"),
         )
         message = self.generation_agent.generate(
             project.project_id,
@@ -51,6 +57,8 @@ def shot_render_context(project: Any, shot_number: int) -> dict[str, Any]:
         raise ValueError(f"Shot number must be between 1 and {len(shots)}.")
     index = int(shot_number) - 1
     ensure_continuity_lock(project)
+    build_state_ledger(project)
+    state_record = state_record_for_shot(project, int(shot_number))
     return {
         "project_id": str(getattr(project, "project_id", "")),
         "shot": shots[index],
@@ -59,5 +67,6 @@ def shot_render_context(project: Any, shot_number: int) -> dict[str, Any]:
         "continuity_lock": getattr(project, "continuity_lock", {}) or {},
         "target_resolution": str(getattr(project, "target_resolution", "1080p") or "1080p"),
         "film_language": str(getattr(project, "film_language", "en") or "en"),
+        "state_record": state_record,
     }
 

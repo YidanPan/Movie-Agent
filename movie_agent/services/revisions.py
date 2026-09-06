@@ -100,6 +100,7 @@ def hash_shot_prompt(shot: Any) -> str:
         "continuity_from": str(getattr(shot, "continuity_from", "") or ""),
         "continuity_to": str(getattr(shot, "continuity_to", "") or ""),
         "transition_type": str(getattr(shot, "transition_type", "") or ""),
+        "state_delta": getattr(shot, "state_delta", {}) or {},
     }
     encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()[:16]

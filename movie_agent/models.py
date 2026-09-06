@@ -270,6 +270,9 @@ class MovieProject:
         from movie_agent.services.revisions import ensure_project_revision_metadata
 
         ensure_project_revision_metadata(project)
+        from movie_agent.services.state_ledger import build_state_ledger
+
+        build_state_ledger(project)
         return project
 
     def brief_as_markdown(self) -> str:

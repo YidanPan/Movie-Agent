@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import asdict, dataclass
+from difflib import SequenceMatcher
 from typing import Any, Iterable
 
 
@@ -81,9 +82,103 @@ def _words(text: str) -> list[str]:
     return re.findall(r"\b[\w’'-]+(?:[.!?,;:]*)", text or "")
 
 
+_CONTRACTIONS = {
+    "can't": ["can", "not"],
+    "cannot": ["can", "not"],
+    "don't": ["do", "not"],
+    "doesn't": ["does", "not"],
+    "didn't": ["did", "not"],
+    "isn't": ["is", "not"],
+    "it's": ["it", "is"],
+    "i'm": ["i", "am"],
+    "we're": ["we", "are"],
+    "they're": ["they", "are"],
+    "you're": ["you", "are"],
+    "won't": ["will", "not"],
+}
+_NUMBER_WORDS = {
+    "0": "zero", "1": "one", "2": "two", "3": "three", "4": "four",
+    "5": "five", "6": "six", "7": "seven", "8": "eight", "9": "nine",
+}
+
+
+def _normalise_token(token: str) -> list[str]:
+    value = str(token or "").strip().lower().replace("’", "'")
+    value = re.sub(r"^[^\w']+|[^\w']+$", "", value)
+    if not value:
+        return []
+    if value in _CONTRACTIONS:
+        return _CONTRACTIONS[value]
+    if value == "ai":
+        return ["a", "i"]
+    if value.isdigit() and len(value) <= 4:
+        if len(value) == 4:
+            return [_NUMBER_WORDS.get(char, char) for char in value[:2]] + [_NUMBER_WORDS.get(char, char) for char in value[2:]]
+        return [_NUMBER_WORDS.get(value, value)]
+    return [value]
+
+
+def _lexical_tokens(text: str) -> list[str]:
+    tokens: list[str] = []
+    for token in _words(text):
+        tokens.extend(_normalise_token(token))
+    return tokens
+
+
 def _source_entries(script: dict[str, Any]) -> list[dict[str, Any]]:
     entries = script.get("dialogue_book") or script.get("subtitle_track") or []
-    return [dict(item) for item in entries if isinstance(item, dict) and str(item.get("text") or item.get("dialogue") or "").strip()]
+    return [
+        dict(item)
+        for item in entries
+        if isinstance(item, dict)
+        and str(item.get("text") or item.get("dialogue") or "").strip()
+        and str(item.get("text") or item.get("dialogue") or "").strip().lower() != "(silence)"
+    ]
+
+
+def _lexical_entry_spans(script: dict[str, Any], boundaries: list[WordBoundary]) -> tuple[list[tuple[dict[str, Any] | None, list[WordBoundary]]], float]:
+    """Align source entries to provider tokens while tolerating TTS rewrites."""
+
+    source = _source_entries(script)
+    if not source:
+        return [(None, list(boundaries))], 1.0
+    expected: list[tuple[str, int]] = []
+    for index, entry in enumerate(source):
+        expected.extend((token, index) for token in _lexical_tokens(str(entry.get("text") or entry.get("dialogue") or "")))
+    actual: list[tuple[str, int]] = []
+    for index, boundary in enumerate(boundaries):
+        actual.extend((token, index) for token in _normalise_token(boundary.word))
+    if not expected or not actual:
+        return [], 0.0
+    matcher = SequenceMatcher(None, [item[0] for item in expected], [item[0] for item in actual], autojunk=False)
+    assigned: dict[int, set[int]] = {index: set() for index in range(len(source))}
+    matched = 0
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag == "equal":
+            matched += i2 - i1
+        if tag not in {"equal", "replace"}:
+            continue
+        expected_slice = expected[i1:i2]
+        actual_slice = actual[j1:j2]
+        if tag == "replace":
+            matched += min(len(expected_slice), len(actual_slice))
+        for offset, (_, boundary_index) in enumerate(actual_slice):
+            expected_index = min(len(expected_slice) - 1, int(offset * max(1, len(expected_slice)) / max(1, len(actual_slice))))
+            entry_index = expected_slice[expected_index][1]
+            assigned[entry_index].add(boundary_index)
+    spans: list[tuple[dict[str, Any] | None, list[WordBoundary]]] = []
+    for index, entry in enumerate(source):
+        indexes = sorted(assigned[index])
+        if not indexes:
+            continue
+        spans.append((entry, [boundaries[position] for position in indexes]))
+    score = matched / max(len(expected), len(actual))
+    return spans, score
+
+
+def word_level_alignment_score(script: dict[str, Any], boundaries: Iterable[WordBoundary]) -> float:
+    _, score = _lexical_entry_spans(script, list(boundaries))
+    return round(score, 3)
 
 
 def _cue_groups(words: list[WordBoundary], *, pause_threshold: float = 0.45, max_words: int = 9) -> list[list[WordBoundary]]:
@@ -114,20 +209,9 @@ def word_level_cues(
     if not all_words:
         return []
     transitions = sorted(float(value) for value in (shot_transitions or []) if _number(value) is not None)
-    source = _source_entries(script)
-    counts = [len(_words(str(entry.get("text") or entry.get("dialogue") or ""))) for entry in source]
-    assignments: list[tuple[dict[str, Any] | None, list[WordBoundary]]] = []
-    cursor = 0
-    if source and sum(counts) > 0:
-        for entry, count in zip(source, counts):
-            chunk = all_words[cursor:cursor + max(1, count)]
-            cursor += len(chunk)
-            if chunk:
-                assignments.append((entry, chunk))
-        if cursor < len(all_words):
-            assignments.append((source[-1], all_words[cursor:]))
-    else:
-        assignments = [(None, all_words)]
+    assignments, score = _lexical_entry_spans(script, all_words)
+    if not assignments or score < 0.45:
+        return []
 
     cues: list[dict[str, Any]] = []
     for entry, assigned in assignments:
@@ -179,4 +263,4 @@ def sentence_level_cues(script: dict[str, Any], duration_seconds: float) -> list
     return cues
 
 
-__all__ = ["PROPORTIONAL", "SENTENCE_LEVEL", "WORD_LEVEL", "WordBoundary", "normalize_word_boundaries", "sentence_level_cues", "word_level_cues"]
+__all__ = ["PROPORTIONAL", "SENTENCE_LEVEL", "WORD_LEVEL", "WordBoundary", "normalize_word_boundaries", "sentence_level_cues", "word_level_alignment_score", "word_level_cues"]

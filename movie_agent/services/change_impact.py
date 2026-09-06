@@ -6,6 +6,7 @@ NARRATIVE_FIELDS = {
     "story_function", "narrative_purpose", "starting_state", "main_action", "secondary_action",
     "environment_reaction", "character_reaction", "ending_state", "action", "scene_id", "character_ids",
     "prop_ids", "transition_type",
+    "state_delta",
 }
 SPEECH_FIELDS = {"speech_policy", "sound_design"}
 

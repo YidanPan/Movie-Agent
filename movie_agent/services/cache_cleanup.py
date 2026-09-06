@@ -93,7 +93,6 @@ def storage_summary(project: Any, output_root: Path) -> dict[str, Any]:
     cleanable = sum(path.stat().st_size for path in candidates if path.is_file())
     return {
         "project_id": str(getattr(project, "project_id", "")),
-        "root": str(root),
         "total_bytes": total,
         "cleanable_bytes": cleanable,
         "file_count": sum(1 for path in root.rglob("*") if path.is_file()) if root.is_dir() else 0,
@@ -104,18 +103,18 @@ def storage_summary(project: Any, output_root: Path) -> dict[str, Any]:
 
 def clean_working_cache(project: Any, output_root: Path) -> dict[str, Any]:
     candidates = cleanup_candidates(project, output_root)
-    removed: list[str] = []
+    removed_files = 0
     bytes_removed = 0
     for path in candidates:
         try:
             size = path.stat().st_size
             path.unlink()
             bytes_removed += size
-            removed.append(str(path))
+            removed_files += 1
         except (FileNotFoundError, OSError):
             continue
     summary = storage_summary(project, output_root)
-    summary.update({"removed_files": len(removed), "removed_bytes": bytes_removed, "removed": removed})
+    summary.update({"removed_files": removed_files, "removed_bytes": bytes_removed})
     return summary
 
 

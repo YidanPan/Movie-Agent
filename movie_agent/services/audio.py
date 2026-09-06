@@ -354,6 +354,16 @@ def build_smart_ducking(project: Any, *, enabled: bool = True) -> dict[str, Any]
                     "text": text,
                 }
             )
+    regions: list[dict[str, float]] = []
+    for cue in cues:
+        start = float(cue.get("timeline_start_seconds", cue.get("start_seconds", 0)) or 0)
+        end = float(cue.get("timeline_end_seconds", cue.get("end_seconds", 0)) or 0)
+        if end <= start:
+            continue
+        if regions and start <= regions[-1]["end_seconds"]:
+            regions[-1]["end_seconds"] = max(regions[-1]["end_seconds"], end)
+        else:
+            regions.append({"start_seconds": start, "end_seconds": end})
     return {
         "enabled": bool(enabled),
         "status": "ACTIVE" if enabled and locked and cues else ("LOCK REQUIRED" if enabled and cues else "OFF"),
@@ -361,6 +371,7 @@ def build_smart_ducking(project: Any, *, enabled: bool = True) -> dict[str, Any]
         "attack_ms": 120,
         "release_ms": 420,
         "voice_cues": cues,
+        "voice_activity_regions": regions,
         "description": "Music automatically ducks when dialogue or narration is present and smoothly recovers after speech ends.",
         "signal_source": "continuous_voice_track",
     }

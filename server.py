@@ -164,6 +164,7 @@ class UpdateShotPayload(BaseModel):
     transition_type: Literal["CONTINUOUS", "HARD_CUT", "MATCH_CUT", "AUDIO_BRIDGE", "ACTION_MATCH", "ELLIPSIS", "FADE", "DISSOLVE"] | None = None
     speech_policy: Literal["SILENT", "DIALOGUE", "NARRATION", "VOICE_OVER", "SYSTEM_VOICE", "AMBIENCE_ONLY"] | None = None
     shot_complexity: Literal["LOW", "MEDIUM", "HIGH"] | None = None
+    state_delta: dict[str, Any] | None = None
 
     @field_validator(
         "framing",

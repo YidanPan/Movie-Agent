@@ -22,6 +22,18 @@ def _field(value: object, fallback: str = "Not specified") -> str:
     return text or fallback
 
 
+def _state_text(value: dict[str, Any] | None) -> str:
+    if not value:
+        return "none"
+    lines: list[str] = []
+    for entity, changes in value.items():
+        if isinstance(changes, dict):
+            lines.append(f"{entity}: " + "; ".join(f"{key} = {item}" for key, item in changes.items()))
+        else:
+            lines.append(f"{entity}: {changes}")
+    return "\n".join(lines) or "none"
+
+
 def build_continuity_prompt(
     shot: Shot,
     visual_bible: dict[str, Any],
@@ -30,6 +42,7 @@ def build_continuity_prompt(
     project_id: str = "ad-hoc-project",
     film_language: str = "en",
     context: ResolvedShotContext | None = None,
+    story_world: dict[str, Any] | None = None,
 ) -> str:
     """Compile the complete renderer prompt from global locks plus Shot Delta.
 
@@ -40,7 +53,7 @@ def build_continuity_prompt(
     retry.
     """
 
-    context = context or resolve_shot_context(shot, visual_bible, previous_shot=previous_shot)
+    context = context or resolve_shot_context(shot, visual_bible, story_world, previous_shot=previous_shot)
     character_locks = context.character_locks
     scene_lock = context.scene_lock
     cinema = _field(context.cinematography_lock)
@@ -63,6 +76,11 @@ def build_continuity_prompt(
         f"CINEMATOGRAPHY LOCK\n{cinema}",
         f"PROJECT REFERENCE SEED\n{reference_seed}",
         f"PREVIOUS CONTEXT MODE\n{context.previous_context_mode}",
+        f"PREVIOUS VISUAL REFERENCE ROLE\n{context.previous_visual_reference_role}",
+        f"CURRENT ENTITY STATE\n{_state_text(context.entity_state_before)}",
+        f"SHOT STATE DELTA\n{_state_text(context.entity_state_delta)}",
+        f"EXPECTED END STATE\n{_state_text(context.entity_state_after)}",
+        f"CONTEXT FLAGS\n{', '.join(context.context_flags) or 'none'}",
         f"CURRENT SHOT STARTING STATE\n{_field(shot.starting_state)}",
         f"CURRENT SHOT MAIN ACTION\n{_field(shot.main_action or shot.action)}",
         f"SECONDARY ACTION\n{_field(shot.secondary_action, 'none')}",
@@ -76,16 +94,18 @@ def build_continuity_prompt(
         f"SOUND DESIGN\n{_field(shot.sound_design)}",
         "NEGATIVE CONSTRAINTS\nNo existing film or TV characters, titles, logos, brands, real-person likenesses, copyrighted designs, or language other than English in the generated film.",
     ]
-    if context.previous_context_mode in {"FULL_CONTINUITY", "ACTION_CONTINUITY"}:
-        sections.insert(13, f"PREVIOUS SHOT ENDING STATE\n{_field(context.previous_ending_state)}")
-        sections.insert(14, f"PREVIOUS SHOT TRANSITION HOOK\n{_field(context.previous_transition_hook)}")
+    if context.inherit_previous_narrative_context:
+        sections.insert(13, f"PREVIOUS NARRATIVE STATE\n{_field(context.previous_narrative_state or context.previous_ending_state)}")
+        sections.insert(14, f"PREVIOUS NARRATIVE HOOK\n{_field(context.previous_narrative_hook or context.previous_transition_hook)}")
+    if context.previous_context_mode in {"FULL_CONTINUITY", "ACTION_CONTINUITY"} and context.allow_previous_visual_reference:
+        sections.insert(15, f"PREVIOUS SHOT ENDING STATE\n{_field(context.previous_ending_state)}")
+        sections.insert(16, f"PREVIOUS SHOT TRANSITION HOOK\n{_field(context.previous_transition_hook)}")
+        sections.insert(17, f"PREVIOUS SHOT VISUAL REFERENCE\n{context.previous_visual_reference_role}")
     elif context.previous_context_mode == "COMPOSITION_ONLY":
         framing = _field(getattr(previous_shot, "framing", ""), "not provided")
-        sections.insert(13, f"PREVIOUS COMPOSITION CONTEXT\n{framing}; composition only; do not inherit previous scene identity")
-    elif context.previous_context_mode == "NARRATIVE_ONLY" and previous_shot is not None:
-        sections.insert(13, f"PREVIOUS NARRATIVE HOOK\n{_field(context.previous_transition_hook)}")
-    else:
-        sections.insert(13, "PREVIOUS VISUAL CONTEXT\nnone; establish from the current scene lock")
+        sections.insert(15, f"PREVIOUS COMPOSITION CONTEXT\n{framing}; composition only; do not inherit previous scene identity")
+    elif not context.allow_previous_visual_reference:
+        sections.insert(15, "PREVIOUS VISUAL CONTEXT\nnone; establish from the current scene lock")
     # Include the derived seed in the compiled prompt so a human can audit a
     # retry and verify that the model input and ComfyUI override agree.
     shot_seed = derive_shot_seed(project_id, reference_seed, shot.number)
@@ -148,14 +168,18 @@ class GenerationAgent:
             shot.qc_status = "FAILED"
             raise error
 
+        visual_context = visual_bible or {}
+        reference_seed = str(visual_context.get("reference_seed") or "42")
+        context = context or resolve_shot_context(shot, visual_context, story_world, previous_shot)
+        if any(context.missing_entities.values()):
+            raise ValueError(f"STORY_WORLD_REVIEW_REQUIRED: missing entities {context.missing_entities}")
+        if any(context.missing_locks.values()):
+            raise ValueError(f"VISUAL_BIBLE_REVIEW_REQUIRED: missing locks {context.missing_locks}")
         clear_failure(shot)
         shot.status = "generating_comfyui"
         shot.stale = False
         shot.qc_status = "PENDING"
         shot.attempts += 1
-        visual_context = visual_bible or {}
-        reference_seed = str(visual_context.get("reference_seed") or "42")
-        context = context or resolve_shot_context(shot, visual_context, story_world, previous_shot)
         shot.generation_input_hash = hash_generation_input(
             shot,
             context,
@@ -182,6 +206,7 @@ class GenerationAgent:
             project_id=project_id,
             film_language=film_language,
             context=context,
+            story_world=story_world,
         )
         shot.generation_seed = seed
         shot.seed = seed

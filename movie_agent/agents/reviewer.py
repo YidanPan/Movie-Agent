@@ -132,6 +132,18 @@ class ReviewerAgent:
         frames = self._extract_keyframes(project_id, shot, video_path, duration)
         ending_frame = self._extract_ending_frame(project_id, shot, video_path, duration)
         context = context or resolve_shot_context(shot, visual_bible or {}, story_world, previous_shot)
+        context_snapshot = context.to_dict()
+        shot.qc_details = {
+            **(shot.qc_details or {}),
+            "resolved_shot_context": context_snapshot,
+            "context_flags": list(context.context_flags),
+            "entity_state_before": context.entity_state_before,
+            "entity_state_after": context.entity_state_after,
+        }
+        if any(context.missing_entities.values()):
+            raise ValueError(f"STORY_WORLD_REVIEW_REQUIRED: missing entities {context.missing_entities}")
+        if any(context.missing_locks.values()):
+            raise ValueError(f"VISUAL_BIBLE_REVIEW_REQUIRED: missing locks {context.missing_locks}")
         generation_references = self.reference_bank.generation_reference_paths(project_id, shot, previous_shot, context=context)
         reference_inputs = {
             "character_hero": generation_references["character"],
@@ -162,9 +174,13 @@ class ReviewerAgent:
                 },
                 "review_state": "MEDIA_INTEGRITY_PASSED",
                 "next_action": "APPROVE_SHOT",
-                "reference_strategy": reference_strategy,
-                "reference_flags": reference_flags,
-            }
+            "reference_strategy": reference_strategy,
+            "reference_flags": reference_flags,
+            "resolved_shot_context": context_snapshot,
+            "context_flags": list(context.context_flags),
+            "entity_state_before": context.entity_state_before,
+            "entity_state_after": context.entity_state_after,
+        }
             self._sync_qc_flags(shot)
             shot.status = "awaiting_visual_review"
             shot.stale = False
@@ -439,6 +455,10 @@ class ReviewerAgent:
             f"Expected environment reaction: {shot.environment_reaction or 'not provided'}\n"
             f"Expected starting state: {shot.starting_state or shot.continuity_from or 'not provided'}\n"
             f"Expected ending state: {shot.ending_state or shot.continuity_to or 'not provided'}\n"
+            f"Expected machine state before: {json.dumps(context.entity_state_before, ensure_ascii=False, sort_keys=True) or 'none'}\n"
+            f"Expected machine state after: {json.dumps(context.entity_state_after, ensure_ascii=False, sort_keys=True) or 'none'}\n"
+            f"Machine state delta: {json.dumps(context.entity_state_delta, ensure_ascii=False, sort_keys=True) or 'none'}\n"
+            f"Resolved context flags: {', '.join(context.context_flags) or 'none'}\n"
             f"Expected visual motif/props: {shot.visual_motif or 'not provided'}\n"
             f"ACTIVE CHARACTER IDS: {', '.join(context.character_ids) or 'none'}\n"
             f"ACTIVE CHARACTER LOCKS: {character_lock}\n"

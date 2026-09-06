@@ -312,7 +312,7 @@ function isShotPreviewable(shot) {
 }
 
 function shotCapabilities(shot) {
-  return MovieAgentModules.storyboard.shotCapabilities(shot);
+  return MovieAgentModules.storyboard.shotCapabilities(shot, state.project || {});
 }
 
 function normalizeCrewSummary(summary) {
@@ -1271,7 +1271,7 @@ function shotStatusInfo(status) {
 
 const formatShotDuration = (value) => MovieAgentModules.storyboard.formatShotDuration(value);
 const timingModeLabel = (shot = {}) => MovieAgentModules.storyboard.timingModeLabel(shot);
-const shotStateInfo = (shot = {}) => MovieAgentModules.storyboard.shotStateInfo(shot);
+const shotStateInfo = (shot = {}) => MovieAgentModules.storyboard.shotStateInfo(shot, state.project || {});
 
 function durationRailShare(value) {
   return `${Math.min(94, Math.max(18, Number(value || 1) / 12 * 100)).toFixed(1)}%`;
@@ -3304,7 +3304,7 @@ function inspectorShotPreviewMarkup(shot) {
         <span class="inspector-preview-stamp type-system-meta">${String(shot.number).padStart(2, "0")} · 24 FPS · ${esc(shot.generation_mode || "T2V")}</span>
       </div>
       <p class="inspector-preview-note type-helper">${previewReady ? "视频预览可播放 · 关键帧质检已归档" : "当前显示未冲洗胶片帧 · 完成真实生成后自动替换"}</p>
-      ${capabilities.needsReview || capabilities.isReady ? `<dl class="inspector-review-checks" aria-label="视觉审核状态"><div><dt class="type-system-meta">MEDIA INTEGRITY</dt><dd class="type-status">${previewReady ? "✓ PASSED" : "PENDING"}</dd></div><div><dt class="type-system-meta">CHARACTER REFERENCE</dt><dd class="type-status">${referenceState("character", Boolean(shot.character_ids?.length))}</dd></div><div><dt class="type-system-meta">SCENE REFERENCE</dt><dd class="type-status">${referenceState("scene", Boolean(shot.scene_id))}</dd></div><div><dt class="type-system-meta">VISUAL QC</dt><dd class="type-status">${capabilities.needsReview ? "MANUAL" : capabilities.isReady ? "PASSED" : "QUEUED"}</dd></div></dl>` : ""}
+      ${capabilities.needsReview || capabilities.isReady ? `<dl class="inspector-review-checks" aria-label="审核状态"><div><dt class="type-system-meta">MEDIA INTEGRITY</dt><dd class="type-status">${previewReady ? "✓ PASSED" : "PENDING"}</dd></div><div><dt class="type-system-meta">CHARACTER REFERENCE</dt><dd class="type-status">${referenceState("character", Boolean(shot.character_ids?.length))}</dd></div><div><dt class="type-system-meta">SCENE REFERENCE</dt><dd class="type-status">${referenceState("scene", Boolean(shot.scene_id))}</dd></div><div><dt class="type-system-meta">REVIEW DOMAIN</dt><dd class="type-status">${capabilities.primaryReviewDomain ? esc(capabilities.primaryReviewDomain.toUpperCase()) : capabilities.isReady ? "PASSED" : "QUEUED"}</dd></div></dl>` : ""}
     </section>`;
 }
 
@@ -3404,6 +3404,7 @@ function buildShotInspectorMarkup(project, shot) {
 
        <footer class="inspector-actions">
          ${capabilities.canApprove ? '<button class="cta inspector-action-primary" data-inspector-action="approve" type="button">APPROVE SHOT <span aria-hidden="true">✓</span></button>' : ""}
+         ${capabilities.primaryReviewDomain && !capabilities.canApprove ? `<button class="ghost type-control" data-inspector-action="review-domain" data-review-domain="${esc(capabilities.primaryReviewDomain)}" type="button">${capabilities.primaryReviewDomain === "planning" ? "EDIT STORYBOARD" : capabilities.primaryReviewDomain === "reference" ? "RESOLVE REFERENCES" : capabilities.primaryReviewDomain === "audio" ? "EDIT DIALOGUE" : capabilities.primaryReviewDomain === "media" ? "REVIEW MEDIA" : "REVIEW CONTINUITY"}</button>` : ""}
          <button class="ghost type-control" data-inspector-action="replan" type="button"${capabilities.canReplan ? "" : " disabled"}>↻ 重新规划</button>
         <button class="cta inspector-action-primary" data-inspector-action="regenerate" type="button"${capabilities.canRegenerate ? "" : " disabled"}>重新生成素材 <span aria-hidden="true">→</span></button>
       </footer>
@@ -3448,6 +3449,11 @@ function bindShotInspector(project, shot, { initial = false } = {}) {
   els.drawer.querySelector('[data-inspector-action="replan"]')?.addEventListener("click", () => regenerateShot(shot.number, "replan"));
   els.drawer.querySelector('[data-inspector-action="regenerate"]')?.addEventListener("click", () => renderSingleShot(shot.number));
   els.drawer.querySelector('[data-inspector-action="approve"]')?.addEventListener("click", () => approveShot(shot.number));
+  els.drawer.querySelector('[data-inspector-action="review-domain"]')?.addEventListener("click", () => {
+    const domain = els.drawer.querySelector('[data-inspector-action="review-domain"]')?.dataset.reviewDomain;
+    closeDrawer();
+    toast(domain === "planning" ? "请回到 Storyboard 修订叙事与镜头结构。" : domain === "audio" ? "请回到 Sound / Dialogue 调整语音时间。" : domain === "reference" ? "请补齐 Reference Bank 与 Visual Bible 锁。" : "请检查当前审核域的阻塞项。", true);
+  });
   els.drawer.querySelector("[data-save-shot]")?.addEventListener("click", () => saveShotEdits(shot.number));
   attachInspectorPreview(project, shot);
   if (initial) focusDrawerHeading();

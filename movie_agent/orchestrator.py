@@ -29,6 +29,8 @@ from movie_agent.services.audio import (
     regenerate_track,
 )
 from movie_agent.services.voice import ContinuousVoiceService, mark_voice_alignment_stale
+from movie_agent.services.state_ledger import rebuild_state_ledger_from_shot
+from movie_agent.services.state_ledger import build_state_ledger
 from movie_agent.services.change_impact import TIMING_FIELDS, VISUAL_FIELDS, NARRATIVE_FIELDS, SPEECH_FIELDS, resolve_change_impact
 from movie_agent.services.final_look import ensure_final_look, normalise_final_look, reset_final_look
 from movie_agent.services.errors import clear_failure, error_info, record_failure
@@ -421,6 +423,7 @@ class MovieOrchestrator:
                 "strategy": "continuous_voice_track",
             },
         )
+        build_state_ledger(project)
         ensure_project_revision_metadata(
             project,
             provider="modelscope" if self.using_creative_llm else "mock",
@@ -921,6 +924,8 @@ class MovieOrchestrator:
         visual_or_narrative = bool(impact["visual"] or impact["narrative"])
         if visual_or_narrative:
             mark_shot_stale(shot, "shot_context_changed")
+        if "state_delta" in incoming or impact["narrative"]:
+            rebuild_state_ledger_from_shot(project, shot_number)
         self._invalidate_edit_outputs(project, reason="shot_fields_changed", source="shot" if visual_or_narrative else "shot_timing")
         project.invalidation_events[-1]["impact"] = impact
         project.status = "ready_for_ai_edit" if self._shots_ready(project) else "ready_for_comfyui_render"
