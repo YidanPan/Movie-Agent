@@ -84,6 +84,26 @@ def resolve_scene_lock(visual_bible: dict[str, Any] | None, scene_id: str | None
     return {"scene_id": requested or "global", "lock": fallback}
 
 
+def resolve_prop_locks(visual_bible: dict[str, Any] | None, prop_ids: list[str] | None) -> list[dict[str, Any]]:
+    """Resolve only the props active in the current shot."""
+
+    bible = visual_bible or {}
+    requested = {str(item).strip() for item in (prop_ids or []) if str(item).strip()}
+    structured = bible.get("props")
+    if isinstance(structured, list):
+        matches = [
+            item for item in structured
+            if isinstance(item, dict) and (not requested or str(item.get("prop_id") or "") in requested)
+        ]
+        if matches:
+            return [
+                {"prop_id": str(item.get("prop_id") or ""), "name": str(item.get("name") or ""), "lock": _lock_text(item)}
+                for item in matches
+            ]
+    fallback = _lock_text(bible.get("prop_lock"))
+    return [{"prop_id": ",".join(sorted(requested)) or "global", "name": "", "lock": fallback}] if fallback else []
+
+
 def build_continuity_lock(visual_bible: dict[str, Any] | None, film_language: str = "en") -> dict[str, Any]:
     """Create the small, serialisable contract every shot renderer consumes."""
 

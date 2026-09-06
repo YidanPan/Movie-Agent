@@ -10,9 +10,10 @@ from movie_agent.config import Settings
 from movie_agent.models import Shot
 from movie_agent.services.comfyui import ComfyUIClient, ComfyUIError, WorkflowOverrides, load_verified_workflow
 from movie_agent.services.media_quality import asset_record
-from movie_agent.services.continuity import derive_shot_seed, resolve_character_locks, resolve_scene_lock
+from movie_agent.services.continuity import derive_shot_seed
 from movie_agent.services.errors import clear_failure, error_info, record_failure
-from movie_agent.services.revisions import ensure_shot_metadata, hash_shot_prompt, utc_now
+from movie_agent.services.revisions import ensure_shot_metadata, hash_generation_input, hash_shot_prompt, utc_now
+from movie_agent.services.shot_context import ResolvedShotContext, resolve_shot_context
 from movie_agent.storage.reference_bank import ReferenceBankStore
 
 
@@ -28,6 +29,7 @@ def build_continuity_prompt(
     *,
     project_id: str = "ad-hoc-project",
     film_language: str = "en",
+    context: ResolvedShotContext | None = None,
 ) -> str:
     """Compile the complete renderer prompt from global locks plus Shot Delta.
 
@@ -38,33 +40,29 @@ def build_continuity_prompt(
     retry.
     """
 
-    character_locks = resolve_character_locks(visual_bible, shot.character_ids)
-    scene_lock = resolve_scene_lock(visual_bible, shot.scene_id)
-    cinema = _field(
-        visual_bible.get("cinematography_lock") or visual_bible.get("style_card")
-    )
+    context = context or resolve_shot_context(shot, visual_bible, previous_shot=previous_shot)
+    character_locks = context.character_locks
+    scene_lock = context.scene_lock
+    cinema = _field(context.cinematography_lock)
     reference_seed = _field(visual_bible.get("reference_seed"), "42")
-    previous_ending = "OPENING FRAME — no previous shot" if previous_shot is None else _field(
-        previous_shot.ending_state or previous_shot.action
-    )
-    previous_hook = "Establish the world and the protagonist." if previous_shot is None else _field(
-        previous_shot.transition_hook
-    )
     sections = [
         f"FILM LANGUAGE\n{_field(film_language).lower()} only. All dialogue, narration, subtitles, title cards, credits, on-screen text, and monitor text must be in English.",
         f"SHOT SCENE ID\n{_field(shot.scene_id, 'unassigned')}",
-        f"ACTIVE CHARACTER IDS\n{', '.join(shot.character_ids) or 'none'}",
+        f"ACTIVE CHARACTER IDS\n{', '.join(context.character_ids) or 'none'}",
         "ACTIVE CHARACTER LOCKS\n" + "\n".join(
             f"- {item.get('character_id') or item.get('name') or 'character'}: {item.get('lock', '')}" for item in character_locks
         ),
         f"CURRENT SCENE LOCK\n{scene_lock.get('scene_id')}\n{scene_lock.get('lock') or 'not provided'}",
+        f"ACTIVE PROP IDS\n{', '.join(context.prop_ids) or 'none'}",
+        "ACTIVE PROP LOCKS\n" + "\n".join(
+            f"- {item.get('prop_id') or item.get('name') or 'prop'}: {item.get('lock', '')}" for item in context.prop_locks
+        ) if context.prop_locks else "ACTIVE PROP LOCKS\nnone",
         f"STORY FUNCTION\n{_field(shot.story_function or shot.narrative_purpose)}",
         f"EMOTIONAL SHIFT\n{_field(shot.emotional_shift, 'not provided')}",
         f"VISUAL MOTIF\n{_field(shot.visual_motif, 'not provided')}",
         f"CINEMATOGRAPHY LOCK\n{cinema}",
         f"PROJECT REFERENCE SEED\n{reference_seed}",
-        f"PREVIOUS SHOT ENDING STATE\n{previous_ending}",
-        f"PREVIOUS SHOT TRANSITION HOOK\n{previous_hook}",
+        f"PREVIOUS CONTEXT MODE\n{context.previous_context_mode}",
         f"CURRENT SHOT STARTING STATE\n{_field(shot.starting_state)}",
         f"CURRENT SHOT MAIN ACTION\n{_field(shot.main_action or shot.action)}",
         f"SECONDARY ACTION\n{_field(shot.secondary_action, 'none')}",
@@ -78,6 +76,16 @@ def build_continuity_prompt(
         f"SOUND DESIGN\n{_field(shot.sound_design)}",
         "NEGATIVE CONSTRAINTS\nNo existing film or TV characters, titles, logos, brands, real-person likenesses, copyrighted designs, or language other than English in the generated film.",
     ]
+    if context.previous_context_mode in {"FULL_CONTINUITY", "ACTION_CONTINUITY"}:
+        sections.insert(13, f"PREVIOUS SHOT ENDING STATE\n{_field(context.previous_ending_state)}")
+        sections.insert(14, f"PREVIOUS SHOT TRANSITION HOOK\n{_field(context.previous_transition_hook)}")
+    elif context.previous_context_mode == "COMPOSITION_ONLY":
+        framing = _field(getattr(previous_shot, "framing", ""), "not provided")
+        sections.insert(13, f"PREVIOUS COMPOSITION CONTEXT\n{framing}; composition only; do not inherit previous scene identity")
+    elif context.previous_context_mode == "NARRATIVE_ONLY" and previous_shot is not None:
+        sections.insert(13, f"PREVIOUS NARRATIVE HOOK\n{_field(context.previous_transition_hook)}")
+    else:
+        sections.insert(13, "PREVIOUS VISUAL CONTEXT\nnone; establish from the current scene lock")
     # Include the derived seed in the compiled prompt so a human can audit a
     # retry and verify that the model input and ComfyUI override agree.
     shot_seed = derive_shot_seed(project_id, reference_seed, shot.number)
@@ -111,6 +119,8 @@ class GenerationAgent:
         previous_shot: Shot | None = None,
         target_resolution: str = "1080p",
         film_language: str = "en",
+        story_world: dict[str, Any] | None = None,
+        context: ResolvedShotContext | None = None,
     ) -> str:
         """Submit one planned shot and copy its MP4 into the project output folder."""
         if shot.generation_mode != "T2V":
@@ -145,7 +155,13 @@ class GenerationAgent:
         shot.attempts += 1
         visual_context = visual_bible or {}
         reference_seed = str(visual_context.get("reference_seed") or "42")
-        reference_inputs = self.reference_bank.generation_reference_paths(project_id, shot)
+        context = context or resolve_shot_context(shot, visual_context, story_world, previous_shot)
+        shot.generation_input_hash = hash_generation_input(
+            shot,
+            context,
+            workflow_identity=self.settings.comfy_workflow_template or "verified-comfyui-workflow",
+        )
+        reference_inputs = self.reference_bank.generation_reference_paths(project_id, shot, previous_shot, context=context)
         reference_flags = list(reference_inputs.get("reference_flags") or [])
         shot.qc_details = {
             **(shot.qc_details or {}),
@@ -156,6 +172,7 @@ class GenerationAgent:
             },
             "reference_flags": reference_flags,
             "reference_strategy": "TEXTUAL_LOCK_ONLY_T2V",
+            "resolved_shot_context": context.to_dict(),
         }
         seed = derive_shot_seed(project_id, reference_seed, shot.number)
         continuity_prompt = build_continuity_prompt(
@@ -164,6 +181,7 @@ class GenerationAgent:
             previous_shot,
             project_id=project_id,
             film_language=film_language,
+            context=context,
         )
         shot.generation_seed = seed
         shot.seed = seed
@@ -213,6 +231,7 @@ class GenerationAgent:
             source="comfyui_original",
             revision=shot.revision,
             prompt_hash=shot.prompt_hash or hash_shot_prompt(shot),
+            generation_input_hash=shot.generation_input_hash,
             provider="comfyui",
             model=self.settings.comfy_workflow_template or "verified-comfyui-workflow",
             seed=shot.seed,

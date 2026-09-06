@@ -149,9 +149,21 @@ class UpdateShotPayload(BaseModel):
     narrative_purpose: str | None = Field(default=None, min_length=1, max_length=1_000)
     starting_state: str | None = Field(default=None, min_length=1, max_length=1_000)
     main_action: str | None = Field(default=None, min_length=1, max_length=2_000)
+    secondary_action: str | None = Field(default=None, min_length=1, max_length=2_000)
+    environment_reaction: str | None = Field(default=None, min_length=1, max_length=2_000)
     character_reaction: str | None = Field(default=None, min_length=1, max_length=1_000)
     ending_state: str | None = Field(default=None, min_length=1, max_length=1_000)
     transition_hook: str | None = Field(default=None, min_length=1, max_length=1_000)
+    scene_id: str | None = Field(default=None, min_length=1, max_length=120)
+    character_ids: list[str] | None = Field(default=None, max_length=12)
+    prop_ids: list[str] | None = Field(default=None, max_length=12)
+    story_function: str | None = Field(default=None, min_length=1, max_length=120)
+    information_gain: float | None = Field(default=None, ge=0, le=1)
+    emotional_shift: str | None = Field(default=None, min_length=1, max_length=500)
+    visual_motif: str | None = Field(default=None, min_length=1, max_length=500)
+    transition_type: Literal["CONTINUOUS", "HARD_CUT", "MATCH_CUT", "AUDIO_BRIDGE", "ACTION_MATCH", "ELLIPSIS", "FADE", "DISSOLVE"] | None = None
+    speech_policy: Literal["SILENT", "DIALOGUE", "NARRATION", "VOICE_OVER", "SYSTEM_VOICE", "AMBIENCE_ONLY"] | None = None
+    shot_complexity: Literal["LOW", "MEDIUM", "HIGH"] | None = None
 
     @field_validator(
         "framing",
@@ -163,9 +175,15 @@ class UpdateShotPayload(BaseModel):
         "narrative_purpose",
         "starting_state",
         "main_action",
+        "secondary_action",
+        "environment_reaction",
         "character_reaction",
         "ending_state",
         "transition_hook",
+        "scene_id",
+        "story_function",
+        "emotional_shift",
+        "visual_motif",
     )
     @classmethod
     def strip_optional_text(cls, value: str | None) -> str | None:
@@ -262,6 +280,7 @@ def serialized_project(project) -> dict[str, Any]:
     """Expose persisted data plus fresh, read-only quality and recovery views."""
 
     payload = project.to_dict()
+    payload = _sanitize_public_payload(payload)
     # Audio providers persist an absolute media path for the editor, while
     # browsers should always use the guarded project-scoped preview endpoint.
     for key, track in (payload.get("audio_tracks") or {}).items():
@@ -287,6 +306,24 @@ def serialized_project(project) -> dict[str, Any]:
     )
     payload["job"] = job_ledger.summary(project.project_id)
     return payload
+
+
+_INTERNAL_PATH_KEYS = {"path", "media_path", "raw_media_path", "root", "absolute_path", "output_placeholder"}
+
+
+def _sanitize_public_payload(value: Any) -> Any:
+    """Remove server filesystem paths while retaining browser-safe metadata."""
+
+    if isinstance(value, list):
+        return [_sanitize_public_payload(item) for item in value]
+    if not isinstance(value, dict):
+        return value
+    result: dict[str, Any] = {}
+    for key, item in value.items():
+        if str(key) in _INTERNAL_PATH_KEYS:
+            continue
+        result[str(key)] = _sanitize_public_payload(item)
+    return result
 
 
 @app.get("/api/projects/{project_id}/storage")
@@ -936,6 +973,20 @@ def approve_single_shot(project_id: str, shot_number: int):
     try:
         with project_lock(project_id):
             project = orchestrator.approve_shot(project_id, shot_number)
+    except FileNotFoundError:
+        return project_not_found(project_id)
+    except ValueError as error:
+        return JSONResponse({"error": str(error)}, status_code=400)
+    return serialized_project(project)
+
+
+@app.post("/api/projects/{project_id}/previs/approve")
+def approve_previs(project_id: str):
+    """Explicitly approve a storyboard that remained under PREVIS review."""
+
+    try:
+        with project_lock(project_id):
+            project = orchestrator.approve_previs(project_id)
     except FileNotFoundError:
         return project_not_found(project_id)
     except ValueError as error:

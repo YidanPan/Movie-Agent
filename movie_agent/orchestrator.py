@@ -20,7 +20,7 @@ from movie_agent.storage.project_store import ProjectStore
 from movie_agent.services.llm import build_creative_llm
 from movie_agent.services.quality import ContinuityQualityGate, PlanningQualityGate, SemanticCopyrightReviewer
 from movie_agent.services.continuity import build_continuity_lock, ensure_continuity_lock
-from movie_agent.services.story_world import extract_story_world
+from movie_agent.services.story_world import extract_story_world, validate_story_world_references
 from movie_agent.services.audio import (
     EDIT_AUDIO_STAGES,
     apply_audio_track_params,
@@ -29,6 +29,7 @@ from movie_agent.services.audio import (
     regenerate_track,
 )
 from movie_agent.services.voice import ContinuousVoiceService, mark_voice_alignment_stale
+from movie_agent.services.change_impact import TIMING_FIELDS, VISUAL_FIELDS, NARRATIVE_FIELDS, SPEECH_FIELDS, resolve_change_impact
 from movie_agent.services.final_look import ensure_final_look, normalise_final_look, reset_final_look
 from movie_agent.services.errors import clear_failure, error_info, record_failure
 from movie_agent.services.revisions import (
@@ -299,22 +300,32 @@ class MovieOrchestrator:
                 storyboard,
                 story_beats,
                 visual_bible=visual_bible,
+                story_world=story_world,
                 max_passes=1,
             )
             storyboard_review = self.storyboard_agent.review_storyboard(storyboard, story_beats)
             emit({"type": "storyboard_repair", "review": storyboard_review})
+        previs_review_required = storyboard_review.get("decision") != "PASS"
+        if story_world:
+            world_errors = validate_story_world_references([shot.to_dict() for shot in storyboard], story_world)
+            if any(world_errors.values()):
+                raise ValueError(f"STORY_WORLD_REVIEW_REQUIRED: {world_errors}")
         # The first Writer pass creates the broad screenplay.  Once the
         # storyboard is locked, run the Script Supervisor pass so narration,
         # dialogue, and subtitle cues are grounded in the actual shot events.
-        script = self.writer.supervise_storyboard(
-            cleaned_idea,
-            brief,
-            script,
-            storyboard,
-            duration_seconds=duration,
-        )
-        script["film_language"] = self.settings.film_language
-        script = align_script_to_shots(script, storyboard, allow_silent=True)
+        if not previs_review_required:
+            script = self.writer.supervise_storyboard(
+                cleaned_idea,
+                brief,
+                script,
+                storyboard,
+                duration_seconds=duration,
+            )
+            script["film_language"] = self.settings.film_language
+            script = align_script_to_shots(script, storyboard, allow_silent=True)
+        else:
+            script = ensure_dialogue_assets(script, duration_seconds=duration, shot_count=len(storyboard) or None)
+            script["film_language"] = self.settings.film_language
         emit(
             {
                 "type": "artifact",
@@ -390,7 +401,7 @@ class MovieOrchestrator:
             idea=cleaned_idea,
             duration_seconds=duration,
             visual_style=visual_style,
-            status="planned_text_ai" if self.using_creative_llm else "planned_mock",
+            status="previs_review_required" if previs_review_required else ("planned_text_ai" if self.using_creative_llm else "planned_mock"),
             brief=brief,
             script=script,
             visual_bible=visual_bible,
@@ -432,6 +443,12 @@ class MovieOrchestrator:
         # neutral lifecycle event so the UI cannot render a false ARCHIVED
         # state while the project is still in active production.
         emit({"type": "project_saved", "project_id": project_id})
+        if previs_review_required:
+            project.logs.append(
+                "Planning QC: Storyboard remains under review after one repair pass; explicit PREVIS approval is required before Script Supervisor or Render."
+            )
+            self.store.save(project)
+            return project
         if self.settings.video_generation_mode == "comfyui":
             project.status = "ready_for_comfyui_render"
             project.logs.append("Generation Agent: Project is ready. Click 'Spark Real Generate' to submit per-shot tasks.")
@@ -451,6 +468,8 @@ class MovieOrchestrator:
                 event_callback(event)
 
         project = self.store.load(project_id)
+        if project.status == "previs_review_required":
+            raise ValueError("PREVIS_REVIEW_REQUIRED: approve the storyboard before mock production can advance.")
         clear_failure(project)
         project.status = "generating_video_mock"
         project.logs.append("Generation Agent: Starting mock shot task queue submission.")
@@ -479,6 +498,8 @@ class MovieOrchestrator:
         if self.settings.video_generation_mode != "comfyui":
             raise ValueError("Current mode is mock. Set VIDEO_GENERATION_MODE=comfyui in Spark's .env before rendering.")
         project = self.store.load(project_id)
+        if project.status == "previs_review_required":
+            raise ValueError("PREVIS_REVIEW_REQUIRED: approve the storyboard before rendering.")
         clear_failure(project)
         self._require_dialogue_locked(project)
         ensure_continuity_lock(project)
@@ -623,6 +644,40 @@ class MovieOrchestrator:
         self.store.save(project)
         return project
 
+    def approve_previs(self, project_id: str) -> MovieProject:
+        """Explicitly approve a repaired storyboard and resume planning."""
+
+        project = self.store.load(project_id)
+        review = self.storyboard_agent.review_storyboard(project.storyboard, project.story_beats)
+        if review.get("decision") != "PASS":
+            raise ValueError("PREVIS_REVIEW_REQUIRED: storyboard still contains unresolved review items.")
+        project.storyboard_review = review
+        project.script = self.writer.supervise_storyboard(
+            project.idea,
+            project.brief,
+            project.script,
+            project.storyboard,
+            duration_seconds=project.duration_seconds,
+        )
+        project.script["film_language"] = project.film_language
+        project.script = align_script_to_shots(project.script, project.storyboard, allow_silent=True)
+        project.quality_report = self.planning_pipeline.review(
+            idea=project.idea,
+            duration_seconds=project.duration_seconds,
+            script=project.script,
+            visual_bible=project.visual_bible,
+            storyboard=project.storyboard,
+            continuity_lock=project.continuity_lock,
+            story_beats=project.story_beats,
+        )
+        project.status = "planned_text_ai" if self.using_creative_llm else "planned_mock"
+        project.logs.append("Planning QC: PREVIS explicitly approved; Script Supervisor resumed.")
+        self.store.save(project)
+        if self.settings.video_generation_mode == "comfyui":
+            project.status = "ready_for_comfyui_render"
+            self.store.save(project)
+        return project
+
     def approve_shot(self, project_id: str, shot_number: int) -> MovieProject:
         """Record an explicit human visual approval for one generated shot."""
 
@@ -700,16 +755,20 @@ class MovieOrchestrator:
 
     def lock_dialogue(self, project_id: str) -> MovieProject:
         project = self.store.load(project_id)
+        policies = (project.script or {}).get("speech_policy_by_shot") or {}
+        all_silent = bool(policies) and all(
+            str(value).upper() in {"SILENT", "AMBIENCE_ONLY"} for value in policies.values()
+        )
         # Do not silently lock a brand-new empty payload that the normaliser
         # would otherwise turn into placeholder lines.
-        if not (project.script or {}).get("dialogue_book") or not (project.script or {}).get("subtitle_track"):
+        if not all_silent and (not (project.script or {}).get("dialogue_book") or not (project.script or {}).get("subtitle_track")):
             raise ValueError("Dialogue book or subtitle track is empty; cannot lock.")
         project.script = ensure_dialogue_assets(
             project.script,
             duration_seconds=project.duration_seconds,
             shot_count=len(project.storyboard) or None,
         )
-        if not project.script.get("dialogue_book") or not project.script.get("subtitle_track"):
+        if not all_silent and (not project.script.get("dialogue_book") or not project.script.get("subtitle_track")):
             raise ValueError("Dialogue book or subtitle track is empty; cannot lock.")
         project.script["dialogue_locked"] = True
         ensure_audio_design(project)
@@ -794,25 +853,12 @@ class MovieOrchestrator:
         """
 
         incoming = {str(key): value for key, value in (updates or {}).items() if value is not None}
-        timing_keys = {"duration_seconds", "desired_duration", "timing_mode"}
-        editable = {
-            "framing",
-            "image_description",
-            "action",
-            "sound_design",
-            "generation_mode",
-            "prompt",
-            "narrative_purpose",
-            "starting_state",
-            "main_action",
-            "character_reaction",
-            "ending_state",
-            "transition_hook",
+        editable = TIMING_FIELDS | VISUAL_FIELDS | NARRATIVE_FIELDS | SPEECH_FIELDS | {
+            "action", "transition_hook", "beat_id", "shot_complexity", "emotional_shift", "information_gain"
         }
-        unknown = sorted(set(incoming) - timing_keys - editable)
+        unknown = sorted(set(incoming) - editable)
         if unknown:
             raise ValueError(f"Unsupported shot fields: {', '.join(unknown)}.")
-        timing_updates = {key: incoming.pop(key) for key in list(incoming) if key in timing_keys}
         project = self.store.load(project_id)
         if not 1 <= shot_number <= len(project.storyboard):
             raise ValueError(f"Shot number must be between 1 and {len(project.storyboard)}.")
@@ -833,19 +879,55 @@ class MovieOrchestrator:
         if not 1 <= shot_number <= len(project.storyboard):
             raise ValueError(f"Shot number must be between 1 and {len(project.storyboard)}.")
         shot = project.storyboard[shot_number - 1]
+        if "beat_id" in incoming and str(incoming["beat_id"]) != str(shot.beat_id):
+            raise ValueError("Beat reassignment is a separate operation; use Reassign Beat.")
+        candidate = shot.to_dict()
+        candidate.update(incoming)
+        if isinstance(candidate.get("character_ids"), str):
+            candidate["character_ids"] = [item.strip() for item in candidate["character_ids"].split(",") if item.strip()]
+        if isinstance(candidate.get("prop_ids"), str):
+            candidate["prop_ids"] = [item.strip() for item in candidate["prop_ids"].split(",") if item.strip()]
+        if project.story_world:
+            world_errors = validate_story_world_references([candidate], project.story_world)
+            if any(world_errors.values()):
+                raise ValueError(f"STORY_WORLD_REVIEW_REQUIRED: {world_errors}")
+        impact = resolve_change_impact(set(incoming))
         changed = False
         for key, value in incoming.items():
-            value = str(value).strip() if isinstance(value, str) else value
+            if key in {"character_ids", "prop_ids"}:
+                value = candidate[key]
+            elif isinstance(value, str):
+                value = value.strip()
             if getattr(shot, key) != value:
                 setattr(shot, key, value)
                 changed = True
-        if changed:
-            mark_shot_stale(shot, "shot_fields_changed")
-            self._invalidate_edit_outputs(project, reason="shot_fields_changed", source="shot", shot=shot)
-            project.logs.append(
-                f"Script Supervisor: Saved Inspector edits for Shot {shot_number}; revision {shot.revision} is stale until regenerated."
-            )
-            self.store.save(project)
+        if not changed:
+            return project
+        if impact["timing"]:
+            requested = incoming.get("desired_duration", incoming.get("duration_seconds", shot.duration_seconds))
+            try:
+                requested = float(requested)
+            except (TypeError, ValueError) as error:
+                raise ValueError("Desired shot duration must be numeric.") from error
+            if not 1 <= requested <= 80:
+                raise ValueError("Desired shot duration must be between 1 and 80 seconds.")
+            shot.duration_seconds = max(1, int(round(requested)))
+            shot.desired_duration = float(shot.duration_seconds)
+            shot.timing_mode = str(incoming.get("timing_mode", shot.timing_mode or "native"))
+            project.duration_seconds = sum(int(item.duration_seconds) for item in project.storyboard)
+            project.brief["target_duration"] = f"{project.duration_seconds} seconds"
+            project.script = align_script_to_shots(project.script, project.storyboard, allow_silent=True)
+            mark_voice_alignment_stale(project, "shot_timeline_changed")
+        visual_or_narrative = bool(impact["visual"] or impact["narrative"])
+        if visual_or_narrative:
+            mark_shot_stale(shot, "shot_context_changed")
+        self._invalidate_edit_outputs(project, reason="shot_fields_changed", source="shot" if visual_or_narrative else "shot_timing")
+        project.invalidation_events[-1]["impact"] = impact
+        project.status = "ready_for_ai_edit" if self._shots_ready(project) else "ready_for_comfyui_render"
+        project.logs.append(
+            f"Script Supervisor: Applied atomic Shot {shot_number} update ({', '.join(impact['fields'])}); downstream production marked stale."
+        )
+        self.store.save(project)
         return project
 
     def create_rough_cut(

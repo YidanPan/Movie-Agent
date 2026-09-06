@@ -87,9 +87,50 @@ def hash_shot_prompt(shot: Any) -> str:
         "character_reaction": str(getattr(shot, "character_reaction", "") or ""),
         "ending_state": str(getattr(shot, "ending_state", "") or ""),
         "transition_hook": str(getattr(shot, "transition_hook", "") or ""),
+        "secondary_action": str(getattr(shot, "secondary_action", "") or ""),
+        "environment_reaction": str(getattr(shot, "environment_reaction", "") or ""),
+        "beat_id": str(getattr(shot, "beat_id", "") or ""),
+        "scene_id": str(getattr(shot, "scene_id", "") or ""),
+        "character_ids": list(getattr(shot, "character_ids", []) or []),
+        "prop_ids": list(getattr(shot, "prop_ids", []) or []),
+        "story_function": str(getattr(shot, "story_function", "") or ""),
+        "information_gain": getattr(shot, "information_gain", 0.0),
+        "emotional_shift": str(getattr(shot, "emotional_shift", "") or ""),
+        "visual_motif": str(getattr(shot, "visual_motif", "") or ""),
+        "continuity_from": str(getattr(shot, "continuity_from", "") or ""),
+        "continuity_to": str(getattr(shot, "continuity_to", "") or ""),
+        "transition_type": str(getattr(shot, "transition_type", "") or ""),
     }
     encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()[:16]
+
+
+def hash_generation_input(
+    shot: Any,
+    context: Any | None = None,
+    *,
+    workflow_identity: str = "verified-comfyui-workflow",
+) -> str:
+    """Fingerprint the compiled renderer input, including resolved locks."""
+
+    resolved = context.to_dict() if hasattr(context, "to_dict") else (context or {})
+    payload = {
+        "shot": {
+            key: getattr(shot, key, None)
+            for key in (
+                "number", "beat_id", "scene_id", "character_ids", "prop_ids", "prompt",
+                "image_description", "action", "secondary_action", "environment_reaction",
+                "framing", "story_function", "information_gain", "emotional_shift", "visual_motif",
+                "continuity_from", "continuity_to", "transition_type", "starting_state", "main_action",
+                "character_reaction", "ending_state", "transition_hook", "generation_mode", "speech_policy",
+            )
+        },
+        "context": resolved,
+        "reference_seed": getattr(shot, "seed", None) or getattr(shot, "generation_seed", None),
+        "workflow_identity": workflow_identity,
+    }
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()[:24]
 
 
 def ensure_shot_metadata(
@@ -107,6 +148,8 @@ def ensure_shot_metadata(
     except (TypeError, ValueError):
         shot.revision = 1
     shot.prompt_hash = hash_shot_prompt(shot)
+    if not getattr(shot, "generation_input_hash", ""):
+        shot.generation_input_hash = hash_generation_input(shot)
     if not getattr(shot, "provider", ""):
         shot.provider = str(provider or "mock")
     if not getattr(shot, "model", ""):
@@ -315,6 +358,7 @@ def _ensure_asset_metadata(
     shot_revision = int(revision or getattr(shot, "revision", 1) or 1)
     record.setdefault("revision", max(1, shot_revision))
     record.setdefault("prompt_hash", str(getattr(shot, "prompt_hash", "") or ""))
+    record.setdefault("generation_input_hash", str(getattr(shot, "generation_input_hash", "") or ""))
     record.setdefault("provider", str(getattr(shot, "provider", "") or provider or ""))
     record.setdefault("model", str(getattr(shot, "model", "") or model or ""))
     seed = getattr(shot, "seed", None) if shot is not None else None

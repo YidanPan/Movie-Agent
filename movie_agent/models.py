@@ -53,6 +53,7 @@ class Shot:
     # a re-plan instead of silently pointing at an older render.
     revision: int = 1
     prompt_hash: str = ""
+    generation_input_hash: str = ""
     provider: str = ""
     model: str = ""
     seed: int | None = None
@@ -84,6 +85,7 @@ class Shot:
     transition_type: str = "CONTINUOUS"
     prop_ids: list[str] = field(default_factory=list)
     speech_policy: str = "NARRATION"
+    state_delta: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.source_duration_seconds <= 0:
@@ -157,9 +159,11 @@ class MovieProject:
     story_beats: list[dict[str, Any]] = field(default_factory=list)
     story_world: dict[str, Any] = field(default_factory=dict)
     storyboard_review: dict[str, Any] = field(default_factory=dict)
+    continuity_state_ledger: dict[str, Any] = field(default_factory=dict)
     film_language: str = "en"
     continuity_lock: dict[str, Any] = field(default_factory=dict)
     voice_profile: dict[str, Any] = field(default_factory=dict)
+    voice_cast: dict[str, dict[str, Any]] = field(default_factory=dict)
     target_resolution: str = "1080p"
     target_fps: int = 24
     video_assets: dict[str, dict[str, Any]] = field(default_factory=dict)
@@ -226,9 +230,11 @@ class MovieProject:
             story_beats=data.get("story_beats") or [],
             story_world=data.get("story_world") or {},
             storyboard_review=data.get("storyboard_review") or {},
+            continuity_state_ledger=data.get("continuity_state_ledger") or {},
             film_language=str(data.get("film_language") or "en").lower(),
             continuity_lock=data.get("continuity_lock") or {},
             voice_profile=data.get("voice_profile") or {},
+            voice_cast=data.get("voice_cast") or {},
             target_resolution=str(data.get("target_resolution") or "1080p").lower(),
             target_fps=int(data.get("target_fps") or 24),
             video_assets=data.get("video_assets") or {},

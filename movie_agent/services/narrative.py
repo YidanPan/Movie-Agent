@@ -140,16 +140,24 @@ def allocate_beat_budgets(
         * max(0.1, float(beat_map.get(beat_id, {}).get("importance", 0.5)))
         for beat_id in ids
     }
-    order = sorted(ids, key=lambda value: (weights[value], -ids.index(value)), reverse=True)
-    cursor = 0
+    # Largest-remainder allocation makes absolute weight differences matter,
+    # while capacity-aware redistribution keeps every shot within 4–8s.
     while remaining > 0:
-        beat_id = order[cursor % len(order)]
-        if budgets[beat_id] < capacities[beat_id]:
-            budgets[beat_id] += 1
-            remaining -= 1
-        cursor += 1
-        if cursor > len(order) * (target_seconds + 1):
+        eligible = [beat_id for beat_id in ids if budgets[beat_id] < capacities[beat_id]]
+        if not eligible:
             return None
+        total_weight = sum(weights[beat_id] for beat_id in eligible)
+        quotas = {beat_id: remaining * weights[beat_id] / total_weight for beat_id in eligible}
+        allocations = {beat_id: min(capacities[beat_id] - budgets[beat_id], int(quotas[beat_id])) for beat_id in eligible}
+        applied = sum(allocations.values())
+        if applied == 0:
+            beat_id = max(eligible, key=lambda value: (quotas[value] - int(quotas[value]), weights[value], -ids.index(value)))
+            allocations[beat_id] = 1
+            applied = 1
+        for beat_id in eligible:
+            addition = min(capacities[beat_id] - budgets[beat_id], allocations[beat_id])
+            budgets[beat_id] += addition
+        remaining -= sum(allocations.values())
     return budgets
 
 
@@ -178,16 +186,18 @@ def allocate_two_stage_durations(
     if budgets is None:
         return None
     weights = list(shot_weights or [])
-    result: list[int] = []
-    start = 0
+    result: list[int] = [0] * len(ids)
+    indices_by_beat: dict[str, list[int]] = {beat_id: [] for beat_id in beat_order}
+    for index, beat_id in enumerate(ids):
+        indices_by_beat[beat_id].append(index)
     for beat_id in beat_order:
-        size = counts[beat_id]
-        group_weights = weights[start:start + size] or [1.0] * size
+        indices = indices_by_beat[beat_id]
+        group_weights = [weights[index] for index in indices] if weights else [1.0] * len(indices)
         group = allocate_weighted_durations(group_weights, budgets[beat_id], minimum, maximum)
         if group is None:
             return None
-        result.extend(group)
-        start += size
+        for index, duration in zip(indices, group):
+            result[index] = duration
     return result
 
 

@@ -349,6 +349,8 @@ def build_smart_ducking(project: Any, *, enabled: bool = True) -> dict[str, Any]
                     "shot": int(entry.get("shot", 0) or 0),
                     "start_seconds": float(entry.get("start_seconds", 0) or 0),
                     "end_seconds": float(entry.get("end_seconds", 0) or 0),
+                    "timeline_start_seconds": float(entry.get("timeline_start_seconds", entry.get("start_seconds", 0)) or 0),
+                    "timeline_end_seconds": float(entry.get("timeline_end_seconds", entry.get("end_seconds", 0)) or 0),
                     "text": text,
                 }
             )

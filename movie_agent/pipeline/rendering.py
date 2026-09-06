@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from movie_agent.services.continuity import ensure_continuity_lock
+from movie_agent.services.shot_context import resolve_shot_context
 
 
 class RenderPipeline:
@@ -15,6 +16,12 @@ class RenderPipeline:
         self.reviewer = reviewer
 
     def render_shot(self, project: Any, shot: Any, *, previous_shot: Any = None) -> str:
+        context = resolve_shot_context(
+            shot,
+            project.visual_bible,
+            getattr(project, "story_world", {}) or {},
+            previous_shot,
+        )
         message = self.generation_agent.generate(
             project.project_id,
             shot,
@@ -22,12 +29,16 @@ class RenderPipeline:
             previous_shot=previous_shot,
             target_resolution=project.target_resolution,
             film_language=project.film_language,
+            story_world=getattr(project, "story_world", {}) or {},
+            context=context,
         )
         review = self.reviewer.review_generated(
             shot,
             project_id=project.project_id,
             visual_bible=project.visual_bible,
             previous_shot=previous_shot,
+            story_world=getattr(project, "story_world", {}) or {},
+            context=context,
         )
         return f"{message}\n{review}"
 

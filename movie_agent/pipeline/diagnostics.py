@@ -169,6 +169,8 @@ def _next_actions(
         return ["RETRY_LAST_STEP", "OPEN_PROJECT_LOG"]
     if status == "planning_live":
         return ["WAIT_FOR_PLAN"]
+    if status == "previs_review_required":
+        return ["APPROVE_PREVIS", "REVIEW_STORYBOARD"]
     if status in {"planned_mock", "planned_text_ai"}:
         return ["REVIEW_PREVIS", "START_RENDER"]
     if status == "ready_for_comfyui_render":

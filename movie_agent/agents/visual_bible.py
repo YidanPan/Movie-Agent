@@ -28,16 +28,17 @@ class VisualBibleAgent:
                 f"Visual style: {visual_style}\nDirector brief: {brief}\nStory: {script.get('story', '')}\n"
                 f"{story_world_prompt(world)}\n"
                 "Return only JSON with keys: character_card, scene_card, style_card, sound_card, "
-                "character_lock, scene_lock, cinematography_lock, reference_seed, "
-                "characters, scenes, cinematography. "
+                "character_lock, scene_lock, prop_lock, cinematography_lock, reference_seed, "
+                "characters, scenes, props, cinematography. "
                 "characters must be an array of objects with character_id, name, role, appearance_lock, face_lock, hair_lock, costume_lock, silhouette_lock, prop_lock. "
                 "Use exactly the provided character IDs and include every provided character. "
                 "scenes must be an array of objects with scene_id, name, environment_lock, architecture_lock, lighting_lock, palette_lock, prop_lock. "
+                "props must be an array of objects with prop_id, name, appearance_lock, material_lock, color_lock, state_rules, screen_language. "
                 "Use exactly the provided scene IDs and include every provided scene. "
                 "cinematography must be an object with lens_language, camera_motion, composition, film_texture, color_pipeline. "
                 "Do not omit structured fields; use an empty string only when a field is genuinely not applicable.",
             )
-            structured_keys = {"characters", "scenes", "cinematography"}
+            structured_keys = {"characters", "scenes", "props", "cinematography"}
             output = {
                 key: value if key in structured_keys and isinstance(value, (list, dict)) else str(value)
                 for key, value in result.items()
@@ -45,6 +46,10 @@ class VisualBibleAgent:
             if world:
                 output["characters"] = self._bind_entities(output.get("characters"), world, "characters")
                 output["scenes"] = self._bind_entities(output.get("scenes"), world, "scenes")
+                output["props"] = self._bind_entities(output.get("props"), world, "props")
+                missing = validate_visual_bible_bindings(output, world)
+                if any(missing.values()):
+                    raise ValueError(f"VISUAL_BIBLE_REVIEW_REQUIRED: {missing}")
             return output
         character_lock = "Male, early 30s, short dark hair with slight wave, clean-shaven, lean build. Wears a dark charcoal utility jacket over a muted grey crew-neck shirt, black slim trousers, matte black boots. Distinguishing feature: small scar above left eyebrow. Same appearance in every shot."
         scene_lock = "Single enclosed near-future control room. Concrete-grey walls with recessed LED strip lighting (cool 5600K). A curved console with dim amber indicator lights runs along one wall. Large window panel showing a dark cityscape. Props: a handheld scanner, a coffee mug. No other characters present."
@@ -56,21 +61,56 @@ class VisualBibleAgent:
             "sound_card": "Ambient room tone, low equipment hum, restrained score; avoid imitating recognisable character voices.",
             "character_lock": character_lock,
             "scene_lock": scene_lock,
+            "prop_lock": "Small set of story-critical props; appearance, material, colour, and state remain stable unless a shot delta changes them.",
             "cinematography_lock": cinematography_lock,
             "characters": [{"character_id": "protagonist", "role": "hero", "lock": character_lock}],
             "scenes": [{"scene_id": "primary", "role": "hero_environment", "lock": scene_lock}],
+            "props": [],
             "cinematography": {"lock": cinematography_lock, "palette": "desaturated teal shadows, warm amber highlights"},
             "reference_seed": "42",
         }
         if world:
             output["characters"] = [
-                {**entity, "character_id": entity.get("character_id")}
+                {
+                    **entity,
+                    "character_id": entity.get("character_id"),
+                    "appearance_lock": entity.get("appearance_lock") or "Stable original character silhouette and proportions.",
+                    "face_lock": entity.get("face_lock") or "Stable facial structure and identifying feature.",
+                    "hair_lock": entity.get("hair_lock") or "Stable hairstyle and hair colour.",
+                    "costume_lock": entity.get("costume_lock") or "Stable costume silhouette and material palette.",
+                    "silhouette_lock": entity.get("silhouette_lock") or "Readable, stable silhouette in every shot.",
+                    "lock": entity.get("lock") or "Stable original character identity, face, hair, costume, and silhouette.",
+                }
                 for entity in world_entities(world, "characters")
             ]
             output["scenes"] = [
-                {**entity, "scene_id": entity.get("scene_id")}
+                {
+                    **entity,
+                    "scene_id": entity.get("scene_id"),
+                    "environment_lock": entity.get("environment_lock") or "Stable original environment geometry and spatial layout.",
+                    "architecture_lock": entity.get("architecture_lock") or "Stable architecture, entrances, and major planes.",
+                    "lighting_lock": entity.get("lighting_lock") or "Stable key light direction and practical sources.",
+                    "palette_lock": entity.get("palette_lock") or "Stable scene palette with restrained contrast.",
+                    "lock": entity.get("lock") or "Stable original environment geometry, lighting, and palette.",
+                }
                 for entity in world_entities(world, "scenes")
             ]
+            output["props"] = [
+                {
+                    **entity,
+                    "prop_id": entity.get("prop_id"),
+                    "appearance_lock": entity.get("appearance_lock") or "Stable recognisable shape and markings.",
+                    "material_lock": entity.get("material_lock") or "Stable material and surface response.",
+                    "color_lock": entity.get("color_lock") or "Stable restrained colour treatment.",
+                    "state_rules": entity.get("state_rules") or "State changes only when the shot delta explicitly changes it.",
+                    "screen_language": entity.get("screen_language") or "English only.",
+                    "lock": entity.get("lock") or "Stable original prop appearance, material, colour, and state rules.",
+                }
+                for entity in world_entities(world, "props")
+            ]
+        validate = validate_visual_bible_bindings(output, world or {"characters": {}, "scenes": {}, "props": {}})
+        if any(validate.values()):
+            raise ValueError(f"VISUAL_BIBLE_REVIEW_REQUIRED: {validate}")
         return output
 
     @staticmethod
@@ -83,3 +123,22 @@ class VisualBibleAgent:
             entity_id = str(entity.get(f"{prefix}_id") or "")
             result.append({**(by_id.get(entity_id) or {}), **entity, f"{prefix}_id": entity_id})
         return result
+
+
+def validate_visual_bible_bindings(visual_bible: dict[str, Any], story_world: dict[str, Any]) -> dict[str, list[str]]:
+    """Report canonical world entities that do not have usable visual locks."""
+
+    missing: dict[str, list[str]] = {"missing_character_locks": [], "missing_scene_locks": [], "missing_prop_locks": []}
+    for kind, lock_fields, output_key in (
+        ("characters", ("appearance_lock", "face_lock", "costume_lock", "lock"), "missing_character_locks"),
+        ("scenes", ("environment_lock", "architecture_lock", "lighting_lock", "palette_lock", "lock"), "missing_scene_locks"),
+        ("props", ("appearance_lock", "material_lock", "color_lock", "state_rules", "lock"), "missing_prop_locks"),
+    ):
+        prefix = kind[:-1]
+        available = {str(item.get(f"{prefix}_id")): item for item in (visual_bible.get(kind) or []) if isinstance(item, dict)}
+        for entity in world_entities(story_world, kind):
+            entity_id = str(entity.get(f"{prefix}_id") or "")
+            value = available.get(entity_id) or {}
+            if not any(str(value.get(field) or "").strip() for field in lock_fields):
+                missing[output_key].append(entity_id)
+    return missing

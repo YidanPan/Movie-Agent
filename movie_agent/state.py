@@ -31,6 +31,7 @@ STATUS_TO_STATE: dict[str, ProjectState] = {
     "planning_live": ProjectState.PLANNING,
     "planned_mock": ProjectState.PREVIS_READY,
     "planned_text_ai": ProjectState.PREVIS_READY,
+    "previs_review_required": ProjectState.PREVIS_READY,
     "ready_for_comfyui_render": ProjectState.RENDER_READY,
     "generating_video_mock": ProjectState.RENDERING,
     "rendering_comfyui": ProjectState.RENDERING,
@@ -114,8 +115,12 @@ def describe_status(status: str | None) -> dict[str, Any]:
         "stage": stage,
         "archived": state is ProjectState.ARCHIVED,
         "terminal": state in {ProjectState.FINAL_READY, ProjectState.EXPORTED, ProjectState.ARCHIVED},
-        "review_required": str(status or "").strip().lower() == "awaiting_visual_review",
-        "next_action": "APPROVE_SHOT" if str(status or "").strip().lower() == "awaiting_visual_review" else None,
+        "review_required": str(status or "").strip().lower() in {"awaiting_visual_review", "previs_review_required"},
+        "next_action": (
+            "APPROVE_PREVIS" if str(status or "").strip().lower() == "previs_review_required"
+            else "APPROVE_SHOT" if str(status or "").strip().lower() == "awaiting_visual_review"
+            else None
+        ),
         "pipeline": _pipeline_for_state(state),
         "labels": {
             "state": state.value.replace("_", " ").upper(),

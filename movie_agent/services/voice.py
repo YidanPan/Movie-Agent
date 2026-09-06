@@ -20,6 +20,7 @@ from typing import Any, Protocol
 from movie_agent.config import Settings
 from movie_agent.services.alignment import PROPORTIONAL, WORD_LEVEL
 from movie_agent.services.subtitles import align_script_to_audio, script_subtitle_track
+from movie_agent.services.voice_timeline import compose_voice_timeline
 
 
 class VoiceProvider(Protocol):
@@ -44,6 +45,9 @@ def locked_voice_text(project: Any) -> str:
     """Return the locked English dialogue/narration in screenplay order."""
 
     script = getattr(project, "script", {}) or {}
+    policies = script.get("speech_policy_by_shot") or {}
+    if policies and all(str(value).upper() in {"SILENT", "AMBIENCE_ONLY"} for value in policies.values()):
+        return ""
     entries = script.get("dialogue_book") or script_subtitle_track(script)
     lines: list[str] = []
     for entry in entries:
@@ -57,6 +61,27 @@ def locked_voice_text(project: Any) -> str:
     if lines:
         return " ".join(lines)
     return str(script.get("narration") or script.get("story") or "").strip()
+
+
+def ensure_voice_cast(project: Any) -> dict[str, dict[str, Any]]:
+    """Persist stable speaker-to-voice identities without requiring cloning."""
+
+    base = dict(getattr(project, "voice_profile", {}) or {})
+    cast = dict(getattr(project, "voice_cast", {}) or {})
+    speakers = {
+        str(item.get("speaker") or "NARRATOR").upper()
+        for item in ((getattr(project, "script", {}) or {}).get("dialogue_book") or [])
+        if isinstance(item, dict)
+    }
+    speakers.add("NARRATOR")
+    for speaker in speakers:
+        profile = dict(cast.get(speaker) or base)
+        profile.setdefault("voice_id", base.get("voice_id") or "en-US-GuyNeural")
+        profile.setdefault("fallback", "NARRATOR")
+        profile["speaker"] = speaker
+        cast[speaker] = profile
+    project.voice_cast = cast
+    return cast
 
 
 def _audio_duration(path: Path, ffprobe_bin: str = "ffprobe") -> float | None:
@@ -170,18 +195,19 @@ class ContinuousVoiceService:
         self.provider = provider
 
     def synthesize(self, project: Any, provider: VoiceProvider | None = None) -> VoiceSynthesisResult:
+        ensure_voice_cast(project)
         script = getattr(project, "script", {}) or {}
         if not bool(script.get("dialogue_locked")):
             raise RuntimeError("Lock the Dialogue Book before generating the continuous voice track.")
         text = locked_voice_text(project)
         if not text:
             result = VoiceSynthesisResult(
-                "NO VOICE TEXT",
+                "BYPASSED · NO SPEECH",
                 None,
                 None,
                 "continuous_voice_track",
-                "not_available",
-                "The locked Dialogue Book contains no speakable English text.",
+                "not_applicable",
+                None,
             )
             self._persist_result(project, result)
             return result
@@ -251,11 +277,41 @@ class ContinuousVoiceService:
                 "pending_media",
                 str(exc),
             )
-        self._persist_result(project, result)
+        timeline = None
+        if result.media_path and result.duration_seconds:
+            project.script = align_script_to_audio(
+                getattr(project, "script", {}) or {},
+                result.duration_seconds,
+                word_boundaries=result.word_boundaries,
+            )
+            timeline = compose_voice_timeline(
+                project,
+                Path(result.media_path),
+                result.duration_seconds,
+                ffmpeg_bin=self.settings.ffmpeg_bin,
+            )
+            timeline_cues = timeline.get("cues") or []
+            project.script["dialogue_book"] = timeline_cues
+            project.script["subtitle_track"] = timeline_cues
+            project.script["voice_timeline"] = {
+                "duration_seconds": timeline.get("duration_seconds"),
+                "status": timeline.get("status"),
+                "overflow": timeline.get("overflow") or [],
+            }
+            result = VoiceSynthesisResult(
+                result.status,
+                str(timeline.get("media_path") or result.media_path),
+                result.duration_seconds,
+                result.method,
+                result.alignment_method,
+                result.error,
+                result.word_boundaries,
+            )
+        self._persist_result(project, result, timeline=timeline)
         return result
 
     @staticmethod
-    def _persist_result(project: Any, result: VoiceSynthesisResult) -> None:
+    def _persist_result(project: Any, result: VoiceSynthesisResult, *, timeline: dict[str, Any] | None = None) -> None:
         track = (getattr(project, "audio_tracks", {}) or {}).setdefault("voice", {})
         track.update(
             {
@@ -266,6 +322,9 @@ class ContinuousVoiceService:
                 "duration_seconds": result.duration_seconds,
                 "duration_source": "measured_media" if result.duration_seconds else "pending_provider",
                 "provider_error": result.error,
+                "timeline_status": (timeline or {}).get("status") if timeline else ("BYPASSED" if result.status == "BYPASSED · NO SPEECH" else None),
+                "timeline_duration_seconds": (timeline or {}).get("duration_seconds") if timeline else None,
+                "raw_media_path": (timeline or {}).get("raw_media_path") if timeline else None,
             }
         )
         if result.media_path:
@@ -274,13 +333,19 @@ class ContinuousVoiceService:
         else:
             track.pop("media_path", None)
             track["preview_url"] = None
+        if result.status == "BYPASSED · NO SPEECH":
+            project.smart_ducking = {
+                **(getattr(project, "smart_ducking", {}) or {}),
+                "voice_cues": [],
+                "status": "BYPASSED",
+                "signal_source": "no_speech",
+            }
         if result.duration_seconds:
-            script = align_script_to_audio(
-                getattr(project, "script", {}) or {},
-                result.duration_seconds,
-                word_boundaries=result.word_boundaries,
-            )
-            project.script = script
+            script = getattr(project, "script", {}) or {}
+            if not timeline:
+                script = align_script_to_audio(script, result.duration_seconds, word_boundaries=result.word_boundaries)
+                project.script = script
+            film_cues = (timeline or {}).get("cues") or script_subtitle_track(script)
             project.smart_ducking = {
                 **(getattr(project, "smart_ducking", {}) or {}),
                 "voice_cues": [
@@ -290,7 +355,7 @@ class ContinuousVoiceService:
                         "end_seconds": entry.get("end_seconds", 0),
                         "text": entry.get("text", ""),
                     }
-                    for entry in script_subtitle_track(script)
+                    for entry in film_cues
                     if isinstance(entry, dict) and str(entry.get("text") or "").strip() not in {"", "(silence)"}
                 ],
                 "status": "ACTIVE" if (getattr(project, "smart_ducking", {}) or {}).get("enabled", True) else "OFF",
@@ -301,6 +366,7 @@ class ContinuousVoiceService:
             "media_duration_seconds": result.duration_seconds,
             "method": result.alignment_method,
             "word_level_timestamps": result.alignment_method == WORD_LEVEL,
+            "time_domain": "FILM_TIMELINE" if timeline else "VOICE_LOCAL",
         }
         if result.word_boundaries:
             track["alignment"]["word_count"] = len(result.word_boundaries)
@@ -337,6 +403,7 @@ __all__ = [
     "VoiceProvider",
     "VoiceSynthesisResult",
     "locked_voice_text",
+    "ensure_voice_cast",
     "mark_voice_alignment_stale",
     "synthesize_continuous_voice",
 ]

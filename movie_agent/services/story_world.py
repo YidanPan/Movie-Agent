@@ -82,13 +82,27 @@ def world_entities(world: dict[str, Any] | None, kind: str) -> list[dict[str, An
 
 
 def story_world_prompt(world: dict[str, Any] | None) -> str:
-    """Format only canonical IDs for downstream model prompts."""
+    """Format compact ID/name/role registry information, not visual locks."""
 
-    return (
-        "Available canonical characters: " + ", ".join(sorted(entity_ids(world, "characters")) or ["none"]) + "\n"
-        "Available canonical scenes: " + ", ".join(sorted(entity_ids(world, "scenes")) or ["none"]) + "\n"
-        "Available canonical props: " + ", ".join(sorted(entity_ids(world, "props")) or ["none"])
-    )
+    lines: list[str] = []
+    for kind, label, role_key in (
+        ("characters", "CHARACTERS", "role"),
+        ("scenes", "SCENES", "story_role"),
+        ("props", "PROPS", "story_role"),
+    ):
+        lines.append(label)
+        entities = world_entities(world, kind)
+        if not entities:
+            lines.append("none")
+            continue
+        prefix = kind[:-1]
+        for item in entities:
+            entity_id = str(item.get(f"{prefix}_id") or "")
+            name = str(item.get("name") or entity_id)
+            role = str(item.get(role_key) or item.get("role") or "unspecified")
+            lines.append(f"{entity_id} | {name} | {role}")
+    lines.append("Use only these canonical IDs; do not invent new entity IDs.")
+    return "\n".join(lines)
 
 
 def validate_story_world_references(

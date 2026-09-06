@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from movie_agent.services.continuity import should_use_previous_frame
+from movie_agent.services.shot_context import ResolvedShotContext
 
 
 REFERENCE_KINDS = {
@@ -196,11 +197,15 @@ class ReferenceBankStore:
         project_id: str,
         shot_number: int | Any,
         previous_shot: Any | None = None,
+        *,
+        context: ResolvedShotContext | None = None,
     ) -> dict[str, list[Path]]:
         """Resolve persistent, approved inputs for a shot's visual review."""
 
-        requested_scene = str(getattr(shot_number, "scene_id", "") or "")
-        requested_characters = {str(item) for item in (getattr(shot_number, "character_ids", []) or [])}
+        is_shot = not isinstance(shot_number, (int, str))
+        requested_scene = str((context.scene_id if context else getattr(shot_number, "scene_id", "")) or "")
+        requested_characters = set(context.character_ids if context else [str(item) for item in (getattr(shot_number, "character_ids", []) or [])])
+        requested_props = set(context.prop_ids if context else [str(item) for item in (getattr(shot_number, "prop_ids", []) or [])])
         shot_number = int(getattr(shot_number, "number", shot_number) or 0)
         bank = self.load(project_id)
         usable = [
@@ -234,14 +239,31 @@ class ReferenceBankStore:
             scene = [asset for asset in scene if field(asset, "scene_id") == requested_scene]
             if not scene:
                 reference_flags.append("MISSING_SCENE_REFERENCE")
+        prop = [asset for asset in usable if asset.kind == "prop"]
+        if requested_props:
+            prop = [
+                asset for asset in prop
+                if requested_props.intersection(set(field(asset, "prop_ids").split(",")))
+                or field(asset, "prop_id") in requested_props
+            ]
+            if not prop:
+                reference_flags.append("MISSING_PROP_REFERENCE")
         previous = []
-        if should_use_previous_frame(shot_number, previous_shot):
+        requires_previous = context.previous_visual_reference_allowed if context else should_use_previous_frame(shot_number, previous_shot)
+        if requires_previous and (previous_shot is not None or not is_shot):
             previous = [
                 asset
                 for asset in usable
                 if asset.kind == "previous_approved_shot_ending_frame"
                 and asset.shot_number is not None
-                and asset.shot_number < shot_number
+                and (
+                    not is_shot
+                    or (
+                        previous_shot is not None
+                        and asset.shot_number == int(getattr(previous_shot, "number", 0) or 0)
+                        and asset.revision == int(getattr(previous_shot, "revision", 1) or 1)
+                    )
+                )
             ]
         latest_previous: dict[int, ReferenceAsset] = {}
         for asset in previous:
@@ -250,9 +272,12 @@ class ReferenceBankStore:
             current = latest_previous.get(asset.shot_number)
             if current is None or (asset.revision, asset.created_at) > (current.revision, current.created_at):
                 latest_previous[asset.shot_number] = asset
+        if requires_previous and is_shot and previous_shot is not None and not latest_previous:
+            reference_flags.append("MISSING_PREVIOUS_ENDING_REFERENCE")
         return {
             "character_hero": [Path(asset.path) for asset in character[:2]],
             "current_scene": [Path(asset.path) for asset in scene[:3]],
+            "prop": [Path(asset.path) for asset in prop[:3]],
             "previous_approved_shot_ending_frame": [Path(asset.path) for asset in latest_previous.values()][-1:] if latest_previous else [],
             "reference_flags": reference_flags,
         }
@@ -262,6 +287,8 @@ class ReferenceBankStore:
         project_id: str,
         shot: Any,
         previous_shot: Any | None = None,
+        *,
+        context: ResolvedShotContext | None = None,
     ) -> dict[str, list[Path]]:
         """Resolve references for one shot without claiming T2V consumes images.
 
@@ -270,9 +297,11 @@ class ReferenceBankStore:
         can later bind the same paths to actual conditioning inputs.
         """
 
+        is_shot = not isinstance(shot, (int, str))
         shot_number = int(getattr(shot, "number", shot) or 0)
-        scene_id = str(getattr(shot, "scene_id", "") or "")
-        character_ids = {str(item) for item in (getattr(shot, "character_ids", []) or [])}
+        scene_id = str((context.scene_id if context else getattr(shot, "scene_id", "")) or "")
+        character_ids = set(context.character_ids if context else [str(item) for item in (getattr(shot, "character_ids", []) or [])])
+        prop_ids = set(context.prop_ids if context else [str(item) for item in (getattr(shot, "prop_ids", []) or [])])
         bank = self.load(project_id)
         usable = [
             asset for asset in bank.assets
@@ -302,20 +331,40 @@ class ReferenceBankStore:
             scene_assets = [asset for asset in scene_assets if field(asset, "scene_id") == scene_id]
             if not scene_assets:
                 reference_flags.append("MISSING_SCENE_REFERENCE")
+        prop_assets = [asset for asset in usable if asset.kind == "prop"]
+        if prop_ids:
+            prop_assets = [
+                asset for asset in prop_assets
+                if prop_ids.intersection(set(field(asset, "prop_ids").split(",")))
+                or field(asset, "prop_id") in prop_ids
+            ]
+            if not prop_assets:
+                reference_flags.append("MISSING_PROP_REFERENCE")
         previous = []
-        if should_use_previous_frame(shot, previous_shot):
+        requires_previous = context.previous_visual_reference_allowed if context else should_use_previous_frame(shot, previous_shot)
+        if requires_previous and (previous_shot is not None or not is_shot):
             previous = [
                 asset for asset in usable
                 if asset.kind == "previous_approved_shot_ending_frame"
                 and asset.shot_number is not None
-                and asset.shot_number < shot_number
+                and (
+                    not is_shot
+                    or (
+                        previous_shot is not None
+                        and asset.shot_number == int(getattr(previous_shot, "number", 0) or 0)
+                        and asset.revision == int(getattr(previous_shot, "revision", 1) or 1)
+                    )
+                )
             ]
         previous.sort(key=lambda asset: (int(asset.shot_number or 0), int(asset.revision or 1), asset.created_at))
         palette = [asset for asset in usable if asset.kind == "palette"]
         cinematography = [asset for asset in usable if asset.kind == "cinematography"]
+        if requires_previous and is_shot and previous_shot is not None and not previous:
+            reference_flags.append("MISSING_PREVIOUS_ENDING_REFERENCE")
         return {
             "character": [Path(asset.path) for asset in character_assets[:3]],
             "scene": [Path(asset.path) for asset in scene_assets[:2]],
+            "prop": [Path(asset.path) for asset in prop_assets[:3]],
             "previous_frame": [Path(previous[-1].path)] if previous else [],
             "palette": [Path(asset.path) for asset in palette[:1]],
             "cinematography": [Path(asset.path) for asset in cinematography[:1]],

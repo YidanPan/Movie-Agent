@@ -390,6 +390,14 @@ def ensure_dialogue_assets(
     result: dict[str, Any] = deepcopy(script or {})
     count = shot_count or shot_count_for_duration(duration_seconds)
     durations = allocate_durations(duration_seconds, count)
+    policies = result.get("speech_policy_by_shot") or {}
+    if policies and all(str(value).upper() in {"SILENT", "AMBIENCE_ONLY"} for value in policies.values()):
+        result["dialogue_book"] = []
+        result["subtitle_track"] = []
+        result["dialogue_locked"] = bool(result.get("dialogue_locked", False))
+        result["subtitle_mode"] = normalise_subtitle_mode(result.get("subtitle_mode", "burned"))
+        result["dialogue_revision"] = int(result.get("dialogue_revision", 1) or 1)
+        return result
     dialogue_source = _text(result.get("narration")) or _text(result.get("story"))
     dialogue = _normalise_entries(result.get("dialogue_book"), count, durations, dialogue_source)
     subtitle = _normalise_entries(result.get("subtitle_track"), count, durations, dialogue_source)

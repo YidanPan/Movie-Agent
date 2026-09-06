@@ -291,6 +291,7 @@ class StoryboardAgent:
         shots: list[Shot],
         story_beats: list[dict[str, Any]],
         visual_bible: dict[str, Any] | None = None,
+        story_world: dict[str, Any] | None = None,
         *,
         max_passes: int = 1,
     ) -> list[Shot]:
@@ -300,7 +301,7 @@ class StoryboardAgent:
             return shots
         beats = normalise_story_beats(story_beats)
         beat_by_id = {str(beat["beat_id"]): beat for beat in beats}
-        repair_flags = {"LOW_RELEVANCE_SHOT", "REDUNDANT_SHOT", "SHOT_TOO_COMPLEX", "NARRATIVE_STATE_DRIFT"}
+        repair_flags = {"LOW_RELEVANCE_SHOT", "REDUNDANT_SHOT", "SHOT_TOO_COMPLEX", "NARRATIVE_STATE_DRIFT", "TRANSITION_CONFLICT"}
         for index, shot in enumerate(shots):
             flags = [flag for flag in shot.qc_flags if flag in repair_flags]
             if not flags:
@@ -316,8 +317,9 @@ class StoryboardAgent:
                     "Do not rewrite unrelated shots.",
                     f"FLAGS: {flags}\nBEAT: {beat}\nPREVIOUS: {previous.to_dict() if previous else {}}\n"
                     f"CURRENT: {shot.to_dict()}\nNEXT: {following.to_dict() if following else {}}\n"
-                    f"VISUAL BIBLE: {visual_bible or {}}\n"
-                    "Return JSON with beat_id, scene_id, character_ids, story_function, narrative_purpose, "
+                    f"CANONICAL STORY WORLD: {story_world or {}}\nVISUAL BIBLE: {visual_bible or {}}\n"
+                    "Preserve the structural selectors beat_id, scene_id, character_ids, and prop_ids unless this is explicitly a WORLD_CONTEXT_REPAIR. "
+                    "Return JSON with beat_id, scene_id, character_ids, prop_ids, story_function, narrative_purpose, "
                     "information_gain, emotional_shift, visual_motif, starting_state, main_action, "
                     "secondary_action, environment_reaction, character_reaction, ending_state, transition_hook, "
                     "transition_type, shot_complexity, prompt.",
@@ -331,6 +333,8 @@ class StoryboardAgent:
                 if "REDUNDANT_SHOT" in flags:
                     shot.story_function = f"{shot.story_function} with a new consequence".strip()
                     shot.information_gain = max(shot.information_gain, 0.6)
+                    shot.image_description = "A distinct consequence appears in a new composition."
+                    shot.main_action = "The protagonist reacts to the changed signal."
                 if "SHOT_TOO_COMPLEX" in flags:
                     shot.main_action = shot.main_action.split(",", 1)[0].strip() or shot.action
                     shot.secondary_action = ""
@@ -341,16 +345,27 @@ class StoryboardAgent:
                     shot.continuity_from = shot.starting_state
                     shot.transition_hook = shot.transition_hook or "Continue directly from the previous state."
                 continue
-            # The beat is structural and may not be changed by a repair pass.
+            # The beat and world selectors are structural and may not be
+            # changed by an ordinary relevance repair.
             payload["beat_id"] = shot.beat_id or str(beat.get("beat_id") or "")
+            for selector in ("scene_id", "character_ids", "prop_ids"):
+                if selector in payload and payload[selector] != getattr(shot, selector):
+                    if "WORLD_CONTEXT_REPAIR" not in flags:
+                        payload[selector] = getattr(shot, selector)
+                    else:
+                        shot.qc_flags.append("WORLD_CONTEXT_REPAIR")
             for key in (
-                "scene_id", "character_ids", "story_function", "narrative_purpose", "information_gain",
+                "story_function", "narrative_purpose", "information_gain",
                 "emotional_shift", "visual_motif", "starting_state", "main_action", "secondary_action",
                 "environment_reaction", "character_reaction", "ending_state", "transition_hook",
-                "transition_type", "shot_complexity", "prompt",
+                "transition_type", "shot_complexity", "prompt", "speech_policy",
             ):
                 if key in payload:
                     setattr(shot, key, payload[key])
+        if story_world:
+            unknown = validate_story_world_references([shot.to_dict() for shot in shots], story_world)
+            if any(unknown.values()):
+                raise ValueError(f"REPAIR_WORLD_CONFLICT: {unknown}")
         StoryboardRelevanceGate().annotate(shots, beats)
         return shots
 

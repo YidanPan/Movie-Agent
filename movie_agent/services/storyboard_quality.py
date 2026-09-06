@@ -20,6 +20,8 @@ PLANNING_RELEVANCE_FLAGS = {
     "SHOT_TOO_COMPLEX",
     "NARRATIVE_STATE_DRIFT",
     "BEAT_MAPPING_REVIEW",
+    "TRANSITION_CONFLICT",
+    "REPEATED_VISUAL_FUNCTION",
 }
 
 
@@ -167,12 +169,21 @@ class StoryboardRelevanceGate:
         continuity_warnings: list[int] = []
         redundant_pairs: list[list[int]] = []
         repeated_information: list[list[int]] = []
+        repeated_visual_function: list[list[int]] = []
         transition_scores: list[float] = []
+        transition_conflicts: list[int] = []
         previous = None
         for shot in shot_list:
             result = self.evaluate(shot, None, previous)
             number = int(getattr(shot, "number", len(low_relevance) + 1))
             flags = set(result["flags"])
+            if previous is not None:
+                previous_scene = _text(getattr(previous, "scene_id", ""))
+                current_scene = _text(getattr(shot, "scene_id", ""))
+                transition = _text(getattr(shot, "transition_type", "CONTINUOUS")).upper()
+                if previous_scene and current_scene and previous_scene != current_scene and transition == "CONTINUOUS":
+                    flags.add("TRANSITION_CONFLICT")
+                    transition_conflicts.append(number)
             if "LOW_RELEVANCE_SHOT" in flags:
                 low_relevance.append(number)
             if "SHOT_TOO_COMPLEX" in flags:
@@ -186,9 +197,25 @@ class StoryboardRelevanceGate:
                 repeated_information.append([int(getattr(previous, "number", number - 1)), number])
             transition_scores.append(float(result["metrics"].get("continuity_strength", 0.0)))
             previous = shot
+        # Whole-film redundancy is intentionally capped by the normal 6–10
+        # shot contract, so all-pairs comparison remains deterministic and
+        # cheap. It catches repetition that is not adjacent.
+        for left_index, left in enumerate(shot_list):
+            for right in shot_list[left_index + 1:]:
+                left_function = " ".join(_text(getattr(left, key, "")) for key in ("story_function", "main_action", "ending_state"))
+                right_function = " ".join(_text(getattr(right, key, "")) for key in ("story_function", "main_action", "ending_state"))
+                visual = _similarity(
+                    " ".join(_text(getattr(left, key, "")) for key in ("image_description", "visual_motif")),
+                    " ".join(_text(getattr(right, key, "")) for key in ("image_description", "visual_motif")),
+                )
+                if _similarity(left_function, right_function) >= 0.82 and visual >= 0.72:
+                    pair = [int(getattr(left, "number", left_index + 1)), int(getattr(right, "number", left_index + 2))]
+                    if pair not in repeated_visual_function:
+                        repeated_visual_function.append(pair)
         issues = bool(
             low_relevance or complex_shots or continuity_warnings or redundant_pairs
             or repeated_information or beat_mapping["uncovered_beats"] or beat_mapping["orphan_shots"]
+            or transition_conflicts or repeated_visual_function
         )
         return {
             "beat_coverage": beat_mapping["coverage_ratio"],
@@ -196,16 +223,49 @@ class StoryboardRelevanceGate:
             "low_relevance_shots": low_relevance,
             "redundant_pairs": redundant_pairs,
             "repeated_information": repeated_information,
+            "repeated_visual_function": repeated_visual_function,
             "complex_shots": complex_shots,
             "continuity_warnings": continuity_warnings,
+            "transition_conflicts": transition_conflicts,
             "transition_strength": round(sum(transition_scores) / max(1, len(transition_scores)), 3),
             "overall_storyboard_health": "REVIEW" if issues else "PASS",
             "decision": "REVIEW" if issues else "PASS",
         }
 
 
+class StoryboardCritic:
+    """Independent planning critic that does not trust shot self-scores."""
+
+    def review(self, shots: Iterable[Any], screenplay: dict[str, Any] | None = None, beats: Iterable[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
+        del screenplay, beats
+        items = list(shots)
+        output: list[dict[str, Any]] = []
+        for index, shot in enumerate(items):
+            action = _text(getattr(shot, "main_action", "") or getattr(shot, "action", ""))
+            purpose = _text(getattr(shot, "story_function", "") or getattr(shot, "narrative_purpose", ""))
+            duplicate = False
+            for other in items[:index]:
+                duplicate = _similarity(
+                    f"{_text(getattr(other, 'story_function', ''))} {_text(getattr(other, 'main_action', ''))}",
+                    f"{purpose} {action}",
+                ) >= 0.82
+                if duplicate:
+                    break
+            output.append(
+                {
+                    "shot": int(getattr(shot, "number", index + 1)),
+                    "decision": "REVIEW" if duplicate or not action or not purpose else "KEEP",
+                    "can_remove_without_story_change": bool(duplicate or not action),
+                    "reveals_new_information": not duplicate and float(getattr(shot, "information_gain", 0) or 0) > 0,
+                    "changes_state": bool(_text(getattr(shot, "ending_state", ""))),
+                    "transition_causally_meaningful": bool(_text(getattr(shot, "transition_hook", ""))),
+                }
+            )
+        return output
+
+
 def review_storyboard(shots: Iterable[Any], beats: Iterable[dict[str, Any]] | None = None) -> dict[str, Any]:
     return StoryboardRelevanceGate().review_storyboard(shots, beats)
 
 
-__all__ = ["PLANNING_RELEVANCE_FLAGS", "StoryboardRelevanceGate", "previous_ending_connects_to_next_starting_state", "review_storyboard"]
+__all__ = ["PLANNING_RELEVANCE_FLAGS", "StoryboardCritic", "StoryboardRelevanceGate", "previous_ending_connects_to_next_starting_state", "review_storyboard"]

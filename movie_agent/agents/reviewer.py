@@ -11,7 +11,61 @@ from movie_agent.config import Settings
 from movie_agent.models import Shot
 from movie_agent.services.llm import ModelScopeLLM, build_vision_llm
 from movie_agent.services.revisions import ensure_shot_metadata
+from movie_agent.services.shot_context import ResolvedShotContext, resolve_shot_context
 from movie_agent.storage.reference_bank import ReferenceBankStore
+
+
+VISUAL_QC_FLAGS = {
+    "STYLE_DRIFT",
+    "CHARACTER_DRIFT",
+    "SCENE_DRIFT",
+    "NARRATIVE_STATE_DRIFT",
+    "PROP_DRIFT",
+}
+
+
+def normalise_visual_review(review: dict[str, Any] | None) -> dict[str, Any]:
+    """Convert legacy reviewer output into the one persisted score schema."""
+
+    raw = review if isinstance(review, dict) else {}
+    dimensions = raw.get("dimensions") if isinstance(raw.get("dimensions"), dict) else {}
+    legacy_only = not isinstance(raw.get("scores"), dict) and not dimensions
+    legacy = {
+        "character_identity": raw.get("character_identity", raw.get("character_consistency")),
+        "costume": raw.get("costume", raw.get("costume_consistency")),
+        "face_hair": raw.get("face_hair", raw.get("face_hair_consistency")),
+        "scene_geometry": raw.get("scene_geometry", raw.get("scene_consistency")),
+        "props": raw.get("props", raw.get("props_consistency")),
+        "palette": raw.get("palette", raw.get("palette_consistency")),
+        "lighting": raw.get("lighting", raw.get("lighting_consistency")),
+        "camera_language": raw.get("camera_language", raw.get("camera_language_consistency", raw.get("camera_style_consistency"))),
+        "film_texture": raw.get("film_texture", raw.get("film_texture_consistency")),
+        "narrative_state": raw.get("narrative_state"),
+    }
+    scores = {}
+    for key, value in legacy.items():
+        if value is None:
+            value = dimensions.get(key)
+        if value is None:
+            if legacy_only and key in {"palette", "lighting", "camera_language", "film_texture"}:
+                value = 100
+        if value is None:
+            scores[key] = None
+            continue
+        try:
+            scores[key] = max(0, min(100, int(float(value))))
+        except (TypeError, ValueError):
+            scores[key] = None
+    flags = [str(flag).strip().upper() for flag in (raw.get("drift_flags") or []) if str(flag).strip().upper() in VISUAL_QC_FLAGS]
+    details = raw.get("drift_details") if isinstance(raw.get("drift_details"), dict) else {}
+    return {
+        "verdict": str(raw.get("verdict") or "review").strip().lower(),
+        "scores": scores,
+        "drift_flags": list(dict.fromkeys(flags)),
+        "drift_details": details,
+        "copyright_risk": str(raw.get("copyright_risk") or "medium").strip().lower(),
+        "review_note": str(raw.get("review_note") or "Visual review completed.").strip(),
+    }
 
 
 class ReviewerAgent:
@@ -28,8 +82,13 @@ class ReviewerAgent:
             value = details.get(namespace) or {}
             if isinstance(value, dict):
                 flags.extend(str(flag) for flag in (value.get("flags") or []))
-        # Preserve older projects that only have the flat list.
-        flags.extend(str(flag) for flag in (shot.qc_flags or []) if str(flag) not in flags)
+        # Rebuild known visual flags from the current visual review only. This
+        # lets a later PASS remove a drift flag that an earlier revision set.
+        flags.extend(
+            str(flag)
+            for flag in (shot.qc_flags or [])
+            if str(flag).upper() not in VISUAL_QC_FLAGS and str(flag) not in flags
+        )
         shot.qc_flags = list(dict.fromkeys(flags))
 
     def review_mock(self, shot: Shot) -> str:
@@ -50,6 +109,8 @@ class ReviewerAgent:
         project_id: str | None = None,
         visual_bible: dict[str, str] | None = None,
         previous_shot: Shot | None = None,
+        story_world: dict[str, Any] | None = None,
+        context: ResolvedShotContext | None = None,
     ) -> str:
         if shot.status != "generated_comfyui":
             raise RuntimeError(f"Shot {shot.number} has not been generated yet; cannot enter quality review.")
@@ -70,11 +131,13 @@ class ReviewerAgent:
             project_id = "ad-hoc-review"
         frames = self._extract_keyframes(project_id, shot, video_path, duration)
         ending_frame = self._extract_ending_frame(project_id, shot, video_path, duration)
-        generation_references = self.reference_bank.generation_reference_paths(project_id, shot, previous_shot)
+        context = context or resolve_shot_context(shot, visual_bible or {}, story_world, previous_shot)
+        generation_references = self.reference_bank.generation_reference_paths(project_id, shot, previous_shot, context=context)
         reference_inputs = {
             "character_hero": generation_references["character"],
             "current_scene": generation_references["scene"],
             "previous_approved_shot_ending_frame": generation_references["previous_frame"],
+            "prop": generation_references.get("prop", []),
             "palette": generation_references["palette"],
             "reference_flags": generation_references.get("reference_flags", []),
         }
@@ -115,7 +178,7 @@ class ReviewerAgent:
                 f"{len(frames)} keyframes persisted; no vision model configured; MANUAL VISUAL REVIEW required before approval."
             )
 
-        review = self._review_visual_consistency(
+        review = normalise_visual_review(self._review_visual_consistency(
             project_id,
             shot,
             visual_bible or {},
@@ -123,47 +186,49 @@ class ReviewerAgent:
             reference_paths=[
                 *reference_inputs["character_hero"],
                 *reference_inputs["current_scene"],
+                *reference_inputs["prop"],
                 *reference_inputs["previous_approved_shot_ending_frame"],
             ],
-        )
+            context=context,
+        ))
         self._write_visual_review(project_id, shot.number, review)
         verdict = str(review.get("verdict", "")).strip().lower()
-        character_score = self._score(review.get("character_consistency"))
-        scene_score = self._score(review.get("scene_consistency"))
-        drift_flags = [
-            str(flag).strip().upper()
-            for flag in (review.get("drift_flags") or [])
-            if str(flag).strip().upper() in {
-                "STYLE_DRIFT", "CHARACTER_DRIFT", "SCENE_DRIFT", "NARRATIVE_STATE_DRIFT", "PROP_DRIFT"
-            }
-        ]
+        scores = review.get("scores") or {}
+        character_score = scores.get("character_identity")
+        scene_score = scores.get("scene_geometry")
+        drift_flags = list(review.get("drift_flags") or [])
         shot.qc_details = {
             **(shot.qc_details or {}),
             "review_state": "VISION_REVIEWED",
             "visual": {
                 "reference_strategy": reference_strategy,
-                "dimensions": review.get("dimensions") or {},
+                "dimensions": scores,
                 "drift_details": review.get("drift_details") or {},
-                "scores": {
-                key: self._score(review.get(key))
-                for key in ("character_consistency", "scene_consistency", "costume_consistency", "face_hair_consistency", "props_consistency", "palette_consistency", "lighting_consistency", "camera_language_consistency", "film_texture_consistency")
-                if review.get(key) is not None
-                },
+                "scores": scores,
                 "reference_flags": reference_flags,
                 "flags": drift_flags,
             },
             "reference_strategy": reference_strategy,
-            "dimensions": review.get("dimensions") or {},
+            "dimensions": scores,
             "drift_details": review.get("drift_details") or {},
             "copyright_risk": review.get("copyright_risk"),
         }
         self._sync_qc_flags(shot)
         copyright_risk = str(review.get("copyright_risk", "")).strip().lower()
+        required_dimensions = ["palette", "lighting", "camera_language", "film_texture"]
+        if shot.character_ids:
+            required_dimensions.extend(["character_identity", "costume", "face_hair"])
+        if shot.scene_id:
+            required_dimensions.append("scene_geometry")
+        if shot.prop_ids:
+            required_dimensions.append("props")
+        missing_dimensions = [key for key in required_dimensions if scores.get(key) is None]
+        low_scores = [value for key, value in scores.items() if key in required_dimensions and value is not None and value < 70]
         if (
             verdict == "fail"
             or verdict == "review"
-            or character_score < 70
-            or scene_score < 70
+            or missing_dimensions
+            or low_scores
             or copyright_risk == "high"
             or len(drift_flags) >= 2
         ):
@@ -171,8 +236,8 @@ class ReviewerAgent:
             shot.status = "qc_failed_continuity"
             flag_text = ", ".join(drift_flags) if drift_flags else "none"
             raise RuntimeError(
-                f"Shot {shot.number} visual quality check failed: character consistency {character_score}/100, "
-                f"scene consistency {scene_score}/100, copyright risk {copyright_risk or 'unknown'}, flags {flag_text}."
+                f"Shot {shot.number} visual quality check failed: missing {', '.join(missing_dimensions) or 'none'}, "
+                f"low scores {low_scores or 'none'}, copyright risk {copyright_risk or 'unknown'}, flags {flag_text}."
             )
         self._archive_review_frames(project_id, shot, frames, approved=True)
         self._archive_ending_frame(project_id, shot, ending_frame, approved=True)
@@ -186,7 +251,7 @@ class ReviewerAgent:
         review_note = str(review.get("review_note", "Visual review completed.")).strip()
         return (
             f"Quality Agent: Shot {shot.number} integrity and visual review passed ({duration:.2f}s, "
-            f"character {character_score}/100, scene {scene_score}/100). {review_note}"
+            f"character {character_score if character_score is not None else 'N/A'}/100, scene {scene_score if scene_score is not None else 'N/A'}/100). {review_note}"
         )
 
     def approve_manual(self, shot: Shot, *, project_id: str) -> str:
@@ -243,6 +308,7 @@ class ReviewerAgent:
                     "role": "qc_keyframe",
                     "scene_id": shot.scene_id,
                     "character_ids": list(shot.character_ids),
+                    "prop_ids": list(shot.prop_ids),
                 },
             )
 
@@ -266,6 +332,7 @@ class ReviewerAgent:
                 "role": "transition_ending_frame",
                 "from_scene_id": shot.scene_id,
                 "character_ids": list(shot.character_ids),
+                "prop_ids": list(shot.prop_ids),
                 "transition_type": shot.transition_type,
                 "shot_revision": int(getattr(shot, "revision", 1) or 1),
             },
@@ -337,6 +404,7 @@ class ReviewerAgent:
         visual_bible: dict[str, str],
         frames: list[Path],
         reference_paths: list[Path] | None = None,
+        context: ResolvedShotContext | None = None,
     ) -> dict[str, Any]:
         approved_references = [path for path in (reference_paths or []) if Path(path).is_file()]
         images = approved_references + frames
@@ -345,17 +413,21 @@ class ReviewerAgent:
             if approved_references
             else "No persistent approved reference exists yet; judge the current shot against the locked visual specifications and choose review when uncertain."
         )
-        cinematography_lock = visual_bible.get("cinematography_lock", "")
-        character_lock = visual_bible.get("character_lock", "")
-        scene_lock = visual_bible.get("scene_lock", "")
+        context = context or resolve_shot_context(shot, visual_bible)
+        cinematography_lock = context.cinematography_lock
+        character_lock = "\n".join(
+            f"{item.get('character_id')}: {item.get('lock', '')}" for item in context.character_locks
+        ) or "not provided"
+        scene_lock = context.scene_lock.get("lock", "")
+        prop_lock = "\n".join(
+            f"{item.get('prop_id')}: {item.get('lock', '')}" for item in context.prop_locks
+        ) or "not provided"
         return self.vision_llm.complete_vision_json(
-            "You are a film post-production visual quality inspector. Review character identity, costume, face/hair, scene geometry, props, palette, lighting, camera language, film texture, narrative state, and originality risk based only on the provided frames and visual specifications. "
+            "You are a film post-production visual quality inspector. Review only the active shot context: character identity, costume, face/hair, scene geometry, props, palette, lighting, camera language, film texture, narrative state, and originality risk based only on the provided frames and active visual specifications. "
             "Do not speculate about information not visible in the images; choose 'review' when uncertain. "
             "Check for STYLE_DRIFT, CHARACTER_DRIFT, SCENE_DRIFT, NARRATIVE_STATE_DRIFT (expected action/state is missing), and PROP_DRIFT (required prop changed or disappeared).",
             "Review this shot and return only JSON: "
-            '{"verdict":"pass|review|fail","character_consistency":0,"scene_consistency":0,'
-            '"camera_style_consistency":0,"color_consistency":0,"lighting_consistency":0,'
-            '"dimensions":{"character_identity":0,"costume":0,"face_hair":0,"scene_geometry":0,"props":0,"palette":0,"lighting":0,"camera_language":0,"film_texture":0},'
+            '{"verdict":"pass|review|fail","scores":{"character_identity":0,"costume":0,"face_hair":0,"scene_geometry":0,"props":0,"palette":0,"lighting":0,"camera_language":0,"film_texture":0,"narrative_state":0},'
             '"drift_details":{"STYLE_DRIFT":[],"CHARACTER_DRIFT":[],"SCENE_DRIFT":[],"NARRATIVE_STATE_DRIFT":[],"PROP_DRIFT":[]},'
             '"copyright_risk":"low|medium|high","review_note":"Brief English conclusion",'
             '"drift_flags":["STYLE_DRIFT","CHARACTER_DRIFT","SCENE_DRIFT"] or []}.\n'
@@ -368,10 +440,12 @@ class ReviewerAgent:
             f"Expected starting state: {shot.starting_state or shot.continuity_from or 'not provided'}\n"
             f"Expected ending state: {shot.ending_state or shot.continuity_to or 'not provided'}\n"
             f"Expected visual motif/props: {shot.visual_motif or 'not provided'}\n"
-            f"Character spec: {visual_bible.get('character_card', 'not provided')}\n"
-            f"Character lock: {character_lock or 'not provided'}\n"
-            f"Scene spec: {visual_bible.get('scene_card', 'not provided')}\n"
-            f"Scene lock: {scene_lock or 'not provided'}\n"
+            f"ACTIVE CHARACTER IDS: {', '.join(context.character_ids) or 'none'}\n"
+            f"ACTIVE CHARACTER LOCKS: {character_lock}\n"
+            f"CURRENT SCENE ID: {context.scene_id or 'none'}\n"
+            f"CURRENT SCENE LOCK: {scene_lock or 'not provided'}\n"
+            f"ACTIVE PROP IDS: {', '.join(context.prop_ids) or 'none'}\n"
+            f"ACTIVE PROP LOCKS: {prop_lock}\n"
             f"Style spec: {visual_bible.get('style_card', 'not provided')}\n"
             f"Cinematography lock: {cinematography_lock or 'not provided'}\n"
             f"{reference_note}",

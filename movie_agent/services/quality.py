@@ -125,9 +125,17 @@ class ContinuityQualityGate:
                 declared_transition = str(getattr(shot, "transition_type", "") or "").upper()
                 if flag == "SCENE_DRIFT" and scene_changed and declared_transition in self.intentional_transitions:
                     continue
+                if scene_changed and declared_transition == "CONTINUOUS":
+                    errors.append(
+                        f"TRANSITION_CONFLICT: Shot {shot.number} declares CONTINUOUS but changes scene "
+                        f"from {previous_shot.scene_id} to {shot.scene_id}."
+                    )
+                    break
                 if any(token in text for token in tokens):
                     notes.append(f"{flag}: Shot {shot.number} contains a possible continuity drift; manual review required.")
             previous_shot = shot
+        if errors:
+            raise ValueError("Continuity QC failed: " + "; ".join(errors))
         return notes
 
 
