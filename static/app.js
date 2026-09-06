@@ -51,6 +51,12 @@ const els = {
   btnRefresh: $("#btn-refresh"),
   actCrew: $("#act-crew"),
   actWorkspace: $("#act-workspace"),
+  productionAttention: $("#production-attention"),
+  productionAttentionTitle: $("#production-attention-title"),
+  productionAttentionCount: $("#production-attention-count"),
+  productionAttentionList: $("#production-attention-list"),
+  filmstripPanel: $(".filmstrip-panel"),
+  monitorPanel: $(".monitor-panel"),
   crewFlow: $("#crew-flow"),
   crewFlowProgress: $("#crew-flow-progress"),
   crewMeta: $("#crew-meta"),
@@ -1279,6 +1285,77 @@ function syncHistoricalCrew(project) {
 
 function shotStatusInfo(status) {
   return SHOT_STATUS[status] || status || "QUEUED";
+}
+
+function renderProductionAttention(project = state.project) {
+  const readiness = project?.readiness || project?.diagnostics?.readiness;
+  const blockers = Array.isArray(readiness?.blockers) ? readiness.blockers : [];
+  if (!els.productionAttention) return;
+  if (!blockers.length) {
+    els.productionAttention.classList.add("hidden");
+    if (els.productionAttentionList) els.productionAttentionList.innerHTML = "";
+    return;
+  }
+  els.productionAttention.classList.remove("hidden");
+  const blockingCount = Number(readiness?.blocking_count || 0);
+  if (els.productionAttentionTitle) {
+    els.productionAttentionTitle.textContent = blockingCount ? "制作流程需要处理" : "制作状态有待确认";
+  }
+  if (els.productionAttentionCount) {
+    els.productionAttentionCount.textContent = `${blockingCount} BLOCKING · ${Number(readiness?.warning_count || 0)} WARNING`;
+  }
+  if (!els.productionAttentionList) return;
+  els.productionAttentionList.innerHTML = blockers.slice(0, 4).map((item) => {
+    const shot = item.shot_number ? ` · SHOT ${String(item.shot_number).padStart(2, "0")}` : "";
+    const action = item.next_action ? `<button type="button" class="production-attention-action type-control" data-readiness-action="${esc(item.next_action)}" data-readiness-shot="${esc(item.shot_number || "")}">${esc(readinessActionLabel(item.next_action))} →</button>` : "";
+    return `<article class="production-attention-item" data-severity="${esc(item.severity || "WARNING")}"><span class="production-attention-symbol" aria-hidden="true">${item.severity === "BLOCKING" ? "!" : "·"}</span><div><strong>${esc(item.code)}${shot}</strong><p>${esc(item.message || "Production review required.")}</p></div>${action}</article>`;
+  }).join("");
+}
+
+function readinessActionLabel(action) {
+  return ({
+    REVIEW_SHOT: "REVIEW SHOT",
+    APPROVE_PREVIS: "APPROVE PREVIS",
+    OPEN_REFERENCE_BANK: "OPEN REFERENCES",
+    REVIEW_AUDIO_TIMELINE: "OPEN AUDIO",
+    OPEN_SOUND: "OPEN SOUND",
+    OPEN_RENDER_DIAGNOSTICS: "OPEN RENDER",
+    LOCK_DIALOGUE: "LOCK DIALOGUE",
+    START_AI_EDIT: "START AI EDIT",
+    START_RENDER: "START RENDER",
+  })[String(action || "").toUpperCase()] || "REVIEW";
+}
+
+function handleReadinessAction(event) {
+  const button = event.target.closest("[data-readiness-action]");
+  if (!button || !state.project) return;
+  const action = String(button.dataset.readinessAction || "").toUpperCase();
+  const shotNumber = Number(button.dataset.readinessShot || 0);
+  if (action === "REVIEW_SHOT" && shotNumber) {
+    openDrawer(state.project, shotNumber);
+    return;
+  }
+  if (["OPEN_REFERENCE_BANK", "REVIEW_VISUAL_BIBLE"].includes(action)) {
+    renderManual(state.project, "visual");
+    els.manualBody?.scrollIntoView({ behavior: REDUCED_MOTION ? "auto" : "smooth", block: "center" });
+    return;
+  }
+  if (["REVIEW_AUDIO_TIMELINE", "OPEN_SOUND"].includes(action)) {
+    els.audioDesignConsole?.scrollIntoView({ behavior: REDUCED_MOTION ? "auto" : "smooth", block: "center" });
+    return;
+  }
+  if (["OPEN_RENDER_DIAGNOSTICS", "REVIEW_RENDER_DIAGNOSTICS"].includes(action)) {
+    els.monitorPanel?.scrollIntoView({ behavior: REDUCED_MOTION ? "auto" : "smooth", block: "center" });
+    return;
+  }
+  if (action === "LOCK_DIALOGUE") {
+    renderManual(state.project, "script");
+    els.manualBody?.scrollIntoView({ behavior: REDUCED_MOTION ? "auto" : "smooth", block: "center" });
+    return;
+  }
+  if (action === "APPROVE_PREVIS") {
+    els.filmstripPanel?.scrollIntoView({ behavior: REDUCED_MOTION ? "auto" : "smooth", block: "center" });
+  }
 }
 
 const formatShotDuration = (value) => MovieAgentModules.storyboard.formatShotDuration(value);
@@ -3188,6 +3265,7 @@ function updatePipelineForProject(project) {
 function renderWorkspace(project, options = {}) {
   show(els.actWorkspace);
   renderProjectDiagnostics(project);
+  renderProductionAttention(project);
   renderFilmstrip(project, options.entranceFrom);
   renderTimeline(project);
   renderShotMap(project);
@@ -3218,6 +3296,7 @@ function renderWorkspace(project, options = {}) {
 function applyProjectSnapshot(project) {
   state.project = project;
   renderProjectDiagnostics(project);
+  renderProductionAttention(project);
   if (els.crewFlow) syncCrewBoard(project, { silent: true });
   renderFilmstrip(project);
   renderTimeline(project);
@@ -5218,6 +5297,7 @@ function init() {
   els.btnExportClose?.addEventListener("click", closeExportSheet);
   els.btnExportRun?.addEventListener("click", exportFinalCut);
   document.addEventListener("click", handleAudioInteraction);
+  els.productionAttention?.addEventListener("click", handleReadinessAction);
   document.addEventListener("keydown", handleAudioInspectorKeydown);
   document.addEventListener("input", handleAudioInspectorInput);
   document.addEventListener("change", (event) => {

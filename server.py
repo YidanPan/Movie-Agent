@@ -32,6 +32,7 @@ from movie_agent.services.errors import error_info, record_failure
 from movie_agent.services.subtitles import render_srt, render_vtt, script_subtitle_track
 from movie_agent.services.media_quality import best_master_path, best_screening_path, quality_snapshot
 from movie_agent.pipeline.diagnostics import delivery_preflight, diagnostics_snapshot
+from movie_agent.services.readiness import ensure_action_ready, production_readiness
 from movie_agent.pipeline.jobs import JobAlreadyRunning, JobLedger
 from movie_agent.services.cache_cleanup import clean_working_cache, storage_summary
 from movie_agent.services.state_ledger import validate_state_delta_shape
@@ -313,9 +314,11 @@ def serialized_project(project) -> dict[str, Any]:
         project,
         ffprobe_bin=settings.ffprobe_bin,
         outputs_dir=settings.outputs_dir,
+        settings=settings,
     )
     diagnostics["job"] = job_ledger.summary(project.project_id)
     payload["diagnostics"] = diagnostics
+    payload["readiness"] = production_readiness(project, settings)
     payload["delivery_preflight"] = delivery_preflight(
         project,
         ffmpeg_ready=_binary_ready(settings.ffmpeg_bin),
@@ -578,6 +581,7 @@ def get_project_diagnostics(project_id: str) -> dict:
         project,
         ffprobe_bin=settings.ffprobe_bin,
         outputs_dir=settings.outputs_dir,
+        settings=settings,
     )
     snapshot["job"] = job_ledger.summary(project.project_id)
     return snapshot
@@ -1213,6 +1217,28 @@ async def export_video(project_id: str, request: Request):
     try:
         with project_lock(project_id):
             project = orchestrator.store.load(project_id)
+            try:
+                ensure_action_ready(project, settings, "EXPORT")
+            except ValueError as error:
+                preflight = delivery_preflight(
+                    project,
+                    resolution=payload.resolution,
+                    aspect=payload.aspect,
+                    subtitle_mode=payload.subtitle_mode,
+                    ffmpeg_ready=_binary_ready(settings.ffmpeg_bin),
+                    ffprobe_bin=settings.ffprobe_bin,
+                    outputs_dir=settings.outputs_dir,
+                )
+                return JSONResponse(
+                    {
+                        "error": str(error),
+                        "error_code": "DELIVERY_NOT_READY",
+                        "stage": "export",
+                        "preflight": preflight,
+                        "readiness": production_readiness(project, settings),
+                    },
+                    status_code=409,
+                )
             preflight = delivery_preflight(
                 project,
                 resolution=payload.resolution,

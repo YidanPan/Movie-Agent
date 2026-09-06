@@ -20,6 +20,7 @@ from movie_agent.services.media_quality import (
     probe_media,
     quality_snapshot,
 )
+from movie_agent.services.readiness import production_readiness
 from movie_agent.state import describe_status
 
 
@@ -209,6 +210,7 @@ def diagnostics_snapshot(
     *,
     ffprobe_bin: str = "ffprobe",
     outputs_dir: Path | None = None,
+    settings: Any = None,
 ) -> dict[str, Any]:
     """Build a safe, resumability-oriented snapshot for one project.
 
@@ -245,7 +247,7 @@ def diagnostics_snapshot(
     dialogue_locked = bool(dialogue.get("dialogue_locked")) if isinstance(dialogue, dict) else False
     editing = editing_snapshot(project)
     project_error = _error_snapshot(project, fallback_stage="pipeline")
-    next_actions = _next_actions(
+    legacy_next_actions = _next_actions(
         project,
         status=status,
         has_master=has_master,
@@ -254,6 +256,13 @@ def diagnostics_snapshot(
         dialogue_locked=dialogue_locked,
         has_rough_cut=bool(editing.get("has_output")) and status in {"editing_rough_cut", "rough_cut_ready"},
     )
+    readiness = production_readiness(project, settings)
+    readiness_actions = list(dict.fromkeys(
+        item["next_action"]
+        for item in readiness["blockers"]
+        if item.get("next_action")
+    ))
+    next_actions = readiness_actions or legacy_next_actions
     progress = round((ready_count / len(shots)) * 100) if shots else 0
     return {
         "project_id": str(getattr(project, "project_id", "")),
@@ -263,6 +272,7 @@ def diagnostics_snapshot(
         "updated_at": str(getattr(project, "updated_at", "") or ""),
         "pipeline_state": state,
         "renderer_contract": getattr(project, "renderer_contract", {}) or {"status": "UNKNOWN", "valid": False},
+        "readiness": readiness,
         "progress": {
             "shots_total": len(shots),
             "shots_ready": ready_count,

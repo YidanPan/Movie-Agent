@@ -10,6 +10,7 @@ from .diagnostics import delivery_preflight, diagnostics_snapshot
 from .jobs import JobAlreadyRunning, JobLedger
 from .planning import PlanningPipeline, planning_snapshot
 from .rendering import RenderPipeline, shot_render_context
+from movie_agent.services.readiness import ProductionBlocker, production_blockers, production_readiness
 
 __all__ = [
     "edit_output_exists",
@@ -23,4 +24,7 @@ __all__ = [
     "PlanningPipeline",
     "RenderPipeline",
     "shot_render_context",
+    "ProductionBlocker",
+    "production_blockers",
+    "production_readiness",
 ]

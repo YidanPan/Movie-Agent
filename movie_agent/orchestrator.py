@@ -47,6 +47,7 @@ from movie_agent.services.subtitles import (
     normalise_subtitle_mode,
     shot_count_for_duration,
 )
+from movie_agent.services.readiness import ensure_action_ready
 from movie_agent.pipeline.planning import PlanningPipeline
 from movie_agent.pipeline.rendering import RenderPipeline, shot_render_context
 from movie_agent.pipeline.editing import EditPipeline
@@ -516,6 +517,7 @@ class MovieOrchestrator:
             workflow_identity=self.settings.comfy_workflow_template or "verified-comfyui-workflow",
             workflow_path=self.settings.workflows_dir / self.settings.comfy_workflow_template,
         )
+        ensure_action_ready(project, self.settings, "START_RENDER")
         self.continuity_gate.review(
             visual_bible=project.visual_bible,
             storyboard=project.storyboard,
@@ -938,6 +940,8 @@ class MovieOrchestrator:
             project.script = align_script_to_shots(project.script, project.storyboard, allow_silent=True)
             mark_voice_alignment_stale(project, "shot_timeline_changed")
         visual_or_narrative = bool(impact["visual"] or impact["narrative"])
+        if impact["visual"]:
+            mark_shot_stale(shot, "shot_fields_changed")
         if "state_delta" in incoming or impact["narrative"]:
             rebuild_state_ledger_from_shot(project, shot_number)
         edit_event = self._invalidate_edit_outputs(
@@ -973,6 +977,7 @@ class MovieOrchestrator:
         track_params: dict[str, dict[str, Any]] | None = None,
     ) -> MovieProject:
         project = self.store.load(project_id)
+        ensure_action_ready(project, self.settings, "START_AI_EDIT")
         clear_failure(project)
         self._require_dialogue_locked(project)
         if not self._shots_ready(project):
@@ -1190,6 +1195,7 @@ class MovieOrchestrator:
 
     def approve_edit(self, project_id: str, subtitle_mode: str | None = None) -> MovieProject:
         project = self.store.load(project_id)
+        ensure_action_ready(project, self.settings, "APPROVE_FINAL_CUT")
         self._require_dialogue_locked(project)
         if project.status not in {"rough_cut_ready", "editing_rough_cut"}:
             raise ValueError("Please complete the Rough Cut before approving the final cut.")

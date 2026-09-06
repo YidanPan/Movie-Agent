@@ -2,3 +2,36 @@
    until their DOM is moved to modules without changing the shipped UI. */
 :where(.p2-component) { min-width: 0; }
 
+.production-attention {
+  display: grid;
+  gap: 12px;
+  margin: 0 0 18px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--accent-token);
+  background: var(--surface-1);
+}
+
+.production-attention-head,
+.production-attention-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.production-attention-head { justify-content: space-between; }
+.production-attention-head strong { display: block; margin-top: 4px; color: var(--text-strong); font-family: var(--sans); font-size: .88rem; }
+.production-attention-count { color: var(--text-muted); font-size: .62rem; white-space: nowrap; }
+.production-attention-list { display: grid; gap: 8px; }
+.production-attention-item { align-items: center; padding-top: 9px; border-top: 1px solid var(--line-soft); }
+.production-attention-symbol { flex: 0 0 16px; color: var(--accent-token); font-family: var(--mono); font-weight: 700; text-align: center; }
+.production-attention-item[data-severity="WARNING"] .production-attention-symbol { color: var(--text-muted); }
+.production-attention-item strong { color: var(--text-strong); font-family: var(--mono); font-size: .63rem; letter-spacing: .06em; }
+.production-attention-item p { margin: 3px 0 0; color: var(--text-body); font-size: .78rem; line-height: 1.5; }
+.production-attention-action { flex: 0 0 auto; min-height: 32px; margin-left: auto; padding: 6px 9px; border: 1px solid var(--line); background: transparent; color: var(--text-strong); font-family: var(--mono); font-size: .58rem; white-space: nowrap; }
+.production-attention-action:hover { border-color: var(--accent-token); color: var(--accent-token); }
+
+@media (max-width: 640px) {
+  .production-attention-item { align-items: flex-start; flex-wrap: wrap; }
+  .production-attention-action { margin-left: 28px; }
+}
