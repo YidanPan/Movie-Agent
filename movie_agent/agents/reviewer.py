@@ -245,17 +245,21 @@ class ReviewerAgent:
         character_lock = visual_bible.get("character_lock", "")
         scene_lock = visual_bible.get("scene_lock", "")
         return self.vision_llm.complete_vision_json(
-            "You are a film post-production visual quality inspector. Review character appearance, costume, environment, colour, lighting, camera style, and originality risk based only on the provided frames and visual specifications. "
+            "You are a film post-production visual quality inspector. Review character identity, costume, face/hair, scene geometry, props, palette, lighting, camera language, film texture, narrative state, and originality risk based only on the provided frames and visual specifications. "
             "Do not speculate about information not visible in the images; choose 'review' when uncertain. "
-            "Check for STYLE_DRIFT (color/lighting/camera deviates from spec), CHARACTER_DRIFT (appearance changed), SCENE_DRIFT (environment inconsistent).",
+            "Check for STYLE_DRIFT, CHARACTER_DRIFT, SCENE_DRIFT, NARRATIVE_STATE_DRIFT (expected action/state is missing), and PROP_DRIFT (required prop changed or disappeared).",
             "Review this shot and return only JSON: "
             '{"verdict":"pass|review|fail","character_consistency":0,"scene_consistency":0,'
             '"camera_style_consistency":0,"color_consistency":0,"lighting_consistency":0,'
             '"dimensions":{"character_identity":0,"costume":0,"face_hair":0,"scene_geometry":0,"props":0,"palette":0,"lighting":0,"camera_language":0,"film_texture":0},'
-            '"drift_details":{"STYLE_DRIFT":[],"CHARACTER_DRIFT":[],"SCENE_DRIFT":[]},'
+            '"drift_details":{"STYLE_DRIFT":[],"CHARACTER_DRIFT":[],"SCENE_DRIFT":[],"NARRATIVE_STATE_DRIFT":[],"PROP_DRIFT":[]},'
             '"copyright_risk":"low|medium|high","review_note":"Brief English conclusion",'
             '"drift_flags":["STYLE_DRIFT","CHARACTER_DRIFT","SCENE_DRIFT"] or []}.\n'
             f"Shot {shot.number}: {shot.image_description}; action: {shot.action}.\n"
+            f"Expected story function: {shot.story_function or shot.narrative_purpose or 'not provided'}\n"
+            f"Expected starting state: {shot.starting_state or shot.continuity_from or 'not provided'}\n"
+            f"Expected ending state: {shot.ending_state or shot.continuity_to or 'not provided'}\n"
+            f"Expected visual motif/props: {shot.visual_motif or 'not provided'}\n"
             f"Character spec: {visual_bible.get('character_card', 'not provided')}\n"
             f"Character lock: {character_lock or 'not provided'}\n"
             f"Scene spec: {visual_bible.get('scene_card', 'not provided')}\n"
