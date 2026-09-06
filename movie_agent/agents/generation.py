@@ -10,7 +10,7 @@ from movie_agent.config import Settings
 from movie_agent.models import Shot
 from movie_agent.services.comfyui import ComfyUIClient, ComfyUIError, WorkflowOverrides, load_verified_workflow
 from movie_agent.services.media_quality import asset_record
-from movie_agent.services.continuity import derive_shot_seed
+from movie_agent.services.continuity import derive_shot_seed, resolve_character_locks, resolve_scene_lock
 from movie_agent.services.errors import clear_failure, error_info, record_failure
 from movie_agent.services.revisions import ensure_shot_metadata, hash_shot_prompt, utc_now
 from movie_agent.storage.reference_bank import ReferenceBankStore
@@ -38,8 +38,8 @@ def build_continuity_prompt(
     retry.
     """
 
-    character = _field(visual_bible.get("character_lock") or visual_bible.get("character_card"))
-    scene = _field(visual_bible.get("scene_lock") or visual_bible.get("scene_card"))
+    character_locks = resolve_character_locks(visual_bible, shot.character_ids)
+    scene_lock = resolve_scene_lock(visual_bible, shot.scene_id)
     cinema = _field(
         visual_bible.get("cinematography_lock") or visual_bible.get("style_card")
     )
@@ -52,21 +52,29 @@ def build_continuity_prompt(
     )
     sections = [
         f"FILM LANGUAGE\n{_field(film_language).lower()} only. All dialogue, narration, subtitles, title cards, credits, on-screen text, and monitor text must be in English.",
-        f"GLOBAL CHARACTER LOCK\n{character}",
-        f"GLOBAL SCENE LOCK\n{scene}",
-        f"SHOT SCENE ID\n{_field(shot.scene_id, 'not specified')}",
-        f"ACTIVE CHARACTER IDS\n{_field(', '.join(shot.character_ids), 'not specified')}",
+        f"SHOT SCENE ID\n{_field(shot.scene_id, 'unassigned')}",
+        f"ACTIVE CHARACTER IDS\n{', '.join(shot.character_ids) or 'none'}",
+        "ACTIVE CHARACTER LOCKS\n" + "\n".join(
+            f"- {item.get('character_id') or item.get('name') or 'character'}: {item.get('lock', '')}" for item in character_locks
+        ),
+        f"CURRENT SCENE LOCK\n{scene_lock.get('scene_id')}\n{scene_lock.get('lock') or 'not provided'}",
         f"STORY FUNCTION\n{_field(shot.story_function or shot.narrative_purpose)}",
+        f"EMOTIONAL SHIFT\n{_field(shot.emotional_shift, 'not provided')}",
+        f"VISUAL MOTIF\n{_field(shot.visual_motif, 'not provided')}",
         f"CINEMATOGRAPHY LOCK\n{cinema}",
         f"PROJECT REFERENCE SEED\n{reference_seed}",
         f"PREVIOUS SHOT ENDING STATE\n{previous_ending}",
         f"PREVIOUS SHOT TRANSITION HOOK\n{previous_hook}",
         f"CURRENT SHOT STARTING STATE\n{_field(shot.starting_state)}",
         f"CURRENT SHOT MAIN ACTION\n{_field(shot.main_action or shot.action)}",
+        f"SECONDARY ACTION\n{_field(shot.secondary_action, 'none')}",
+        f"ENVIRONMENT REACTION\n{_field(shot.environment_reaction, 'none')}",
         f"CHARACTER REACTION\n{_field(shot.character_reaction)}",
         f"CURRENT VISUAL EVENT\n{_field(shot.image_description)}",
         f"SHOT DELTA\n{_field(shot.prompt)}",
+        f"ENDING STATE\n{_field(shot.ending_state or shot.continuity_to)}",
         f"TRANSITION HOOK\n{_field(shot.transition_hook)}",
+        f"TRANSITION TYPE\n{_field(shot.transition_type, 'CONTINUOUS')}",
         f"SOUND DESIGN\n{_field(shot.sound_design)}",
         "NEGATIVE CONSTRAINTS\nNo existing film or TV characters, titles, logos, brands, real-person likenesses, copyrighted designs, or language other than English in the generated film.",
     ]
@@ -138,9 +146,15 @@ class GenerationAgent:
         visual_context = visual_bible or {}
         reference_seed = str(visual_context.get("reference_seed") or "42")
         reference_inputs = self.reference_bank.generation_reference_paths(project_id, shot)
+        reference_flags = list(reference_inputs.get("reference_flags") or [])
         shot.qc_details = {
             **(shot.qc_details or {}),
-            "reference_inputs": {key: [str(path) for path in paths] for key, paths in reference_inputs.items()},
+            "reference_inputs": {
+                key: [str(path) for path in paths]
+                for key, paths in reference_inputs.items()
+                if key != "reference_flags"
+            },
+            "reference_flags": reference_flags,
             "reference_strategy": "TEXTUAL_LOCK_ONLY_T2V",
         }
         seed = derive_shot_seed(project_id, reference_seed, shot.number)

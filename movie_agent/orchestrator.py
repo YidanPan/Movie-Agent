@@ -349,6 +349,7 @@ class MovieOrchestrator:
             visual_bible=visual_bible,
             storyboard=storyboard,
             continuity_lock=continuity_lock,
+            story_beats=story_beats,
         )
         emit({"type": "agent_done", "agent": "quality", "quality_report": quality_report})
         emit(

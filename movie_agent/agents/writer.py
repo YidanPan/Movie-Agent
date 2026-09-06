@@ -4,6 +4,7 @@ from typing import Any
 
 from movie_agent.services.llm import CreativeLLM
 from movie_agent.services.subtitles import ensure_dialogue_assets, shot_count_for_duration
+from movie_agent.services.narrative import normalise_story_beats
 
 
 def _as_text(value: Any) -> str:
@@ -206,13 +207,15 @@ class WriterAgent:
                 f"Screenplay: {script.get('story', '')}\n"
                 f"Outline: {script.get('outline', '')}\n"
                 f"Break this into {shot_count} narrative beats. "
-                "Return JSON: {\"beats\": [{beat_number, narrative_purpose, emotional_arc, "
-                "starting_state, ending_state, transition_hook}]}. "
+                "Return JSON: {\"beats\": [{beat_id, beat_number, scene_id, character_ids, story_function, "
+                "narrative_purpose, information_gain, emotional_shift, visual_motif, starting_state, "
+                "ending_state, transition_hook, importance, duration_weight}]}. "
                 "narrative_purpose: why this beat exists (e.g. 'establish the ordinary world'). "
                 "emotional_arc: how the audience feels (e.g. 'calm → unease'). "
                 "starting_state: what the viewer sees at the start of this beat. "
                 "ending_state: what the viewer sees at the end. "
-                "transition_hook: how this beat connects to the next.",
+                "transition_hook: how this beat connects to the next. scene_id and character_ids must be stable IDs, "
+                "importance and duration_weight are numeric values reflecting narrative weight. Do not omit fields.",
             )
             raw_beats = result.get("beats")
             if isinstance(raw_beats, list) and 4 <= len(raw_beats) <= 12:
@@ -221,15 +224,24 @@ class WriterAgent:
                     if not isinstance(raw, dict):
                         continue
                     beats.append({
+                        "beat_id": str(raw.get("beat_id") or f"beat-{index + 1:02d}"),
                         "beat_number": int(raw.get("beat_number", index + 1)),
+                        "scene_id": str(raw.get("scene_id", "")),
+                        "character_ids": raw.get("character_ids") or [],
+                        "story_function": str(raw.get("story_function") or raw.get("narrative_purpose", "")),
                         "narrative_purpose": str(raw.get("narrative_purpose", "")),
+                        "information_gain": raw.get("information_gain", 0.5),
+                        "emotional_shift": str(raw.get("emotional_shift") or raw.get("emotional_arc", "")),
+                        "visual_motif": str(raw.get("visual_motif", "")),
                         "emotional_arc": str(raw.get("emotional_arc", "")),
                         "starting_state": str(raw.get("starting_state", "")),
                         "ending_state": str(raw.get("ending_state", "")),
                         "transition_hook": str(raw.get("transition_hook", "")),
+                        "importance": raw.get("importance", 0.5),
+                        "duration_weight": raw.get("duration_weight", 1.0),
                     })
                 if beats:
-                    return beats
+                    return normalise_story_beats(beats)
         phases = [
             ("establish the ordinary world", "calm → curiosity", "The automated space hums with routine order.", "A faint irregularity appears at the edge of perception.", "The camera lingers on a detail that doesn't quite fit."),
             ("introduce the anomaly", "curiosity → unease", "The protagonist notices something off but dismisses it.", "The anomaly persists and grows slightly.", "A beat of hesitation before the next action."),
@@ -244,20 +256,38 @@ class WriterAgent:
         for index in range(min(shot_count, len(phases))):
             purpose, arc, start, end, hook = phases[index]
             beats.append({
+                "beat_id": f"beat-{index + 1:02d}",
                 "beat_number": index + 1,
+                "scene_id": "primary",
+                "character_ids": ["protagonist"],
+                "story_function": purpose,
                 "narrative_purpose": purpose,
+                "information_gain": 0.5 if index < 2 else 0.8,
+                "emotional_shift": arc,
+                "visual_motif": "",
                 "emotional_arc": arc,
                 "starting_state": start,
                 "ending_state": end,
                 "transition_hook": hook,
+                "importance": 0.5 if index < 2 else 0.8,
+                "duration_weight": 1.0 if index < 2 else 1.25,
             })
         while len(beats) < shot_count:
             beats.append({
+                "beat_id": f"beat-{len(beats) + 1:02d}",
                 "beat_number": len(beats) + 1,
+                "scene_id": "primary",
+                "character_ids": ["protagonist"],
+                "story_function": "AFTERMATH",
                 "narrative_purpose": "sustain emotional resonance",
+                "information_gain": 0.35,
+                "emotional_shift": "resonance → silence",
+                "visual_motif": "",
                 "emotional_arc": "resonance → silence",
                 "starting_state": "The aftermath continues to settle.",
                 "ending_state": "The final image holds.",
                 "transition_hook": "Cut to black.",
+                "importance": 0.6,
+                "duration_weight": 1.0,
             })
-        return beats
+        return normalise_story_beats(beats)

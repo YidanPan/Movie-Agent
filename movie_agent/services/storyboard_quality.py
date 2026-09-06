@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 from typing import Any, Iterable
 
+from movie_agent.services.narrative import validate_beat_shot_mapping
+
 
 _STOPWORDS = {
     "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "in", "into", "is", "of", "on", "or",
@@ -122,13 +124,70 @@ class StoryboardRelevanceGate:
         previous = None
         for shot in shots:
             result = self.evaluate(shot, beat_by_id.get(_text(getattr(shot, "beat_id", ""))), previous)
-            shot.qc_details = dict(getattr(shot, "qc_details", {}) or {})
-            shot.qc_details["relevance"] = result
+            details = dict(getattr(shot, "qc_details", {}) or {})
+            planning = dict(details.get("planning") or {})
+            planning["relevance"] = result
+            planning["flags"] = list(dict.fromkeys([*(planning.get("flags") or []), *result["flags"]]))
+            details["planning"] = planning
+            # Keep the old top-level key for saved-project/API compatibility.
+            details["relevance"] = result
+            shot.qc_details = details
             for flag in result["flags"]:
                 if flag not in shot.qc_flags:
                     shot.qc_flags.append(flag)
             previous = shot
         return shots
 
+    def review_storyboard(self, shots: Iterable[Any], beats: Iterable[dict[str, Any]] | None = None) -> dict[str, Any]:
+        """Review one complete board and return an explainable planning summary."""
 
-__all__ = ["StoryboardRelevanceGate", "previous_ending_connects_to_next_starting_state"]
+        shot_list = list(shots)
+        beat_list = list(beats or [])
+        beat_mapping = validate_beat_shot_mapping(shot_list, beat_list)
+        low_relevance: list[int] = []
+        complex_shots: list[int] = []
+        continuity_warnings: list[int] = []
+        redundant_pairs: list[list[int]] = []
+        repeated_information: list[list[int]] = []
+        transition_scores: list[float] = []
+        previous = None
+        for shot in shot_list:
+            result = self.evaluate(shot, None, previous)
+            number = int(getattr(shot, "number", len(low_relevance) + 1))
+            flags = set(result["flags"])
+            if "LOW_RELEVANCE_SHOT" in flags:
+                low_relevance.append(number)
+            if "SHOT_TOO_COMPLEX" in flags:
+                complex_shots.append(number)
+            if "NARRATIVE_STATE_DRIFT" in flags:
+                continuity_warnings.append(number)
+            if previous is not None and "REDUNDANT_SHOT" in flags:
+                pair = [int(getattr(previous, "number", number - 1)), number]
+                redundant_pairs.append(pair)
+            if previous is not None and "REPEATED_INFORMATION" in flags:
+                repeated_information.append([int(getattr(previous, "number", number - 1)), number])
+            transition_scores.append(float(result["metrics"].get("continuity_strength", 0.0)))
+            previous = shot
+        issues = bool(
+            low_relevance or complex_shots or continuity_warnings or redundant_pairs
+            or repeated_information or beat_mapping["uncovered_beats"] or beat_mapping["orphan_shots"]
+        )
+        return {
+            "beat_coverage": beat_mapping["coverage_ratio"],
+            "beat_mapping": beat_mapping,
+            "low_relevance_shots": low_relevance,
+            "redundant_pairs": redundant_pairs,
+            "repeated_information": repeated_information,
+            "complex_shots": complex_shots,
+            "continuity_warnings": continuity_warnings,
+            "transition_strength": round(sum(transition_scores) / max(1, len(transition_scores)), 3),
+            "overall_storyboard_health": "REVIEW" if issues else "PASS",
+            "decision": "REVIEW" if issues else "PASS",
+        }
+
+
+def review_storyboard(shots: Iterable[Any], beats: Iterable[dict[str, Any]] | None = None) -> dict[str, Any]:
+    return StoryboardRelevanceGate().review_storyboard(shots, beats)
+
+
+__all__ = ["StoryboardRelevanceGate", "previous_ending_connects_to_next_starting_state", "review_storyboard"]

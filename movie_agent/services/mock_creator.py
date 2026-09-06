@@ -80,10 +80,12 @@ def build_storyboard(
                 narrative_purpose=narrative_purpose or f"narrative beat {index + 1}",
                 starting_state=starting_state or f"Shot {index} conclusion.",
                 main_action=main_action,
+                secondary_action="The room responds with a restrained change in light." if index in {2, shot_count - 2} else "",
+                environment_reaction="Amber indicators flicker in response to the protagonist's action." if index in {2, shot_count - 2} else "",
                 character_reaction=character_reaction,
                 ending_state=ending_state or f"Shot {index + 1} resolves into the next beat.",
                 transition_hook=transition_hook or "Cut to next shot.",
-                beat_id=str((beat or {}).get("beat_id") or (beat or {}).get("id") or (beat or {}).get("beat_number") or f"beat-{index + 1:02d}"),
+                beat_id=str((beat or {}).get("beat_id") or (beat or {}).get("id") or f"beat-{index + 1:02d}"),
                 scene_id=str((beat or {}).get("scene_id") or (beat or {}).get("scene") or ""),
                 character_ids=[str(item) for item in ((beat or {}).get("character_ids") or [])],
                 story_function=str((beat or {}).get("story_function") or narrative_purpose or "NARRATIVE"),
@@ -93,6 +95,7 @@ def build_storyboard(
                 continuity_from=starting_state or f"Shot {index} conclusion.",
                 continuity_to=ending_state or f"Shot {index + 1} resolves into the next beat.",
                 shot_complexity="MEDIUM",
+                transition_type=str((beat or {}).get("transition_type") or "CONTINUOUS").upper(),
             )
         )
     return shots

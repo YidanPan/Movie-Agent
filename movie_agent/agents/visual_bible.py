@@ -14,10 +14,17 @@ class VisualBibleAgent:
             result = self.llm.complete_json(
                 "You are a film art director. Create reusable consistency specifications for an original sci-fi short film. "
                 "The lock cards enforce visual continuity across all shots: every generation prompt must respect these constraints. "
-                "Return all cards and on-screen text guidance in English.",
+                "Return all cards and on-screen text guidance in English. "
+                "The structured characters and scenes are authoritative selectors, not decorative summaries. "
+                "Give every character a stable character_id and every scene a stable scene_id so generation and QC can resolve only the active context.",
                 f"Visual style: {visual_style}\nDirector brief: {brief}\nStory: {script.get('story', '')}\n"
-                "Return keys: character_card, scene_card, style_card, sound_card, "
-                "character_lock, scene_lock, cinematography_lock, reference_seed.",
+                "Return only JSON with keys: character_card, scene_card, style_card, sound_card, "
+                "character_lock, scene_lock, cinematography_lock, reference_seed, "
+                "characters, scenes, cinematography. "
+                "characters must be an array of objects with character_id, name, role, appearance_lock, face_lock, hair_lock, costume_lock, silhouette_lock, prop_lock. "
+                "scenes must be an array of objects with scene_id, name, environment_lock, architecture_lock, lighting_lock, palette_lock, prop_lock. "
+                "cinematography must be an object with lens_language, camera_motion, composition, film_texture, color_pipeline. "
+                "Do not omit structured fields; use an empty string only when a field is genuinely not applicable.",
             )
             structured_keys = {"characters", "scenes", "cinematography"}
             return {

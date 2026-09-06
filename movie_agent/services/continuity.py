@@ -21,6 +21,48 @@ LOCK_KEYS = (
 )
 
 
+def _lock_text(value: Any) -> str:
+    if isinstance(value, dict):
+        preferred = ("appearance_lock", "face_lock", "hair_lock", "costume_lock", "silhouette_lock", "prop_lock", "environment_lock", "architecture_lock", "lighting_lock", "palette_lock")
+        parts = [str(value[key]).strip() for key in preferred if value.get(key)]
+        return " ".join(parts) or str(value.get("lock") or value)
+    return str(value or "").strip()
+
+
+def resolve_character_locks(visual_bible: dict[str, Any] | None, character_ids: list[str] | None) -> list[dict[str, Any]]:
+    """Resolve only the characters present in the current shot."""
+
+    bible = visual_bible or {}
+    requested = {str(item) for item in (character_ids or []) if str(item).strip()}
+    structured = bible.get("characters")
+    if isinstance(structured, list):
+        matches = [
+            item for item in structured
+            if isinstance(item, dict) and (not requested or str(item.get("character_id") or "") in requested)
+        ]
+        if matches:
+            return [
+                {"character_id": str(item.get("character_id") or ""), "name": str(item.get("name") or ""), "lock": _lock_text(item)}
+                for item in matches
+            ]
+    fallback = _lock_text(bible.get("character_lock") or bible.get("character_card"))
+    return [{"character_id": ",".join(sorted(requested)) or "global", "name": "", "lock": fallback}] if fallback else []
+
+
+def resolve_scene_lock(visual_bible: dict[str, Any] | None, scene_id: str | None) -> dict[str, str]:
+    """Resolve the current scene without leaking an unrelated scene lock."""
+
+    bible = visual_bible or {}
+    requested = str(scene_id or "").strip()
+    structured = bible.get("scenes")
+    if isinstance(structured, list) and requested:
+        for item in structured:
+            if isinstance(item, dict) and str(item.get("scene_id") or "") == requested:
+                return {"scene_id": requested, "lock": _lock_text(item)}
+    fallback = _lock_text(bible.get("scene_lock") or bible.get("scene_card"))
+    return {"scene_id": requested or "global", "lock": fallback}
+
+
 def build_continuity_lock(visual_bible: dict[str, Any] | None, film_language: str = "en") -> dict[str, Any]:
     """Create the small, serialisable contract every shot renderer consumes."""
 

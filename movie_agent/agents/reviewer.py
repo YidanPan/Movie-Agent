@@ -20,6 +20,18 @@ class ReviewerAgent:
         self.vision_llm = vision_llm or build_vision_llm(settings)
         self.reference_bank = ReferenceBankStore(settings.outputs_dir)
 
+    @staticmethod
+    def _sync_qc_flags(shot: Shot) -> None:
+        details = shot.qc_details or {}
+        flags: list[str] = []
+        for namespace in ("planning", "media", "visual", "manual_review"):
+            value = details.get(namespace) or {}
+            if isinstance(value, dict):
+                flags.extend(str(flag) for flag in (value.get("flags") or []))
+        # Preserve older projects that only have the flat list.
+        flags.extend(str(flag) for flag in (shot.qc_flags or []) if str(flag) not in flags)
+        shot.qc_flags = list(dict.fromkeys(flags))
+
     def review_mock(self, shot: Shot) -> str:
         ensure_shot_metadata(shot, provider="mock", model="mock-quality-gate")
         shot.status = "approved_mock"
@@ -62,19 +74,32 @@ class ReviewerAgent:
             "current_scene": generation_references["scene"],
             "previous_approved_shot_ending_frame": generation_references["previous_frame"],
             "palette": generation_references["palette"],
+            "reference_flags": generation_references.get("reference_flags", []),
         }
         reference_strategy = {
             key: [str(path) for path in paths]
             for key, paths in reference_inputs.items()
+            if key != "reference_flags"
         }
+        reference_flags = list(reference_inputs.get("reference_flags") or [])
         if self.vision_llm is None:
             self._archive_review_frames(project_id, shot, frames, approved=False)
             shot.qc_flags = list(dict.fromkeys([*shot.qc_flags, "MANUAL_VISUAL_REVIEW"]))
             shot.qc_details = {
+                **(shot.qc_details or {}),
+                "media": {"integrity": {"state": "MEDIA_INTEGRITY_PASSED", "duration_seconds": duration}},
+                "manual_review": {
+                    "review_state": "MEDIA_INTEGRITY_PASSED",
+                    "next_action": "APPROVE_SHOT",
+                    "reference_strategy": reference_strategy,
+                    "flags": ["MANUAL_VISUAL_REVIEW"],
+                },
                 "review_state": "MEDIA_INTEGRITY_PASSED",
                 "next_action": "APPROVE_SHOT",
                 "reference_strategy": reference_strategy,
+                "reference_flags": reference_flags,
             }
+            self._sync_qc_flags(shot)
             shot.status = "awaiting_visual_review"
             shot.stale = False
             shot.qc_status = "AWAITING_VISUAL_REVIEW"
@@ -109,19 +134,27 @@ class ReviewerAgent:
                 "STYLE_DRIFT", "CHARACTER_DRIFT", "SCENE_DRIFT", "NARRATIVE_STATE_DRIFT", "PROP_DRIFT"
             }
         ]
-        shot.qc_flags = drift_flags
         shot.qc_details = {
+            **(shot.qc_details or {}),
             "review_state": "VISION_REVIEWED",
-            "reference_strategy": reference_strategy,
-            "dimensions": review.get("dimensions") or {},
-            "drift_details": review.get("drift_details") or {},
-            "scores": {
+            "visual": {
+                "reference_strategy": reference_strategy,
+                "dimensions": review.get("dimensions") or {},
+                "drift_details": review.get("drift_details") or {},
+                "scores": {
                 key: self._score(review.get(key))
                 for key in ("character_consistency", "scene_consistency", "costume_consistency", "face_hair_consistency", "props_consistency", "palette_consistency", "lighting_consistency", "camera_language_consistency", "film_texture_consistency")
                 if review.get(key) is not None
+                },
+                "reference_flags": reference_flags,
+                "flags": drift_flags,
             },
+            "reference_strategy": reference_strategy,
+            "dimensions": review.get("dimensions") or {},
+            "drift_details": review.get("drift_details") or {},
             "copyright_risk": review.get("copyright_risk"),
         }
+        self._sync_qc_flags(shot)
         copyright_risk = str(review.get("copyright_risk", "")).strip().lower()
         if (
             verdict == "fail"
@@ -161,13 +194,20 @@ class ReviewerAgent:
             shot.number,
             int(getattr(shot, "revision", 1) or 1),
         )
-        shot.qc_flags = []
+        shot.qc_flags = [flag for flag in (shot.qc_flags or []) if flag != "MANUAL_VISUAL_REVIEW"]
         shot.qc_details = {
             **(shot.qc_details or {}),
+            "manual_review": {
+                "review_state": "APPROVED",
+                "approved_by": "manual",
+                "next_action": "READY_FOR_EDIT",
+                "flags": [flag for flag in (shot.qc_details.get("manual_review", {}).get("flags") or []) if flag != "MANUAL_VISUAL_REVIEW"],
+            },
             "review_state": "APPROVED",
             "approved_by": "manual",
             "next_action": "READY_FOR_EDIT",
         }
+        self._sync_qc_flags(shot)
         shot.status = "approved_comfyui"
         shot.qc_status = "APPROVED_MANUAL"
         shot.stale = False
@@ -190,7 +230,15 @@ class ReviewerAgent:
                 shot_number=shot.number,
                 revision=int(getattr(shot, "revision", 1) or 1),
                 name=f"shot-{shot.number:02d}-rev-{int(getattr(shot, 'revision', 1) or 1):02d}-frame-{index:02d}",
-                metadata={"role": "late_keyframe" if index == len(frames) else "qc_keyframe"},
+                scene_id=shot.scene_id,
+                character_id=shot.character_ids[0] if shot.character_ids else "",
+                character_ids=list(shot.character_ids),
+                role="ending_frame" if index == len(frames) else "qc_keyframe",
+                metadata={
+                    "role": "ending_frame" if index == len(frames) else "qc_keyframe",
+                    "scene_id": shot.scene_id,
+                    "character_ids": list(shot.character_ids),
+                },
             )
 
     def _extract_keyframes(self, project_id: str, shot: Shot, video_path: Path, duration: float) -> list[Path]:
@@ -256,6 +304,10 @@ class ReviewerAgent:
             '"drift_flags":["STYLE_DRIFT","CHARACTER_DRIFT","SCENE_DRIFT"] or []}.\n'
             f"Shot {shot.number}: {shot.image_description}; action: {shot.action}.\n"
             f"Expected story function: {shot.story_function or shot.narrative_purpose or 'not provided'}\n"
+            f"Expected primary action: {shot.main_action or shot.action or 'not provided'}\n"
+            f"Expected secondary action: {shot.secondary_action or 'not provided'}\n"
+            f"Expected character state/reaction: {shot.character_reaction or 'not provided'}\n"
+            f"Expected environment reaction: {shot.environment_reaction or 'not provided'}\n"
             f"Expected starting state: {shot.starting_state or shot.continuity_from or 'not provided'}\n"
             f"Expected ending state: {shot.ending_state or shot.continuity_to or 'not provided'}\n"
             f"Expected visual motif/props: {shot.visual_motif or 'not provided'}\n"

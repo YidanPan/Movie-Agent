@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 from movie_agent.services.quality import ContinuityQualityGate, PlanningQualityGate, SemanticCopyrightReviewer
+from movie_agent.services.storyboard_quality import StoryboardRelevanceGate
 
 
 def planning_snapshot(project: Any) -> dict[str, Any]:
@@ -49,8 +50,19 @@ class PlanningPipeline:
         visual_bible: dict[str, Any],
         storyboard: list[Any],
         continuity_lock: dict[str, Any],
+        story_beats: list[dict[str, Any]] | None = None,
     ) -> list[str]:
         """Run all planning QC without making orchestration decisions."""
+
+        board_review = None
+        if story_beats is not None:
+            board_review = StoryboardRelevanceGate().review_storyboard(storyboard, story_beats)
+            if board_review["beat_mapping"]["uncovered_beats"] or board_review["beat_mapping"]["orphan_shots"]:
+                raise ValueError(
+                    "Planning quality failed: storyboard beat mapping is incomplete "
+                    f"(uncovered={board_review['beat_mapping']['uncovered_beats']}, "
+                    f"orphan_shots={board_review['beat_mapping']['orphan_shots']})."
+                )
 
         report = self.quality_gate.review(
             duration_seconds=duration_seconds,
@@ -66,5 +78,11 @@ class PlanningPipeline:
                 continuity_lock=continuity_lock,
             )
         )
+        if board_review:
+            report.append(
+                "Storyboard Review: "
+                f"beat coverage {board_review['beat_coverage']:.0%}; "
+                f"decision {board_review['decision']}."
+            )
         return report
 

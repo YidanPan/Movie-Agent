@@ -6,6 +6,7 @@ from movie_agent.models import Shot
 from movie_agent.services.mock_creator import build_storyboard
 from movie_agent.services.llm import CreativeLLM
 from movie_agent.services.storyboard_quality import StoryboardRelevanceGate
+from movie_agent.services.narrative import allocate_weighted_durations, normalise_story_beats, validate_beat_shot_mapping
 
 _MIN_SHOT_SECONDS = 4
 _MAX_SHOT_SECONDS = 8
@@ -56,7 +57,7 @@ def _beat_for_shot(story_beats: list[dict[str, Any]], shot_index: int, total_sho
 
 
 def _beat_id(beat: dict[str, Any], index: int) -> str:
-    return str(beat.get("beat_id") or beat.get("id") or beat.get("beat_number") or f"beat-{index + 1:02d}")
+    return str(beat.get("beat_id") or beat.get("id") or f"beat-{index + 1:02d}")
 
 
 def _character_ids(value: Any) -> list[str]:
@@ -129,12 +130,14 @@ class StoryboardAgent:
         visual_bible: dict[str, str],
         story_beats: list[dict[str, Any]] | None = None,
     ) -> list[Shot]:
-        beats = story_beats or []
+        beats = normalise_story_beats(story_beats)
         if self.llm:
             beats_context = ""
             if beats:
                 beats_lines = [
-                    f"  Beat {b.get('beat_number', i+1)}: purpose={b.get('narrative_purpose','')}, "
+                    f"  Beat {b.get('beat_id')}: scene={b.get('scene_id','')}, characters={b.get('character_ids',[])}, "
+                    f"function={b.get('story_function','')}, purpose={b.get('narrative_purpose','')}, "
+                    f"information_gain={b.get('information_gain',0)}, duration_weight={b.get('duration_weight',1)}, "
                     f"arc={b.get('emotional_arc','')}, start={b.get('starting_state','')}, "
                     f"end={b.get('ending_state','')}, hook={b.get('transition_hook','')}"
                     for i, b in enumerate(beats)
@@ -147,7 +150,8 @@ class StoryboardAgent:
                 f"Available generation modes: {', '.join(sorted(self.allowed_generation_modes))}. "
                 "The sum of all shot duration_seconds must equal the total duration exactly. "
                 "IMPORTANT: Each shot prompt must describe only the DELTA from the previous shot — "
-                "what changes, not a full scene reset. Include narrative continuity fields.",
+                "what changes, not a full scene reset. Every shot MUST explicitly reference one beat_id from the supplied beats. "
+                "Do not invent beat IDs or emit orphan shots. Include every requested schema field.",
                 (
                     f"Idea: {idea}\nTotal duration: {duration_seconds} seconds\nStyle: {visual_style}\n"
                     f"Director brief: {brief}\nScript: {script}\nVisual bible: {visual_bible}"
@@ -158,9 +162,13 @@ class StoryboardAgent:
                     "Use English framing terms (wide shot, medium close-up, close-up, over-the-shoulder, low-angle medium, insert shot). "
                     "Return JSON: {\"shots\":[{\"duration_seconds\":6,\"framing\":\"medium close-up\","
                     "\"image_description\":\"...\",\"action\":\"...\",\"sound_design\":\"...\","
-                    "\"generation_mode\":\"T2V\",\"prompt\":\"...\","
-                    "\"narrative_purpose\":\"...\",\"starting_state\":\"...\",\"main_action\":\"...\","
-                    "\"character_reaction\":\"...\",\"ending_state\":\"...\",\"transition_hook\":\"...\"}]}."
+                    "\"generation_mode\":\"T2V\",\"prompt\":\"...\",\"beat_id\":\"beat-01\","
+                    "\"scene_id\":\"...\",\"character_ids\":[],\"story_function\":\"...\","
+                    "\"narrative_purpose\":\"...\",\"information_gain\":0.5,\"emotional_shift\":\"...\","
+                    "\"visual_motif\":\"...\",\"starting_state\":\"...\",\"main_action\":\"...\","
+                    "\"secondary_action\":\"...\",\"environment_reaction\":\"...\",\"character_reaction\":\"...\","
+                    "\"ending_state\":\"...\",\"transition_hook\":\"...\",\"transition_type\":\"CONTINUOUS\","
+                    "\"shot_complexity\":\"LOW|MEDIUM|HIGH\"}]}."
                 ),
             )
             raw_shots = result.get("shots")
@@ -170,7 +178,16 @@ class StoryboardAgent:
                 if not isinstance(raw_shot, dict):
                     raise ValueError("Storyboard agent returned an invalid shot.")
             raw_durations = [_parse_duration(raw_shot.get("duration_seconds")) for raw_shot in raw_shots]
-            fitted_durations = _fit_durations(raw_durations, duration_seconds)
+            beat_by_id = {str(beat["beat_id"]): beat for beat in beats}
+            requested_beats = [
+                beat_by_id.get(str(raw.get("beat_id"))) or _beat_for_shot(beats, index, len(raw_shots))
+                for index, raw in enumerate(raw_shots)
+            ]
+            weighted_durations = allocate_weighted_durations(
+                [float(beat.get("duration_weight", 1.0)) for beat in requested_beats],
+                duration_seconds,
+            )
+            fitted_durations = weighted_durations or _fit_durations(raw_durations, duration_seconds)
             if fitted_durations is None:
                 raise ValueError(
                     f"Storyboard agent's shots cannot fit within 4-8 second range to total {duration_seconds} seconds; please restart."
@@ -182,7 +199,7 @@ class StoryboardAgent:
                 if mode not in self.allowed_generation_modes:
                     allowed = ", ".join(sorted(self.allowed_generation_modes))
                     raise ValueError(f"Storyboard agent used unsupported generation mode: {mode} (only {allowed} supported).")
-                beat = _beat_for_shot(beats, number - 1, len(raw_shots))
+                beat = beat_by_id.get(str(raw_shot.get("beat_id"))) or requested_beats[number - 1]
                 shots.append(
                     _enrich_shot(Shot(
                         number=number,
@@ -197,6 +214,8 @@ class StoryboardAgent:
                         narrative_purpose=str(raw_shot.get("narrative_purpose") or beat.get("narrative_purpose", "")),
                         starting_state=str(raw_shot.get("starting_state") or beat.get("starting_state", "")),
                         main_action=str(raw_shot.get("main_action") or raw_shot["action"]),
+                        secondary_action=str(raw_shot.get("secondary_action", "")),
+                        environment_reaction=str(raw_shot.get("environment_reaction", "")),
                         character_reaction=str(raw_shot.get("character_reaction", "")),
                         ending_state=str(raw_shot.get("ending_state") or beat.get("ending_state", "")),
                         transition_hook=str(raw_shot.get("transition_hook") or beat.get("transition_hook", "")),
@@ -210,14 +229,95 @@ class StoryboardAgent:
                         continuity_from=str(raw_shot.get("continuity_from") or beat.get("continuity_from") or raw_shot.get("starting_state") or ""),
                         continuity_to=str(raw_shot.get("continuity_to") or beat.get("continuity_to") or raw_shot.get("ending_state") or ""),
                         shot_complexity=_complexity(raw_shot.get("shot_complexity"), str(raw_shot["action"]), str(raw_shot["image_description"])),
+                        transition_type=str(raw_shot.get("transition_type") or "CONTINUOUS").upper(),
                     ), beat, number - 1)
                 )
+            mapping = validate_beat_shot_mapping(shots, beats)
+            for shot in shots:
+                planning = dict((shot.qc_details or {}).get("planning") or {})
+                planning["beat_mapping"] = mapping
+                shot.qc_details = {**(shot.qc_details or {}), "planning": planning}
+                if not mapping["valid"] and "BEAT_MAPPING_REVIEW" not in shot.qc_flags:
+                    shot.qc_flags.append("BEAT_MAPPING_REVIEW")
             StoryboardRelevanceGate().annotate(shots, beats)
             return shots
         shots = build_storyboard(idea, duration_seconds, visual_style, project_id, story_beats=beats)
         if self.allowed_generation_modes == {"T2V"}:
             for shot in shots:
                 shot.generation_mode = "T2V"
+        mapping = validate_beat_shot_mapping(shots, beats)
+        for shot in shots:
+            planning = dict((shot.qc_details or {}).get("planning") or {})
+            planning["beat_mapping"] = mapping
+            shot.qc_details = {**(shot.qc_details or {}), "planning": planning}
+        StoryboardRelevanceGate().annotate(shots, beats)
+        return shots
+
+    def repair_shots(
+        self,
+        shots: list[Shot],
+        story_beats: list[dict[str, Any]],
+        visual_bible: dict[str, Any] | None = None,
+        *,
+        max_passes: int = 1,
+    ) -> list[Shot]:
+        """Repair only flagged shots once, preserving the board structure."""
+
+        if max_passes < 1:
+            return shots
+        beats = normalise_story_beats(story_beats)
+        beat_by_id = {str(beat["beat_id"]): beat for beat in beats}
+        repair_flags = {"LOW_RELEVANCE_SHOT", "REDUNDANT_SHOT", "SHOT_TOO_COMPLEX", "NARRATIVE_STATE_DRIFT"}
+        for index, shot in enumerate(shots):
+            flags = [flag for flag in shot.qc_flags if flag in repair_flags]
+            if not flags:
+                continue
+            beat = beat_by_id.get(shot.beat_id) or {}
+            previous = shots[index - 1] if index else None
+            following = shots[index + 1] if index + 1 < len(shots) else None
+            payload: dict[str, Any] | None = None
+            if self.llm:
+                result = self.llm.complete_json(
+                    "You are repairing one flagged storyboard shot. Return only the repaired shot fields. "
+                    "Preserve beat_id, narrative purpose, story structure, visual continuity, and English output. "
+                    "Do not rewrite unrelated shots.",
+                    f"FLAGS: {flags}\nBEAT: {beat}\nPREVIOUS: {previous.to_dict() if previous else {}}\n"
+                    f"CURRENT: {shot.to_dict()}\nNEXT: {following.to_dict() if following else {}}\n"
+                    f"VISUAL BIBLE: {visual_bible or {}}\n"
+                    "Return JSON with beat_id, scene_id, character_ids, story_function, narrative_purpose, "
+                    "information_gain, emotional_shift, visual_motif, starting_state, main_action, "
+                    "secondary_action, environment_reaction, character_reaction, ending_state, transition_hook, "
+                    "transition_type, shot_complexity, prompt.",
+                )
+                payload = result.get("shot") if isinstance(result.get("shot"), dict) else result
+            if not isinstance(payload, dict):
+                payload = {}
+                if "LOW_RELEVANCE_SHOT" in flags:
+                    shot.information_gain = max(shot.information_gain, 0.65)
+                    shot.secondary_action = shot.secondary_action or "The protagonist notices a consequential change."
+                if "REDUNDANT_SHOT" in flags:
+                    shot.story_function = f"{shot.story_function} with a new consequence".strip()
+                    shot.information_gain = max(shot.information_gain, 0.6)
+                if "SHOT_TOO_COMPLEX" in flags:
+                    shot.main_action = shot.main_action.split(",", 1)[0].strip() or shot.action
+                    shot.secondary_action = ""
+                    shot.environment_reaction = ""
+                    shot.shot_complexity = "MEDIUM"
+                if "NARRATIVE_STATE_DRIFT" in flags and previous:
+                    shot.starting_state = previous.ending_state or previous.action
+                    shot.continuity_from = shot.starting_state
+                    shot.transition_hook = shot.transition_hook or "Continue directly from the previous state."
+                continue
+            # The beat is structural and may not be changed by a repair pass.
+            payload["beat_id"] = shot.beat_id or str(beat.get("beat_id") or "")
+            for key in (
+                "scene_id", "character_ids", "story_function", "narrative_purpose", "information_gain",
+                "emotional_shift", "visual_motif", "starting_state", "main_action", "secondary_action",
+                "environment_reaction", "character_reaction", "ending_state", "transition_hook",
+                "transition_type", "shot_complexity", "prompt",
+            ):
+                if key in payload:
+                    setattr(shot, key, payload[key])
         StoryboardRelevanceGate().annotate(shots, beats)
         return shots
 
@@ -244,6 +344,8 @@ class StoryboardAgent:
             narrative_purpose=shot.narrative_purpose,
             starting_state=shot.starting_state,
             main_action=shot.main_action,
+            secondary_action=shot.secondary_action,
+            environment_reaction=shot.environment_reaction,
             character_reaction=shot.character_reaction,
             ending_state=shot.ending_state,
             transition_hook=shot.transition_hook,
@@ -276,4 +378,5 @@ class StoryboardAgent:
             continuity_from=shot.continuity_from,
             continuity_to=shot.continuity_to,
             shot_complexity=shot.shot_complexity,
+            transition_type=shot.transition_type,
         )

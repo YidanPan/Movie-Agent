@@ -70,6 +70,16 @@ class ContinuityQualityGate:
         "CHARACTER_DRIFT": ("different character", "new costume", "new protagonist", "different outfit"),
         "SCENE_DRIFT": ("new location", "different location", "scene reset", "another environment"),
     }
+    intentional_transitions = {
+        "CONTINUOUS",
+        "HARD_CUT",
+        "MATCH_CUT",
+        "AUDIO_BRIDGE",
+        "ACTION_MATCH",
+        "ELLIPSIS",
+        "FADE",
+        "DISSOLVE",
+    }
 
     def review(
         self,
@@ -96,14 +106,28 @@ class ContinuityQualityGate:
             "Continuity QC: Narrative state and transition hooks are present for every shot.",
             "Continuity QC: Generation prompts use a shared lock plus shot-level delta strategy.",
         ]
+        previous_shot = None
         for shot in storyboard:
             text = " ".join(
                 str(getattr(shot, field, ""))
                 for field in ("image_description", "action", "prompt")
             ).lower()
             for flag, tokens in self.drift_tokens.items():
+                # A declared scene transition is a planned editorial change,
+                # not a continuity error. The token check remains a useful
+                # fallback for old projects without scene metadata.
+                scene_changed = bool(
+                    previous_shot
+                    and getattr(previous_shot, "scene_id", "")
+                    and getattr(shot, "scene_id", "")
+                    and previous_shot.scene_id != shot.scene_id
+                )
+                declared_transition = str(getattr(shot, "transition_type", "") or "").upper()
+                if flag == "SCENE_DRIFT" and scene_changed and declared_transition in self.intentional_transitions:
+                    continue
                 if any(token in text for token in tokens):
                     notes.append(f"{flag}: Shot {shot.number} contains a possible continuity drift; manual review required.")
+            previous_shot = shot
         return notes
 
 

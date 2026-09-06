@@ -28,6 +28,8 @@ class Shot:
     narrative_purpose: str = ""
     starting_state: str = ""
     main_action: str = ""
+    secondary_action: str = ""
+    environment_reaction: str = ""
     character_reaction: str = ""
     ending_state: str = ""
     transition_hook: str = ""
@@ -79,6 +81,7 @@ class Shot:
     continuity_from: str = ""
     continuity_to: str = ""
     shot_complexity: str = "MEDIUM"
+    transition_type: str = "CONTINUOUS"
 
     def __post_init__(self) -> None:
         if self.source_duration_seconds <= 0:

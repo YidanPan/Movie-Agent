@@ -38,6 +38,7 @@ class ReferenceAsset:
     # Explicit selectors keep reference choice addressable for future I2V/R2V
     # conditioning while remaining compatible with older manifests.
     character_id: str = ""
+    character_ids: list[str] = field(default_factory=list)
     scene_id: str = ""
     role: str = ""
 
@@ -68,7 +69,18 @@ class ReferenceBankStore:
         if not path.is_file():
             return ReferenceBank(project_id=project_id)
         payload = json.loads(path.read_text(encoding="utf-8"))
-        assets = [ReferenceAsset(**item) for item in payload.get("assets", []) if isinstance(item, dict)]
+        assets: list[ReferenceAsset] = []
+        for item in payload.get("assets", []):
+            if not isinstance(item, dict):
+                continue
+            record = dict(item)
+            character_ids = record.get("character_ids")
+            if isinstance(character_ids, str):
+                character_ids = [value.strip() for value in character_ids.split(",") if value.strip()]
+            if not character_ids and record.get("character_id"):
+                character_ids = [str(record["character_id"])]
+            record["character_ids"] = character_ids or []
+            assets.append(ReferenceAsset(**record))
         return ReferenceBank(
             project_id=str(payload.get("project_id") or project_id),
             assets=assets,
@@ -100,6 +112,7 @@ class ReferenceBankStore:
         name: str | None = None,
         metadata: dict[str, Any] | None = None,
         character_id: str = "",
+        character_ids: list[str] | None = None,
         scene_id: str = "",
         role: str = "",
     ) -> ReferenceAsset:
@@ -121,10 +134,14 @@ class ReferenceBankStore:
         target = self.project_dir(project_id) / f"{safe_name}{suffix}"
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source_path, target)
+        resolved_character_ids = [str(item).strip() for item in (character_ids or []) if str(item).strip()]
+        resolved_character_id = str(character_id or (resolved_character_ids[0] if resolved_character_ids else "") or (metadata or {}).get("character_id") or "")
+        if not resolved_character_ids and resolved_character_id:
+            resolved_character_ids = [resolved_character_id]
         asset_metadata = dict(metadata or {})
-        for key, value in (("character_id", character_id), ("scene_id", scene_id), ("role", role or kind)):
+        for key, value in (("character_id", resolved_character_id), ("character_ids", resolved_character_ids), ("scene_id", scene_id), ("role", role or kind)):
             if value:
-                asset_metadata.setdefault(key, str(value))
+                asset_metadata.setdefault(key, value)
         asset = ReferenceAsset(
             reference_id=reference_id,
             kind=kind,
@@ -135,7 +152,8 @@ class ReferenceBankStore:
             revision=current_revision,
             created_at=timestamp,
             metadata=asset_metadata,
-            character_id=str(character_id or (metadata or {}).get("character_id") or ""),
+            character_id=resolved_character_id,
+            character_ids=resolved_character_ids,
             scene_id=str(scene_id or (metadata or {}).get("scene_id") or ""),
             role=str(role or (metadata or {}).get("role") or kind),
         )
@@ -178,16 +196,29 @@ class ReferenceBankStore:
             and Path(asset.path).is_file()
         ]
         def field(asset: ReferenceAsset, key: str) -> str:
-            return str(getattr(asset, key, "") or (asset.metadata or {}).get(key) or "")
+            value = getattr(asset, key, "") or (asset.metadata or {}).get(key) or ""
+            if isinstance(value, list):
+                return ",".join(str(item) for item in value)
+            return str(value)
 
-        character = [asset for asset in usable if asset.kind in {"character_hero", "character", "approved_keyframe"}]
+        # Approved shot keyframes are evidence for a shot/transition, not
+        # identity references. A wide environment frame must never silently
+        # become a character hero reference.
+        character = [asset for asset in usable if asset.kind in {"character_hero", "character"}]
+        reference_flags: list[str] = []
         if requested_characters:
-            matched = [asset for asset in character if field(asset, "character_id") in requested_characters]
-            character = matched or character
+            character = [
+                asset for asset in character
+                if requested_characters.intersection(set(field(asset, "character_ids").split(",")))
+                or field(asset, "character_id") in requested_characters
+            ]
+            if not character:
+                reference_flags.append("MISSING_CHARACTER_REFERENCE")
         scene = [asset for asset in usable if asset.kind in {"scene", "palette", "cinematography"}]
         if requested_scene:
-            matched = [asset for asset in scene if field(asset, "scene_id") == requested_scene]
-            scene = matched or scene
+            scene = [asset for asset in scene if field(asset, "scene_id") == requested_scene]
+            if not scene:
+                reference_flags.append("MISSING_SCENE_REFERENCE")
         previous = [
             asset
             for asset in usable
@@ -206,6 +237,7 @@ class ReferenceBankStore:
             "character_hero": [Path(asset.path) for asset in character[:2]],
             "current_scene": [Path(asset.path) for asset in scene[:3]],
             "previous_approved_shot_ending_frame": [Path(asset.path) for asset in latest_previous.values()][-1:] if latest_previous else [],
+            "reference_flags": reference_flags,
         }
 
     def generation_reference_paths(self, project_id: str, shot: Any) -> dict[str, list[Path]]:
@@ -228,16 +260,26 @@ class ReferenceBankStore:
         ]
 
         def field(asset: ReferenceAsset, key: str) -> str:
-            return str(getattr(asset, key, "") or (asset.metadata or {}).get(key) or "")
+            value = getattr(asset, key, "") or (asset.metadata or {}).get(key) or ""
+            if isinstance(value, list):
+                return ",".join(str(item) for item in value)
+            return str(value)
 
         character_assets = [asset for asset in usable if asset.kind in {"character", "character_hero"}]
+        reference_flags: list[str] = []
         if character_ids:
-            matched = [asset for asset in character_assets if field(asset, "character_id") in character_ids]
-            character_assets = matched or character_assets
+            character_assets = [
+                asset for asset in character_assets
+                if character_ids.intersection(set(field(asset, "character_ids").split(",")))
+                or field(asset, "character_id") in character_ids
+            ]
+            if not character_assets:
+                reference_flags.append("MISSING_CHARACTER_REFERENCE")
         scene_assets = [asset for asset in usable if asset.kind == "scene"]
         if scene_id:
-            matched = [asset for asset in scene_assets if field(asset, "scene_id") == scene_id]
-            scene_assets = matched or scene_assets
+            scene_assets = [asset for asset in scene_assets if field(asset, "scene_id") == scene_id]
+            if not scene_assets:
+                reference_flags.append("MISSING_SCENE_REFERENCE")
         previous = [
             asset for asset in usable
             if asset.kind == "previous_approved_shot_ending_frame"
@@ -253,4 +295,5 @@ class ReferenceBankStore:
             "previous_frame": [Path(previous[-1].path)] if previous else [],
             "palette": [Path(asset.path) for asset in palette[:1]],
             "cinematography": [Path(asset.path) for asset in cinematography[:1]],
+            "reference_flags": reference_flags,
         }
