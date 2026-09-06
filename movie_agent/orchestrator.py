@@ -432,6 +432,7 @@ class MovieOrchestrator:
         reconcile_generation_fingerprints(
             project,
             workflow_identity=self.settings.comfy_workflow_template or "verified-comfyui-workflow",
+            workflow_path=self.settings.workflows_dir / self.settings.comfy_workflow_template,
         )
         # Prepare the sound department as soon as the shot rhythm exists. The
         # brief is reviewable before AI Edit, while actual media remains a
@@ -513,6 +514,7 @@ class MovieOrchestrator:
         reconcile_generation_fingerprints(
             project,
             workflow_identity=self.settings.comfy_workflow_template or "verified-comfyui-workflow",
+            workflow_path=self.settings.workflows_dir / self.settings.comfy_workflow_template,
         )
         self.continuity_gate.review(
             visual_bible=project.visual_bible,
@@ -611,6 +613,7 @@ class MovieOrchestrator:
         reconcile_generation_fingerprints(
             project,
             workflow_identity=self.settings.comfy_workflow_template or "verified-comfyui-workflow",
+            workflow_path=self.settings.workflows_dir / self.settings.comfy_workflow_template,
         )
         render_context = shot_render_context(project, shot_number)
         shot = render_context["shot"]
@@ -948,6 +951,7 @@ class MovieOrchestrator:
             reconcile_generation_fingerprints(
                 project,
                 workflow_identity=self.settings.comfy_workflow_template or "verified-comfyui-workflow",
+                workflow_path=self.settings.workflows_dir / self.settings.comfy_workflow_template,
             )
         project.status = "ready_for_ai_edit" if self._shots_ready(project) else "ready_for_comfyui_render"
         project.logs.append(

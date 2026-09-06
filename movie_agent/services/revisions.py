@@ -13,7 +13,10 @@ from copy import deepcopy
 from datetime import datetime, timezone
 import hashlib
 import json
+from pathlib import Path
 from typing import Any
+
+from movie_agent.services.render_input import RENDERER_MANIFEST_VERSION, compile_renderer_input
 
 
 DEPENDENCY_GRAPH: dict[str, tuple[str, ...]] = {
@@ -112,26 +115,29 @@ def hash_generation_input(
     *,
     workflow_identity: str = "verified-comfyui-workflow",
 ) -> str:
-    """Fingerprint the compiled renderer input, including resolved locks."""
+    """Compatibility wrapper around the canonical renderer compiler.
 
-    resolved = context.to_dict() if hasattr(context, "to_dict") else (context or {})
-    payload = {
-        "shot": {
-            key: getattr(shot, key, None)
-            for key in (
-                "number", "beat_id", "scene_id", "character_ids", "prop_ids", "prompt",
-                "image_description", "action", "secondary_action", "environment_reaction",
-                "framing", "story_function", "information_gain", "emotional_shift", "visual_motif",
-                "continuity_from", "continuity_to", "transition_type", "starting_state", "main_action",
-                "character_reaction", "ending_state", "transition_hook", "generation_mode", "speech_policy",
-            )
-        },
-        "context": resolved,
-        "reference_seed": getattr(shot, "seed", None) or getattr(shot, "generation_seed", None),
-        "workflow_identity": workflow_identity,
-    }
-    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()[:24]
+    New render/reconcile code must call ``compile_renderer_input`` directly.
+    Keeping this wrapper prevents old project migrations and integrations from
+    retaining a second fingerprint algorithm.
+    """
+
+    from types import SimpleNamespace
+
+    project = SimpleNamespace(
+        project_id="ad-hoc-project",
+        visual_bible={},
+        story_world={},
+    )
+    manifest = compile_renderer_input(
+        project,
+        shot,
+        None,
+        context or {},
+        None,
+        workflow_identity=workflow_identity,
+    )
+    return manifest.fingerprint()[:24]
 
 
 def _shot_has_current_source(shot: Any) -> bool:
@@ -153,13 +159,20 @@ def reconcile_generation_fingerprints(
     project: Any,
     *,
     workflow_identity: str = "verified-comfyui-workflow",
+    workflow_path: Path | str | None = None,
 ) -> dict[str, Any]:
-    """Recompute every shot context and stale only rendered shots that changed."""
+    """Recompute renderer contracts and compare them with source asset facts."""
 
     from movie_agent.services.shot_context import resolve_shot_context
     from movie_agent.services.state_ledger import build_state_ledger, state_record_for_shot
 
     build_state_ledger(project)
+    if workflow_path is None:
+        candidate = Path(str(workflow_identity or ""))
+        if candidate.is_file():
+            workflow_path = candidate
+        else:
+            workflow_path = Path(__file__).resolve().parents[2] / "workflows" / "minimax_h3_t2v_api.json"
     shots = sorted(
         list(getattr(project, "storyboard", []) or []),
         key=lambda item: int(getattr(item, "number", 0) or 0),
@@ -180,20 +193,36 @@ def reconcile_generation_fingerprints(
             entity_state_delta=record.get("delta"),
             entity_state_after=record.get("after"),
         )
-        new_hash = hash_generation_input(shot, context, workflow_identity=workflow_identity)
-        old_hash = str(getattr(shot, "generation_input_hash", "") or "")
+        manifest = compile_renderer_input(
+            project,
+            shot,
+            previous,
+            context,
+            workflow_path,
+            workflow_identity=workflow_identity,
+        )
+        new_hash = manifest.fingerprint()
         new_hashes[str(number)] = new_hash
-        if old_hash and old_hash != new_hash and _shot_has_current_source(shot):
-            old_hashes[str(number)] = old_hash
-            changed.append(number)
-            if not bool(getattr(shot, "stale", False)):
-                mark_shot_stale(shot, "generation_input_fingerprint_changed")
-            else:
-                shot.qc_status = "STALE"
-            shot.generation_input_hash = new_hash
-        elif not old_hash or not _shot_has_current_source(shot):
-            # Planned shots may learn their future hash without being called stale.
-            shot.generation_input_hash = new_hash
+        source_record = (getattr(shot, "media_assets", {}) or {}).get("source")
+        rendered_hash = source_record.get("generation_input_hash") if isinstance(source_record, dict) else ""
+        if _shot_has_current_source(shot):
+            # Legacy source records did not persist the renderer manifest.  Use
+            # their last shot hash once as a migration baseline, then keep the
+            # asset record as the source of truth for all future comparisons.
+            if not rendered_hash:
+                rendered_hash = str(getattr(shot, "generation_input_hash", "") or "") or new_hash
+                if isinstance(source_record, dict):
+                    source_record["generation_input_hash"] = rendered_hash
+            if rendered_hash != new_hash:
+                old_hashes[str(number)] = str(rendered_hash)
+                changed.append(number)
+                if not bool(getattr(shot, "stale", False)):
+                    mark_shot_stale(shot, "generation_input_fingerprint_changed")
+                else:
+                    shot.qc_status = "STALE"
+        # This field remains a useful expected-value diagnostic for old API
+        # clients, but it is never used as the rendered source's authority.
+        shot.generation_input_hash = new_hash
         previous = shot
 
     event = None
@@ -453,6 +482,11 @@ def _ensure_asset_metadata(
     record.setdefault("seed", int(seed) if seed is not None else None)
     record.setdefault("created_at", str(getattr(shot, "created_at", "") or utc_now()))
     record.setdefault("qc_status", "PENDING")
+    record.setdefault("workflow_template_digest", "")
+    record.setdefault("submitted_workflow_digest", "")
+    record.setdefault("derived_seed", int(seed) if seed is not None else None)
+    record.setdefault("source_duration_seconds", getattr(shot, "source_duration_seconds", None) if shot is not None else None)
+    record.setdefault("renderer_manifest_version", RENDERER_MANIFEST_VERSION if record.get("generation_input_hash") else "")
     if "source_resolution" not in record:
         width, height = record.get("width"), record.get("height")
         record["source_resolution"] = f"{width}x{height}" if width and height else getattr(shot, "source_resolution", None)

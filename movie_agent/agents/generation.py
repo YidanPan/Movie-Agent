@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import shutil
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 from movie_agent.config import Settings
@@ -12,7 +13,8 @@ from movie_agent.services.comfyui import ComfyUIClient, ComfyUIError, WorkflowOv
 from movie_agent.services.media_quality import asset_record
 from movie_agent.services.continuity import derive_shot_seed
 from movie_agent.services.errors import clear_failure, error_info, record_failure
-from movie_agent.services.revisions import ensure_shot_metadata, hash_generation_input, hash_shot_prompt, utc_now
+from movie_agent.services.render_input import compile_renderer_input
+from movie_agent.services.revisions import ensure_shot_metadata, hash_shot_prompt, utc_now
 from movie_agent.services.shot_context import ResolvedShotContext, resolve_shot_context
 from movie_agent.storage.reference_bank import ReferenceBankStore
 
@@ -180,11 +182,9 @@ class GenerationAgent:
         shot.stale = False
         shot.qc_status = "PENDING"
         shot.attempts += 1
-        shot.generation_input_hash = hash_generation_input(
-            shot,
-            context,
-            workflow_identity=self.settings.comfy_workflow_template or "verified-comfyui-workflow",
-        )
+        # Derive the seed before compiling the manifest.  The seed is a real
+        # renderer input and must not appear only after the first fingerprint.
+        seed = derive_shot_seed(project_id, reference_seed, shot.number)
         reference_inputs = self.reference_bank.generation_reference_paths(project_id, shot, previous_shot, context=context)
         reference_flags = list(reference_inputs.get("reference_flags") or [])
         shot.qc_details = {
@@ -198,7 +198,6 @@ class GenerationAgent:
             "reference_strategy": "TEXTUAL_LOCK_ONLY_T2V",
             "resolved_shot_context": context.to_dict(),
         }
-        seed = derive_shot_seed(project_id, reference_seed, shot.number)
         continuity_prompt = build_continuity_prompt(
             shot,
             visual_context,
@@ -210,12 +209,6 @@ class GenerationAgent:
         )
         shot.generation_seed = seed
         shot.seed = seed
-        ensure_shot_metadata(
-            shot,
-            provider="comfyui",
-            model=self.settings.comfy_workflow_template or "verified-comfyui-workflow",
-            seed=seed,
-        )
         shot.compiled_generation_prompt = continuity_prompt
         workflow = load_verified_workflow(
             template_path,
@@ -227,6 +220,29 @@ class GenerationAgent:
                 seed=seed,
                 duration_seconds=shot.source_duration_seconds or shot.duration_seconds,
             ),
+        )
+        manifest = compile_renderer_input(
+            project=SimpleNamespace(
+                project_id=project_id,
+                visual_bible=visual_context,
+                story_world=story_world or {},
+            ),
+            shot=shot,
+            previous_shot=previous_shot,
+            context=context,
+            workflow_path=template_path,
+            compiled_prompt=continuity_prompt,
+            derived_seed=seed,
+            submitted_workflow=workflow,
+            workflow_identity=self.settings.comfy_workflow_template or "verified-comfyui-workflow",
+        )
+        shot.generation_input_hash = manifest.fingerprint()
+        shot.qc_details["renderer_manifest"] = manifest.to_dict()
+        ensure_shot_metadata(
+            shot,
+            provider="comfyui",
+            model=self.settings.comfy_workflow_template or "verified-comfyui-workflow",
+            seed=seed,
         )
         try:
             prompt_id = self.client.submit(workflow)
@@ -260,6 +276,11 @@ class GenerationAgent:
             provider="comfyui",
             model=self.settings.comfy_workflow_template or "verified-comfyui-workflow",
             seed=shot.seed,
+            workflow_template_digest=manifest.workflow_template_digest,
+            submitted_workflow_digest=manifest.submitted_workflow_digest,
+            derived_seed=manifest.derived_seed,
+            source_duration_seconds=manifest.source_duration_seconds,
+            renderer_manifest_version=manifest.to_dict()["renderer_manifest_version"],
             created_at=utc_now(),
             qc_status="PENDING",
         )
