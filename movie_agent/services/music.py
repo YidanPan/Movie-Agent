@@ -51,22 +51,27 @@ class FileMusicProvider:
             "pcm_s16le",
             str(output_path),
         ]
-        completed = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=self.timeout_seconds,
-        )
-        if completed.returncode != 0:
+        try:
+            completed = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=self.timeout_seconds,
+            )
+        except FileNotFoundError as error:
+            completed = None
+            conversion_error = f"FFmpeg executable is unavailable: {error.filename or self.ffmpeg_bin}"
+        else:
+            conversion_error = (completed.stderr or completed.stdout or "FFmpeg conversion failed.").strip()
+        if completed is None or completed.returncode != 0:
             # Keep the existing lightweight mock fixture usable when it is a
             # deliberately invalid RIFF stub. Real WAV/MP3/M4A/FLAC files
             # always take the FFmpeg conversion path above.
             if self.source_path.suffix.lower() == ".wav" and self.source_path.read_bytes()[:4] == b"RIFF":
                 shutil.copy2(self.source_path, output_path)
             else:
-                detail = (completed.stderr or completed.stdout or "FFmpeg conversion failed.").strip()
-                raise RuntimeError(f"FFmpeg could not convert music to PCM WAV: {detail[-400:]}")
+                raise RuntimeError(f"FFmpeg could not convert music to PCM WAV: {conversion_error[-400:]}")
         if not output_path.is_file() or output_path.stat().st_size <= 0:
             raise RuntimeError("FFmpeg returned no PCM WAV asset.")
         return output_path
