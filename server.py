@@ -32,7 +32,7 @@ from movie_agent.services.errors import error_info, record_failure
 from movie_agent.services.subtitles import render_srt, render_vtt, script_subtitle_track
 from movie_agent.services.media_quality import best_master_path, best_screening_path, quality_snapshot
 from movie_agent.pipeline.diagnostics import delivery_preflight, diagnostics_snapshot
-from movie_agent.services.readiness import ProductionBlockedError, ensure_action_ready, production_readiness
+from movie_agent.services.readiness import PRODUCTION_ACTIONS, ProductionBlockedError, ensure_action_ready, production_readiness
 from movie_agent.pipeline.jobs import JobAlreadyRunning, JobLedger
 from movie_agent.services.cache_cleanup import clean_working_cache, storage_summary
 from movie_agent.services.state_ledger import validate_state_delta_shape
@@ -321,6 +321,7 @@ def serialized_project(project) -> dict[str, Any]:
     diagnostics["job"] = job_ledger.summary(project.project_id)
     payload["diagnostics"] = diagnostics
     payload["readiness"] = readiness
+    payload["production_actions"] = PRODUCTION_ACTIONS
     payload["delivery_preflight"] = delivery_preflight(
         project,
         ffmpeg_ready=_binary_ready(settings.ffmpeg_bin),

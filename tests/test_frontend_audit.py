@@ -9,6 +9,7 @@ MODULE_DELIVER = (ROOT / "static" / "js" / "deliver.js").read_text(encoding="utf
 MODULE_STORYBOARD = (ROOT / "static" / "js" / "storyboard.js").read_text(encoding="utf-8")
 MODULE_THEME = (ROOT / "static" / "js" / "theme.js").read_text(encoding="utf-8")
 MODULE_MOTION = (ROOT / "static" / "js" / "motion.js").read_text(encoding="utf-8")
+MODULE_PRODUCTION_ACTIONS = (ROOT / "static" / "js" / "production-actions.js").read_text(encoding="utf-8")
 MOTION_CSS = (ROOT / "static" / "css" / "motion.css").read_text(encoding="utf-8")
 CSS = (ROOT / "static" / "style.css").read_text(encoding="utf-8")
 REFINEMENT = (ROOT / "static" / "css" / "interaction-refinement.css").read_text(encoding="utf-8")
@@ -387,6 +388,23 @@ def test_frontend_consumes_backend_pipeline_state_and_saved_event():
     assert "function canonicalProjectState" in MODULE_STATE
     assert 'event.type === "project_saved"' in APP
     assert 'appendCrewStatus("system", "SAVED"' in APP
+
+
+def test_production_actions_have_a_registered_frontend_contract():
+    backend = (ROOT / "movie_agent" / "services" / "readiness.py").read_text(encoding="utf-8")
+    for action in (
+        "START_RENDER", "RENDER_SHOT", "REPLAN_SHOT", "START_AI_EDIT", "APPROVE_FINAL_CUT",
+        "GENERATE_FINAL_MASTER", "EXPORT", "APPROVE_PREVIS", "REVIEW_SHOT", "REVIEW_VISUAL_BIBLE",
+        "OPEN_REFERENCE_BANK", "REVIEW_AUDIO_TIMELINE", "OPEN_SOUND", "OPEN_RENDER_DIAGNOSTICS",
+        "REVIEW_RENDER_DIAGNOSTICS", "LOCK_DIALOGUE", "VERIFY_FINAL_MASTER", "REVIEW_DELIVERY_PREFLIGHT",
+    ):
+        assert f'  {action}:' in MODULE_PRODUCTION_ACTIONS
+        assert f'    {action}:' in APP
+        assert f'"{action}"' in backend
+    assert "REGENERATE_SHOT" in MODULE_PRODUCTION_ACTIONS
+    assert "ACTION UNAVAILABLE" in MODULE_PRODUCTION_ACTIONS
+    assert "/previs/approve" in APP
+    assert "shot_actions" in MODULE_STORYBOARD
 
 
 def test_disconnect_safe_job_ledger_is_visible_without_replacing_sse():

@@ -11,6 +11,8 @@ from .jobs import JobAlreadyRunning, JobLedger
 from .planning import PlanningPipeline, planning_snapshot
 from .rendering import RenderPipeline, shot_render_context
 from movie_agent.services.readiness import (
+    PRODUCTION_ACTIONS,
+    ProductionActionContext,
     ProductionBlocker,
     ProductionBlockedError,
     action_readiness,
@@ -31,6 +33,8 @@ __all__ = [
     "RenderPipeline",
     "shot_render_context",
     "ProductionBlocker",
+    "ProductionActionContext",
+    "PRODUCTION_ACTIONS",
     "ProductionBlockedError",
     "action_readiness",
     "production_blockers",

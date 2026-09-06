@@ -617,7 +617,7 @@ class MovieOrchestrator:
             workflow_identity=self.settings.comfy_workflow_template or "verified-comfyui-workflow",
             workflow_path=self.settings.workflows_dir / self.settings.comfy_workflow_template,
         )
-        ensure_action_ready(project, self.settings, "REGENERATE_SHOT")
+        ensure_action_ready(project, self.settings, "RENDER_SHOT", shot_number=shot_number)
         render_context = shot_render_context(project, shot_number)
         shot = render_context["shot"]
         ensure_continuity_lock(project)
@@ -1286,9 +1286,9 @@ class MovieOrchestrator:
 
     def regenerate_shot(self, project_id: str, shot_number: int) -> MovieProject:
         project = self.store.load(project_id)
-        ensure_action_ready(project, self.settings, "REGENERATE_SHOT")
         if not 1 <= shot_number <= len(project.storyboard):
             raise ValueError(f"Shot number must be between 1 and {len(project.storyboard)}.")
+        ensure_action_ready(project, self.settings, "REPLAN_SHOT", shot_number=shot_number)
         index = shot_number - 1
         previous_shot = project.storyboard[index - 1] if index > 0 else None
         current_shot = project.storyboard[index]

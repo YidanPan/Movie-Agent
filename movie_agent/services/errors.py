@@ -59,7 +59,7 @@ def error_info(
         payload.setdefault("error_message", payload.get("error", "Production action is blocked."))
         payload.setdefault("stage", str(stage or "pipeline"))
         payload.setdefault("retry_count", 0)
-        payload.setdefault("recoverable", False)
+        payload.setdefault("recoverable", bool(payload.get("next_actions")))
         payload.setdefault("created_at", utc_now())
         return payload
     code, default_recoverable = classify_error(error, stage=stage)

@@ -219,3 +219,84 @@ def test_serialized_project_computes_readiness_once(monkeypatch):
         payload = server.serialized_project(project)
         assert calls["count"] == 1
         assert payload["readiness"] == payload["diagnostics"]["readiness"]
+
+
+def test_render_shot_ignores_unrelated_shot_blocker():
+    with TemporaryDirectory() as directory:
+        orchestrator = make_orchestrator(Path(directory), video_mode="comfyui")
+        project = orchestrator.create_project("A signal changes a quiet room.", 48, "grounded")
+        project.renderer_contract = {"status": "READY", "valid": True}
+        project.storyboard[0].status = "awaiting_visual_review"
+        project.storyboard[0].qc_status = "AWAITING_VISUAL_REVIEW"
+        result = action_readiness(project, orchestrator.settings, "RENDER_SHOT", shot_number=2)
+        assert result["ready"] is True
+
+
+def test_render_shot_is_blocked_by_target_blocker():
+    with TemporaryDirectory() as directory:
+        orchestrator = make_orchestrator(Path(directory), video_mode="comfyui")
+        project = orchestrator.create_project("A signal changes a quiet room.", 48, "grounded")
+        project.renderer_contract = {"status": "READY", "valid": True}
+        project.storyboard[0].qc_details = {
+            "reference_required": True,
+            "reference_flags": ["MISSING_SCENE_REFERENCE"],
+        }
+        result = action_readiness(project, orchestrator.settings, "RENDER_SHOT", shot_number=1)
+        assert result["ready"] is False
+        assert result["blockers"][0]["shot_number"] == 1
+
+
+def test_global_renderer_blocker_blocks_every_render_shot():
+    with TemporaryDirectory() as directory:
+        orchestrator = make_orchestrator(Path(directory), video_mode="comfyui")
+        project = orchestrator.create_project("A signal changes a quiet room.", 48, "grounded")
+        project.renderer_contract = {"status": "WORKFLOW_MISSING", "valid": False}
+        assert action_readiness(project, orchestrator.settings, "RENDER_SHOT", shot_number=1)["ready"] is False
+        assert action_readiness(project, orchestrator.settings, "RENDER_SHOT", shot_number=2)["ready"] is False
+
+
+def test_replan_shot_does_not_require_renderer():
+    with TemporaryDirectory() as directory:
+        orchestrator = make_orchestrator(Path(directory), video_mode="comfyui")
+        project = orchestrator.create_project("A signal changes a quiet room.", 48, "grounded")
+        project.renderer_contract = {"status": "WORKFLOW_MISSING", "valid": False}
+        assert action_readiness(project, orchestrator.settings, "REPLAN_SHOT", shot_number=1)["ready"] is True
+        assert action_readiness(project, orchestrator.settings, "REGENERATE_SHOT", shot_number=1)["ready"] is False
+
+
+def test_action_context_rejects_invalid_shot_before_readiness():
+    with TemporaryDirectory() as directory:
+        orchestrator = make_orchestrator(Path(directory), video_mode="comfyui")
+        project = orchestrator.create_project("A signal changes a quiet room.", 48, "grounded")
+        try:
+            orchestrator.regenerate_shot(project.project_id, 999)
+        except ValueError as error:
+            assert "Shot number" in str(error)
+        else:
+            raise AssertionError("Invalid shot must be rejected before action readiness")
+
+
+def test_optional_reference_warning_only_applies_to_render_actions():
+    with TemporaryDirectory() as directory:
+        orchestrator = make_orchestrator(Path(directory), video_mode="comfyui")
+        project = orchestrator.create_project("A signal changes a quiet room.", 48, "grounded")
+        project.renderer_contract = {"status": "READY", "valid": True}
+        project.storyboard[0].qc_details = {"reference_flags": ["MISSING_SCENE_REFERENCE"]}
+        render_result = action_readiness(project, orchestrator.settings, "RENDER_SHOT", shot_number=1)
+        edit_result = action_readiness(project, orchestrator.settings, "START_AI_EDIT")
+        assert any(item["code"] == "MISSING_SCENE_REFERENCE" for item in render_result["warnings"])
+        assert not any(item["code"] == "MISSING_SCENE_REFERENCE" for item in edit_result["warnings"])
+
+
+def test_production_blocked_error_is_recoverable_when_resolution_exists():
+    with TemporaryDirectory() as directory:
+        orchestrator = make_orchestrator(Path(directory))
+        project = orchestrator.create_project("A signal changes a quiet room.", 48, "grounded")
+        project.status = "ready_for_ai_edit"
+        project.script["dialogue_locked"] = False
+        try:
+            ensure_action_ready(project, orchestrator.settings, "START_AI_EDIT")
+        except ProductionBlockedError as error:
+            assert error.to_dict()["recoverable"] is True
+        else:
+            raise AssertionError("Expected a recoverable production blocker")

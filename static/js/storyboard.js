@@ -172,6 +172,11 @@ export const shotCapabilities = (shot = {}, project = {}) => {
     || Object.values(review).some((value) => Array.isArray(value) && value.length);
   const isReady = shotReady(shot);
   const canPreview = shotPreviewable(shot);
+  const targetReadiness = project?.readiness?.shot_actions?.[String(shot.number)] || {};
+  const renderReadiness = targetReadiness.RENDER_SHOT;
+  const replanReadiness = targetReadiness.REPLAN_SHOT;
+  const canRenderMedia = !isGenerating && (renderReadiness ? Boolean(renderReadiness.ready) : true);
+  const canReplan = !isGenerating && (replanReadiness ? Boolean(replanReadiness.ready) : true);
   return {
     canPreview,
     canApprove: canPreview && status === "awaiting_visual_review" && !isGenerating && review.primaryReviewDomain === "visual",
@@ -179,8 +184,9 @@ export const shotCapabilities = (shot = {}, project = {}) => {
     canApprovePlanning: review.primaryReviewDomain === "planning",
     canResolveReference: review.primaryReviewDomain === "reference",
     canFixTiming: review.primaryReviewDomain === "audio",
-    canRegenerate: !isGenerating,
-    canReplan: !isGenerating,
+    canRegenerate: canRenderMedia,
+    canRenderMedia,
+    canReplan,
     canEditMetadata: !isGenerating,
     canEnterCut: isReady,
     needsReview,

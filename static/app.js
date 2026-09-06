@@ -1312,54 +1312,55 @@ function renderProductionAttention(project = state.project) {
   if (!els.productionAttentionList) return;
   els.productionAttentionList.innerHTML = blockers.slice(0, 4).map((item) => {
     const shot = item.shot_number ? ` · SHOT ${String(item.shot_number).padStart(2, "0")}` : "";
-    const action = item.next_action ? `<button type="button" class="production-attention-action type-control" data-readiness-action="${esc(item.next_action)}" data-readiness-shot="${esc(item.shot_number || "")}">${esc(readinessActionLabel(item.next_action))} →</button>` : "";
+    const action = item.next_action ? `<button type="button" class="production-attention-action type-control" data-readiness-action="${esc(item.next_action)}" data-readiness-shot="${esc(item.shot_number || "")}">${esc(MovieAgentModules.productionActions.productionActionLabel(item.next_action))} →</button>` : "";
     return `<article class="production-attention-item" data-severity="${esc(item.severity || "WARNING")}"><span class="production-attention-symbol" aria-hidden="true">${item.severity === "BLOCKING" ? "!" : "·"}</span><div><strong>${esc(item.code)}${shot}</strong><p>${esc(item.message || "Production review required.")}</p></div>${action}</article>`;
   }).join("");
 }
 
-function readinessActionLabel(action) {
-  return ({
-    REVIEW_SHOT: "REVIEW SHOT",
-    APPROVE_PREVIS: "APPROVE PREVIS",
-    OPEN_REFERENCE_BANK: "OPEN REFERENCES",
-    REVIEW_AUDIO_TIMELINE: "OPEN AUDIO",
-    OPEN_SOUND: "OPEN SOUND",
-    OPEN_RENDER_DIAGNOSTICS: "OPEN RENDER",
-    LOCK_DIALOGUE: "LOCK DIALOGUE",
-    START_AI_EDIT: "START AI EDIT",
-    START_RENDER: "START RENDER",
-  })[String(action || "").toUpperCase()] || "REVIEW";
-}
-
-function handleReadinessAction(event) {
+async function handleProductionAction(event) {
   const button = event.target.closest("[data-readiness-action]");
   if (!button || !state.project) return;
   const action = String(button.dataset.readinessAction || "").toUpperCase();
   const shotNumber = Number(button.dataset.readinessShot || 0);
-  if (action === "REVIEW_SHOT" && shotNumber) {
-    openDrawer(state.project, shotNumber);
-    return;
-  }
-  if (["OPEN_REFERENCE_BANK", "REVIEW_VISUAL_BIBLE"].includes(action)) {
-    renderManual(state.project, "visual");
-    els.manualBody?.scrollIntoView({ behavior: REDUCED_MOTION ? "auto" : "smooth", block: "center" });
-    return;
-  }
-  if (["REVIEW_AUDIO_TIMELINE", "OPEN_SOUND"].includes(action)) {
-    els.audioDesignConsole?.scrollIntoView({ behavior: REDUCED_MOTION ? "auto" : "smooth", block: "center" });
-    return;
-  }
-  if (["OPEN_RENDER_DIAGNOSTICS", "REVIEW_RENDER_DIAGNOSTICS"].includes(action)) {
-    els.monitorPanel?.scrollIntoView({ behavior: REDUCED_MOTION ? "auto" : "smooth", block: "center" });
-    return;
-  }
-  if (action === "LOCK_DIALOGUE") {
-    renderManual(state.project, "script");
-    els.manualBody?.scrollIntoView({ behavior: REDUCED_MOTION ? "auto" : "smooth", block: "center" });
-    return;
-  }
-  if (action === "APPROVE_PREVIS") {
-    els.filmstripPanel?.scrollIntoView({ behavior: REDUCED_MOTION ? "auto" : "smooth", block: "center" });
+  const openManual = (tab) => {
+    renderManual(state.project, tab);
+    MovieAgentModules.productionActions.scrollTo(els.manualBody, REDUCED_MOTION);
+  };
+  const handlers = {
+    REVIEW_SHOT: () => shotNumber && openDrawer(state.project, shotNumber),
+    APPROVE_PREVIS: async () => {
+      const payload = await MovieAgentModules.api.requestJSON(`/api/projects/${state.project.project_id}/previs/approve`, { method: "POST" });
+      applyProjectSnapshot(payload);
+      renderWorkspace(payload);
+      toast("PREVIS 已批准，可以进入生成阶段。");
+    },
+    OPEN_REFERENCE_BANK: () => openManual("visual"),
+    REVIEW_VISUAL_BIBLE: () => openManual("visual"),
+    REPLAN_STORY_WORLD: () => openManual("brief"),
+    REPLAN_STORYBOARD: () => MovieAgentModules.productionActions.scrollTo(els.filmstripPanel, REDUCED_MOTION),
+    REVIEW_AUDIO_TIMELINE: () => MovieAgentModules.productionActions.scrollTo(els.audioDesignConsole, REDUCED_MOTION),
+    OPEN_SOUND: () => MovieAgentModules.productionActions.scrollTo(els.audioDesignConsole, REDUCED_MOTION),
+    OPEN_RENDER_DIAGNOSTICS: () => MovieAgentModules.productionActions.scrollTo(els.monitorPanel, REDUCED_MOTION),
+    REVIEW_RENDER_DIAGNOSTICS: () => MovieAgentModules.productionActions.scrollTo(els.monitorPanel, REDUCED_MOTION),
+    LOCK_DIALOGUE: () => openManual("script"),
+    RENDER_SHOT: () => shotNumber && renderSingleShot(shotNumber),
+    REPLAN_SHOT: () => shotNumber && regenerateShot(shotNumber, "replan"),
+    START_RENDER: () => startRender(),
+    START_AI_EDIT: () => startAiEdit(),
+    APPROVE_FINAL_CUT: () => approveAiEdit(),
+    GENERATE_FINAL_MASTER: () => approveAiEdit(),
+    EXPORT: () => exportFinalCut(),
+    VERIFY_FINAL_MASTER: () => MovieAgentModules.productionActions.scrollTo(els.deliverFinal, REDUCED_MOTION),
+    REVIEW_DELIVERY_PREFLIGHT: () => MovieAgentModules.productionActions.scrollTo(els.deliverPanel, REDUCED_MOTION),
+  };
+  try {
+    await MovieAgentModules.productionActions.executeProductionAction(action, {
+      shotNumber,
+      handlers,
+      onUnavailable: (code) => toast(`ACTION UNAVAILABLE · ${code}`, true),
+    });
+  } catch (error) {
+    toast(`动作执行失败：${error.message}`, true);
   }
 }
 
@@ -3519,7 +3520,7 @@ function buildShotInspectorMarkup(project, shot) {
          ${capabilities.canApprove ? '<button class="cta inspector-action-primary" data-inspector-action="approve" type="button">APPROVE SHOT <span aria-hidden="true">✓</span></button>' : ""}
          ${capabilities.primaryReviewDomain && !capabilities.canApprove ? `<button class="ghost type-control" data-inspector-action="review-domain" data-review-domain="${esc(capabilities.primaryReviewDomain)}" type="button">${capabilities.primaryReviewDomain === "planning" ? "EDIT STORYBOARD" : capabilities.primaryReviewDomain === "reference" ? "RESOLVE REFERENCES" : capabilities.primaryReviewDomain === "audio" ? "EDIT DIALOGUE" : capabilities.primaryReviewDomain === "media" ? "REVIEW MEDIA" : "REVIEW CONTINUITY"}</button>` : ""}
          <button class="ghost type-control" data-inspector-action="replan" type="button"${capabilities.canReplan ? "" : " disabled"}>↻ 重新规划</button>
-        <button class="cta inspector-action-primary" data-inspector-action="regenerate" type="button"${capabilities.canRegenerate ? "" : " disabled"}>重新生成素材 <span aria-hidden="true">→</span></button>
+        <button class="cta inspector-action-primary" data-inspector-action="regenerate" type="button"${capabilities.canRenderMedia ? "" : " disabled"}>重新生成素材 <span aria-hidden="true">→</span></button>
       </footer>
     </div>`;
 }
@@ -5313,7 +5314,7 @@ function init() {
   els.btnExportClose?.addEventListener("click", closeExportSheet);
   els.btnExportRun?.addEventListener("click", exportFinalCut);
   document.addEventListener("click", handleAudioInteraction);
-  els.productionAttention?.addEventListener("click", handleReadinessAction);
+  els.productionAttention?.addEventListener("click", handleProductionAction);
   document.addEventListener("keydown", handleAudioInspectorKeydown);
   document.addEventListener("input", handleAudioInspectorInput);
   document.addEventListener("change", (event) => {

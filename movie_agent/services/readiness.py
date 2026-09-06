@@ -21,31 +21,53 @@ DOMAINS = {"PLAN", "WORLD", "PREVIS", "RENDERER", "REFERENCE", "VISUAL", "AUDIO"
 SEVERITIES = {"INFO", "WARNING", "BLOCKING"}
 ACTION_ORDER = (
     "START_RENDER",
-    "REGENERATE_SHOT",
     "START_AI_EDIT",
     "APPROVE_FINAL_CUT",
     "GENERATE_FINAL_MASTER",
     "EXPORT",
 )
+LEGACY_ACTION_ALIASES = {"REGENERATE_SHOT": "RENDER_SHOT"}
+PRODUCTION_ACTIONS = {
+    "START_RENDER": {"scope": "project", "kind": "execute"},
+    "RENDER_SHOT": {"scope": "shot", "kind": "execute"},
+    "REPLAN_SHOT": {"scope": "shot", "kind": "plan"},
+    "START_AI_EDIT": {"scope": "project", "kind": "execute"},
+    "APPROVE_FINAL_CUT": {"scope": "project", "kind": "review"},
+    "GENERATE_FINAL_MASTER": {"scope": "project", "kind": "execute"},
+    "EXPORT": {"scope": "project", "kind": "execute"},
+    "APPROVE_PREVIS": {"scope": "project", "kind": "review"},
+    "REPLAN_STORYBOARD": {"scope": "project", "kind": "plan"},
+    "REPLAN_STORY_WORLD": {"scope": "project", "kind": "plan"},
+    "REVIEW_VISUAL_BIBLE": {"scope": "project", "kind": "review"},
+    "OPEN_REFERENCE_BANK": {"scope": "project", "kind": "review"},
+    "REVIEW_SHOT": {"scope": "shot", "kind": "review"},
+    "REVIEW_AUDIO_TIMELINE": {"scope": "project", "kind": "review"},
+    "OPEN_SOUND": {"scope": "project", "kind": "review"},
+    "OPEN_RENDER_DIAGNOSTICS": {"scope": "project", "kind": "review"},
+    "REVIEW_RENDER_DIAGNOSTICS": {"scope": "project", "kind": "review"},
+    "LOCK_DIALOGUE": {"scope": "project", "kind": "plan"},
+    "VERIFY_FINAL_MASTER": {"scope": "project", "kind": "review"},
+    "REVIEW_DELIVERY_PREFLIGHT": {"scope": "project", "kind": "review"},
+}
 DOMAIN_PRIORITY = ("PLAN", "WORLD", "PREVIS", "RENDERER", "REFERENCE", "VISUAL", "AUDIO", "EDIT", "DELIVERY")
 
 
 _DEFAULT_BLOCKER_ACTIONS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "PREVIS_REVIEW_REQUIRED": (
-        ("START_RENDER", "REGENERATE_SHOT", "START_AI_EDIT", "APPROVE_FINAL_CUT", "GENERATE_FINAL_MASTER", "EXPORT"),
+        ("START_RENDER", "RENDER_SHOT", "START_AI_EDIT", "APPROVE_FINAL_CUT", "GENERATE_FINAL_MASTER", "EXPORT"),
         ("APPROVE_PREVIS", "REPLAN_STORYBOARD"),
     ),
-    "UNKNOWN_SCENE_ID": (("START_RENDER", "REGENERATE_SHOT"), ("REPLAN_STORY_WORLD",)),
-    "UNKNOWN_CHARACTER_ID": (("START_RENDER", "REGENERATE_SHOT"), ("REPLAN_STORY_WORLD",)),
-    "UNKNOWN_PROP_ID": (("START_RENDER", "REGENERATE_SHOT"), ("REPLAN_STORY_WORLD",)),
-    "MISSING_CHARACTER_LOCK": (("START_RENDER", "REGENERATE_SHOT"), ("REVIEW_VISUAL_BIBLE",)),
-    "MISSING_SCENE_LOCK": (("START_RENDER", "REGENERATE_SHOT"), ("REVIEW_VISUAL_BIBLE",)),
-    "MISSING_PROP_LOCK": (("START_RENDER", "REGENERATE_SHOT"), ("REVIEW_VISUAL_BIBLE",)),
-    "WORKFLOW_MISSING": (("START_RENDER", "REGENERATE_SHOT"), ("OPEN_RENDER_DIAGNOSTICS",)),
-    "WORKFLOW_INVALID": (("START_RENDER", "REGENERATE_SHOT"), ("OPEN_RENDER_DIAGNOSTICS",)),
-    "WORKFLOW_COMPILE_FAILED": (("START_RENDER", "REGENERATE_SHOT"), ("OPEN_RENDER_DIAGNOSTICS",)),
-    "UNSUPPORTED_GENERATION_MODE": (("START_RENDER", "REGENERATE_SHOT"), ("REPLAN_STORYBOARD",)),
-    "STALE": (("START_AI_EDIT", "APPROVE_FINAL_CUT", "GENERATE_FINAL_MASTER", "EXPORT"), ("START_RENDER", "REGENERATE_SHOT")),
+    "UNKNOWN_SCENE_ID": (("START_RENDER", "RENDER_SHOT"), ("REPLAN_STORY_WORLD",)),
+    "UNKNOWN_CHARACTER_ID": (("START_RENDER", "RENDER_SHOT"), ("REPLAN_STORY_WORLD",)),
+    "UNKNOWN_PROP_ID": (("START_RENDER", "RENDER_SHOT"), ("REPLAN_STORY_WORLD",)),
+    "MISSING_CHARACTER_LOCK": (("START_RENDER", "RENDER_SHOT"), ("REVIEW_VISUAL_BIBLE",)),
+    "MISSING_SCENE_LOCK": (("START_RENDER", "RENDER_SHOT"), ("REVIEW_VISUAL_BIBLE",)),
+    "MISSING_PROP_LOCK": (("START_RENDER", "RENDER_SHOT"), ("REVIEW_VISUAL_BIBLE",)),
+    "WORKFLOW_MISSING": (("START_RENDER", "RENDER_SHOT"), ("OPEN_RENDER_DIAGNOSTICS",)),
+    "WORKFLOW_INVALID": (("START_RENDER", "RENDER_SHOT"), ("OPEN_RENDER_DIAGNOSTICS",)),
+    "WORKFLOW_COMPILE_FAILED": (("START_RENDER", "RENDER_SHOT"), ("OPEN_RENDER_DIAGNOSTICS",)),
+    "UNSUPPORTED_GENERATION_MODE": (("START_RENDER", "RENDER_SHOT"), ("REPLAN_STORYBOARD",)),
+    "STALE": (("START_AI_EDIT", "APPROVE_FINAL_CUT", "GENERATE_FINAL_MASTER", "EXPORT"), ("START_RENDER", "RENDER_SHOT")),
     "MANUAL_VISUAL_REVIEW": (("START_AI_EDIT", "APPROVE_FINAL_CUT", "GENERATE_FINAL_MASTER", "EXPORT"), ("REVIEW_SHOT",)),
     "CHARACTER_DRIFT": (("START_AI_EDIT", "APPROVE_FINAL_CUT", "GENERATE_FINAL_MASTER", "EXPORT"), ("REVIEW_SHOT",)),
     "SCENE_DRIFT": (("START_AI_EDIT", "APPROVE_FINAL_CUT", "GENERATE_FINAL_MASTER", "EXPORT"), ("REVIEW_SHOT",)),
@@ -73,9 +95,12 @@ class ProductionBlocker:
     metadata: dict[str, Any] = field(default_factory=dict)
     blocks_actions: tuple[str, ...] = ()
     resolves_by_actions: tuple[str, ...] = ()
+    applies_to_actions: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        payload = asdict(self)
+        payload["warns_actions"] = list(self.applies_to_actions)
+        return payload
 
 
 class ProductionBlockedError(ValueError):
@@ -83,8 +108,10 @@ class ProductionBlockedError(ValueError):
 
     error_code = "PRODUCTION_BLOCKED"
 
-    def __init__(self, action: str, blockers: list[ProductionBlocker]) -> None:
-        self.action = str(action).upper()
+    def __init__(self, action: str, blockers: list[ProductionBlocker], *, shot_number: int | None = None, track_key: str | None = None) -> None:
+        self.action = canonical_action(action)
+        self.shot_number = shot_number
+        self.track_key = track_key
         self.blockers = tuple(blockers)
         self.next_actions = tuple(dict.fromkeys(
             action_name
@@ -98,8 +125,11 @@ class ProductionBlockedError(ValueError):
         return {
             "error_code": self.error_code,
             "action": self.action,
+            "shot_number": self.shot_number,
+            "track_key": self.track_key,
             "blockers": [blocker.to_dict() for blocker in self.blockers],
             "next_actions": list(self.next_actions),
+            "recoverable": bool(self.next_actions),
             "error": str(self),
         }
 
@@ -116,6 +146,7 @@ def _blocker(
     metadata: dict[str, Any] | None = None,
     blocks_actions: tuple[str, ...] | None = None,
     resolves_by_actions: tuple[str, ...] | None = None,
+    applies_to_actions: tuple[str, ...] | None = None,
 ) -> ProductionBlocker:
     default_blocks, default_resolves = _DEFAULT_BLOCKER_ACTIONS.get(code, ((), ()))
     return ProductionBlocker(
@@ -129,7 +160,23 @@ def _blocker(
         metadata=dict(metadata or {}),
         blocks_actions=tuple(blocks_actions if blocks_actions is not None else default_blocks),
         resolves_by_actions=tuple(resolves_by_actions if resolves_by_actions is not None else default_resolves),
+        applies_to_actions=tuple(applies_to_actions or ()),
     )
+
+
+@dataclass(frozen=True)
+class ProductionActionContext:
+    action: str
+    shot_number: int | None = None
+    track_key: str | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "action", canonical_action(self.action))
+
+
+def canonical_action(action: str) -> str:
+    requested = str(action or "").upper()
+    return LEGACY_ACTION_ALIASES.get(requested, requested)
 
 
 def _setting(settings: Any, name: str, default: Any = None) -> Any:
@@ -208,7 +255,8 @@ def _reference_blockers(project: Any, settings: Any) -> list[ProductionBlocker]:
                 shot_number=int(getattr(shot, "number", 0) or 0) or None,
                 next_action="OPEN_REFERENCE_BANK",
                 blocking_stage="RENDER",
-                blocks_actions=("START_RENDER", "REGENERATE_SHOT") if required and video_mode == "comfyui" else (),
+                blocks_actions=("START_RENDER", "RENDER_SHOT") if required and video_mode == "comfyui" else (),
+                applies_to_actions=("START_RENDER", "RENDER_SHOT"),
                 resolves_by_actions=("OPEN_REFERENCE_BANK", "REVIEW_VISUAL_BIBLE"),
             ))
     return result
@@ -223,6 +271,18 @@ def production_blockers(project: Any, settings: Any = None) -> list[ProductionBl
     world = getattr(project, "story_world", {}) or {}
     visual_bible = getattr(project, "visual_bible", {}) or {}
 
+    def affected_shots(kind: str, entity_id: str) -> list[int]:
+        result: list[int] = []
+        for candidate in storyboard:
+            number = int(getattr(candidate, "number", 0) or 0)
+            if kind == "scene" and str(getattr(candidate, "scene_id", "") or "") == entity_id:
+                result.append(number)
+            elif kind == "character" and entity_id in {str(value) for value in (getattr(candidate, "character_ids", []) or [])}:
+                result.append(number)
+            elif kind == "prop" and entity_id in {str(value) for value in (getattr(candidate, "prop_ids", []) or [])}:
+                result.append(number)
+        return result
+
     if status == "previs_review_required" or (getattr(project, "storyboard_review", {}) or {}).get("decision") not in {None, "PASS"}:
         blockers.append(_blocker("PREVIS_REVIEW_REQUIRED", "PREVIS", "Storyboard review must be approved before rendering.", next_action="APPROVE_PREVIS", blocking_stage="RENDER"))
 
@@ -236,7 +296,7 @@ def production_blockers(project: Any, settings: Any = None) -> list[ProductionBl
         if not values:
             values = unknown.get({"unknown_scene": "unknown_scenes", "unknown_character": "unknown_characters", "unknown_prop": "unknown_props"}[key], [])
         for value in values:
-            blockers.append(_blocker(code, "WORLD", f"Unknown {label} ID: {value}.", next_action="REPLAN_STORY_WORLD", blocking_stage="RENDER", metadata={"entity_id": value}))
+            blockers.append(_blocker(code, "WORLD", f"Unknown {label} ID: {value}.", next_action="REPLAN_STORY_WORLD", blocking_stage="RENDER", metadata={"entity_id": value, "affected_shots": affected_shots(label, str(value))}))
 
     missing_locks = validate_visual_bible_bindings(visual_bible, world)
     for key, code, label in (
@@ -245,7 +305,7 @@ def production_blockers(project: Any, settings: Any = None) -> list[ProductionBl
         ("missing_prop_locks", "MISSING_PROP_LOCK", "prop"),
     ):
         for value in missing_locks.get(key, []) or []:
-            blockers.append(_blocker(code, "WORLD", f"Visual Bible has no locked {label}: {value}.", next_action="REVIEW_VISUAL_BIBLE", blocking_stage="RENDER", metadata={"entity_id": value}))
+            blockers.append(_blocker(code, "WORLD", f"Visual Bible has no locked {label}: {value}.", next_action="REVIEW_VISUAL_BIBLE", blocking_stage="RENDER", metadata={"entity_id": value, "affected_shots": affected_shots(label, str(value))}))
 
     video_mode = str(_setting(settings, "video_generation_mode", "mock") or "mock").lower()
     renderer = getattr(project, "renderer_contract", {}) or {}
@@ -265,9 +325,9 @@ def production_blockers(project: Any, settings: Any = None) -> list[ProductionBl
         source = _shot_source(shot)
         verification = str(source.get("renderer_verification_status") or "").upper()
         if bool(getattr(shot, "stale", False)) or bool(source.get("stale")):
-            blockers.append(_blocker("STALE", "RENDERER", "Current shot media is stale and must be regenerated.", shot_number=number, next_action="REGENERATE_SHOT", blocking_stage="RENDER"))
+            blockers.append(_blocker("STALE", "RENDERER", "Current shot media is stale and must be regenerated.", shot_number=number, next_action="RENDER_SHOT", blocking_stage="RENDER"))
         elif verification == "UNVERIFIED_LEGACY":
-            blockers.append(_blocker("UNVERIFIED_LEGACY", "RENDERER", "Legacy shot media has not been verified against the renderer contract.", severity="WARNING", shot_number=number, next_action="REVIEW_RENDER_DIAGNOSTICS", blocking_stage="RENDER"))
+            blockers.append(_blocker("UNVERIFIED_LEGACY", "RENDERER", "Legacy shot media has not been verified against the renderer contract.", severity="WARNING", shot_number=number, next_action="REVIEW_RENDER_DIAGNOSTICS", blocking_stage="RENDER", applies_to_actions=("START_RENDER", "RENDER_SHOT", "START_AI_EDIT", "APPROVE_FINAL_CUT", "GENERATE_FINAL_MASTER", "EXPORT")))
 
         blockers.extend(reference_by_shot.get(number or 0, []))
         flags = _shot_qc_flags(shot)
@@ -291,7 +351,7 @@ def production_blockers(project: Any, settings: Any = None) -> list[ProductionBl
         # fact visible as a warning, while real-provider projects treat it as
         # a production gate.
         severity = "WARNING" if bool(_setting(settings, "mock_mode", False)) else "BLOCKING"
-        blockers.append(_blocker("VOICE_PROVIDER_REQUIRED", "AUDIO", "A voice provider or real voice asset is required.", severity=severity, next_action="OPEN_SOUND", blocking_stage="EDIT"))
+        blockers.append(_blocker("VOICE_PROVIDER_REQUIRED", "AUDIO", "A voice provider or real voice asset is required.", severity=severity, next_action="OPEN_SOUND", blocking_stage="EDIT", applies_to_actions=("START_AI_EDIT", "APPROVE_FINAL_CUT", "GENERATE_FINAL_MASTER", "EXPORT")))
 
     dialogue_locked = bool(script.get("dialogue_locked")) if isinstance(script, dict) else False
     if status in {"ready_for_ai_edit", "editing_rough_cut", "rough_cut_ready", "editing_final", "completed_mock", "completed_text_ai_video_mock", "completed_comfyui"} and not dialogue_locked:
@@ -341,32 +401,49 @@ def production_readiness(project: Any, settings: Any = None) -> dict[str, Any]:
     """Return the one readiness contract used by API, diagnostics, and UI."""
 
     blockers = production_blockers(project, settings)
+    storyboard = list(getattr(project, "storyboard", []) or [])
     blocking = [item for item in blockers if item.severity == "BLOCKING"]
     warnings = [item for item in blockers if item.severity == "WARNING"]
+    global_blocking = [item for item in blocking if item.shot_number is None]
     next_action = next((item.next_action for item in blockers if item.next_action), None)
     state = describe_status(getattr(project, "status", "planning_live"))
     actions = {
         action: _action_readiness_from_blockers(blockers, action)
         for action in ACTION_ORDER
     }
+    shot_actions = {
+        str(int(getattr(shot, "number", 0) or 0)): {
+            "RENDER_SHOT": _action_readiness_from_blockers(blockers, "RENDER_SHOT", shot_number=int(getattr(shot, "number", 0) or 0)),
+            "REPLAN_SHOT": _action_readiness_from_blockers(blockers, "REPLAN_SHOT", shot_number=int(getattr(shot, "number", 0) or 0)),
+        }
+        for shot in storyboard
+        if int(getattr(shot, "number", 0) or 0)
+    }
     return {
         "ready": not blocking,
+        "global_clear": not global_blocking,
+        "clear_of_blockers": not blocking,
         "current_stage": state["stage"],
         "blockers": [item.to_dict() for item in blockers],
         "next_action": next_action,
         "blocking_count": len(blocking),
         "warning_count": len(warnings),
         "actions": actions,
+        "shot_actions": shot_actions,
     }
 
 
 def _action_readiness_from_blockers(
     blockers: list[ProductionBlocker],
     action: str,
+    *,
+    shot_number: int | None = None,
+    track_key: str | None = None,
 ) -> dict[str, Any]:
-    action = str(action).upper()
-    blocking = [item for item in blockers if item.severity == "BLOCKING" and action in item.blocks_actions]
-    warnings = [item for item in blockers if item.severity != "BLOCKING" and (not item.blocks_actions or action in item.blocks_actions)]
+    del track_key  # Reserved for audio-scoped actions in the next contract phase.
+    action = canonical_action(action)
+    blocking = [item for item in blockers if _blocker_matches_context(item, action, shot_number, blocking=True)]
+    warnings = [item for item in blockers if _blocker_matches_context(item, action, shot_number, blocking=False)]
     resolution_actions = list(dict.fromkeys(
         action_name
         for item in blocking
@@ -382,37 +459,91 @@ def _action_readiness_from_blockers(
     }
 
 
-def action_blockers(project: Any, settings: Any, action: str) -> list[ProductionBlocker]:
+def action_blockers(project: Any, settings: Any, action: str, *, shot_number: int | None = None, track_key: str | None = None) -> list[ProductionBlocker]:
     """Return blockers that explicitly declare this action unsafe."""
 
-    action = str(action).upper()
+    action = canonical_action(action)
+    shot_number = _validate_shot_number(project, shot_number) if shot_number is not None else None
+    del track_key
     return [
         item
         for item in production_blockers(project, settings)
-        if item.severity == "BLOCKING" and action in item.blocks_actions
+        if _blocker_matches_context(item, action, shot_number, blocking=True)
     ]
 
 
-def action_readiness(project: Any, settings: Any, action: str) -> dict[str, Any]:
+def _blocker_matches_context(
+    item: ProductionBlocker,
+    action: str,
+    shot_number: int | None,
+    *,
+    blocking: bool,
+) -> bool:
+    action = canonical_action(action)
+    if item.severity == "BLOCKING" and not blocking:
+        return False
+    if item.severity != "BLOCKING" and blocking:
+        return False
+    affected = item.metadata.get("affected_shots") if isinstance(item.metadata, dict) else None
+    if shot_number is not None:
+        if item.shot_number is not None and item.shot_number != shot_number:
+            return False
+        if affected and shot_number not in {int(value) for value in affected}:
+            return False
+    if item.shot_number is not None and shot_number is None and action in {"RENDER_SHOT", "REPLAN_SHOT"}:
+        return False
+    if blocking:
+        return action in {canonical_action(value) for value in item.blocks_actions}
+    applies = item.applies_to_actions
+    return bool(applies) and action in {canonical_action(value) for value in applies}
+
+
+def _validate_shot_number(project: Any, shot_number: int | None) -> int | None:
+    if shot_number is None:
+        return None
+    try:
+        value = int(shot_number)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("shot_number must be an integer") from exc
+    valid = {int(getattr(shot, "number", 0) or 0) for shot in (getattr(project, "storyboard", []) or [])}
+    if value not in valid:
+        raise ValueError(f"Invalid shot number: {value}")
+    return value
+
+
+def action_blockers_for_context(project: Any, settings: Any, context: ProductionActionContext) -> list[ProductionBlocker]:
     blockers = production_blockers(project, settings)
-    return _action_readiness_from_blockers(blockers, action)
+    return [item for item in blockers if _blocker_matches_context(item, context.action, context.shot_number, blocking=True)]
 
 
-def ensure_action_ready(project: Any, settings: Any, action: str) -> None:
-    blockers = action_blockers(project, settings, action)
+def action_readiness(project: Any, settings: Any, action: str, *, shot_number: int | None = None, track_key: str | None = None) -> dict[str, Any]:
+    shot_number = _validate_shot_number(project, shot_number) if shot_number is not None else None
+    blockers = production_blockers(project, settings)
+    return _action_readiness_from_blockers(blockers, action, shot_number=shot_number, track_key=track_key)
+
+
+def ensure_action_ready(project: Any, settings: Any, action: str, *, shot_number: int | None = None, track_key: str | None = None) -> None:
+    canonical = canonical_action(action)
+    shot_number = _validate_shot_number(project, shot_number) if shot_number is not None else None
+    context = ProductionActionContext(canonical, shot_number=shot_number, track_key=track_key)
+    blockers = action_blockers_for_context(project, settings, context)
     if blockers:
-        raise ProductionBlockedError(action, blockers)
+        raise ProductionBlockedError(canonical, blockers, shot_number=shot_number, track_key=track_key)
 
 
 __all__ = [
     "ACTION_ORDER",
+    "PRODUCTION_ACTIONS",
     "DOMAINS",
     "DOMAIN_PRIORITY",
     "SEVERITIES",
     "ProductionBlocker",
+    "ProductionActionContext",
     "ProductionBlockedError",
     "action_blockers",
+    "action_blockers_for_context",
     "action_readiness",
+    "canonical_action",
     "ensure_action_ready",
     "production_blockers",
     "production_readiness",

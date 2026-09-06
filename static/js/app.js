@@ -13,6 +13,7 @@ import { moduleStoryboard } from "./storyboard.js";
 import { moduleScript } from "./script.js";
 import { moduleSound } from "./sound.js";
 import { moduleDeliver } from "./deliver.js";
+import { moduleProductionActions } from "./production-actions.js";
 
 Object.assign(window.MovieAgentModules || (window.MovieAgentModules = {}), {
   api: moduleApi(),
@@ -25,6 +26,7 @@ Object.assign(window.MovieAgentModules || (window.MovieAgentModules = {}), {
   script: moduleScript(),
   sound: moduleSound(),
   deliver: moduleDeliver(),
+  productionActions: moduleProductionActions(),
 });
 
 window.dispatchEvent(new CustomEvent("movie-agent:modules-ready"));
