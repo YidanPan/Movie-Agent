@@ -105,6 +105,8 @@ def _shot_diagnostics(shot: Any) -> dict[str, Any]:
     error = _error_snapshot(shot, fallback_stage="generation")
     flags = [str(flag).upper() for flag in (getattr(shot, "qc_flags", []) or [])]
     retry_count = _safe_int(getattr(shot, "retry_count", 0), minimum=0)
+    assets = getattr(shot, "media_assets", {}) or {}
+    source = assets.get("source") if isinstance(assets, dict) else None
     return {
         "number": _safe_int(getattr(shot, "number", 0), minimum=0),
         "status": str(getattr(shot, "status", "planned") or "planned"),
@@ -115,6 +117,8 @@ def _shot_diagnostics(shot: Any) -> dict[str, Any]:
         "retry_count": retry_count,
         "recoverable": bool(getattr(shot, "recoverable", True)),
         "error": error,
+        "renderer_verification_status": str((source or {}).get("renderer_verification_status") or "") if isinstance(source, dict) else "",
+        "renderer_stale_reason": str((source or {}).get("stale_reason") or "") if isinstance(source, dict) else "",
     }
 
 
@@ -258,6 +262,7 @@ def diagnostics_snapshot(
         "stage": state["stage"],
         "updated_at": str(getattr(project, "updated_at", "") or ""),
         "pipeline_state": state,
+        "renderer_contract": getattr(project, "renderer_contract", {}) or {"status": "UNKNOWN", "valid": False},
         "progress": {
             "shots_total": len(shots),
             "shots_ready": ready_count,

@@ -95,7 +95,11 @@ class CorrectnessRoundTwoTests(unittest.TestCase):
         with TemporaryDirectory() as directory:
             root = Path(directory)
             workflow = root / "workflows" / "verified.json"
-            workflow.parent.mkdir(parents=True); workflow.write_text("{}", encoding="utf-8")
+            workflow.parent.mkdir(parents=True)
+            workflow.write_text(
+                '{"1":{"class_type":"Checkpoint","inputs":{}},"_movie_agent":{}}',
+                encoding="utf-8",
+            )
             source = root / "source.mp4"; source.write_bytes(b"source")
             settings = Settings("http://127.0.0.1:8188", 900, root / "workflows", 9071, root / "projects", True, outputs_dir=root / "outputs", comfy_workflow_template="verified.json")
 

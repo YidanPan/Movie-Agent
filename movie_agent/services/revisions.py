@@ -16,7 +16,11 @@ import json
 from pathlib import Path
 from typing import Any
 
-from movie_agent.services.render_input import RENDERER_MANIFEST_VERSION, compile_renderer_input
+from movie_agent.services.render_input import (
+    RENDERER_MANIFEST_VERSION,
+    RendererContractUnavailable,
+    compile_renderer_input,
+)
 
 
 DEPENDENCY_GRAPH: dict[str, tuple[str, ...]] = {
@@ -128,14 +132,17 @@ def hash_generation_input(
         project_id="ad-hoc-project",
         visual_bible={},
         story_world={},
+        film_language="en",
     )
+    workflow_path = Path(__file__).resolve().parents[2] / "workflows" / "minimax_h3_t2v_api.json"
     manifest = compile_renderer_input(
         project,
         shot,
         None,
         context or {},
-        None,
+        workflow_path,
         workflow_identity=workflow_identity,
+        film_language="en",
     )
     return manifest.fingerprint()[:24]
 
@@ -144,15 +151,62 @@ def _shot_has_current_source(shot: Any) -> bool:
     """Return whether a shot has a current renderer output worth invalidating."""
 
     assets = getattr(shot, "media_assets", {}) or {}
-    if isinstance(assets, dict):
-        for record in assets.values():
-            if not isinstance(record, dict) or record.get("stale") is True:
-                continue
-            if any(record.get(key) for key in ("path", "media_path", "source_path", "url")):
-                return True
+    source = assets.get("source") if isinstance(assets, dict) else None
+    if isinstance(source, dict) and source.get("stale") is not True:
+        if any(source.get(key) for key in ("path", "media_path", "source_path", "url")):
+            return True
     status = str(getattr(shot, "status", "") or "")
     output = str(getattr(shot, "output_placeholder", "") or "")
     return status.startswith(("generated", "approved")) and bool(output)
+
+
+def diff_renderer_contract(source_asset: Any, expected_manifest: Any) -> dict[str, str] | None:
+    """Explain the first renderer-contract fact that differs from a source asset."""
+
+    if not isinstance(source_asset, dict):
+        return None
+    expected = expected_manifest.audit_dict() if hasattr(expected_manifest, "audit_dict") else dict(expected_manifest or {})
+    comparisons = (
+        (
+            "compiled_prompt_digest",
+            "PROMPT_CHANGED",
+            "Current compiled visual prompt differs from rendered source.",
+        ),
+        (
+            "submitted_workflow_digest",
+            "WORKFLOW_CHANGED",
+            "Submitted renderer workflow differs from rendered source.",
+        ),
+        (
+            "workflow_template_digest",
+            "WORKFLOW_CHANGED",
+            "Renderer workflow template differs from rendered source.",
+        ),
+        (
+            "derived_seed",
+            "SEED_CHANGED",
+            "Derived renderer seed differs from rendered source.",
+        ),
+        (
+            "source_duration_seconds",
+            "SOURCE_DURATION_CHANGED",
+            "Native source duration differs from rendered source.",
+        ),
+        (
+            "renderer_manifest_version",
+            "RENDERER_VERSION_CHANGED",
+            "Renderer manifest version differs from rendered source.",
+        ),
+        (
+            "external_input_digests",
+            "EXTERNAL_REFERENCE_CHANGED",
+            "External renderer references differ from rendered source.",
+        ),
+    )
+    for field, reason, detail in comparisons:
+        if field in source_asset and source_asset.get(field) != expected.get(field):
+            return {"reason": reason, "detail": detail}
+    return None
 
 
 def reconcile_generation_fingerprints(
@@ -173,14 +227,9 @@ def reconcile_generation_fingerprints(
             workflow_path = candidate
         else:
             workflow_path = Path(__file__).resolve().parents[2] / "workflows" / "minimax_h3_t2v_api.json"
-    shots = sorted(
-        list(getattr(project, "storyboard", []) or []),
-        key=lambda item: int(getattr(item, "number", 0) or 0),
-    )
+    shots = sorted(list(getattr(project, "storyboard", []) or []), key=lambda item: int(getattr(item, "number", 0) or 0))
+    contexts: list[tuple[Any, Any, Any, Any]] = []
     previous = None
-    changed: list[int] = []
-    old_hashes: dict[str, str] = {}
-    new_hashes: dict[str, str] = {}
     for shot in shots:
         number = int(getattr(shot, "number", 0) or 0)
         record = state_record_for_shot(project, number)
@@ -193,33 +242,73 @@ def reconcile_generation_fingerprints(
             entity_state_delta=record.get("delta"),
             entity_state_after=record.get("after"),
         )
-        manifest = compile_renderer_input(
-            project,
-            shot,
-            previous,
-            context,
-            workflow_path,
-            workflow_identity=workflow_identity,
-        )
+        try:
+            manifest = compile_renderer_input(
+                project,
+                shot,
+                previous,
+                context,
+                workflow_path,
+                workflow_identity=workflow_identity,
+                film_language=str(getattr(project, "film_language", "en") or "en"),
+            )
+        except RendererContractUnavailable as error:
+            project.renderer_contract = {
+                "status": error.status,
+                "valid": False,
+                "errors": list(error.errors),
+            }
+            return {
+                "affected_shots": [],
+                "old_hashes": {},
+                "new_hashes": {},
+                "event": None,
+                "contract_status": error.status,
+                "contract_errors": list(error.errors),
+            }
+        contexts.append((shot, previous, context, manifest))
+        previous = shot
+
+    project.renderer_contract = {"status": "READY", "valid": True, "errors": []}
+    previous = None
+    changed: list[int] = []
+    old_hashes: dict[str, str] = {}
+    new_hashes: dict[str, str] = {}
+    contract_diffs: dict[str, dict[str, str]] = {}
+    for shot, previous, context, manifest in contexts:
         new_hash = manifest.fingerprint()
+        number = int(getattr(shot, "number", 0) or 0)
         new_hashes[str(number)] = new_hash
         source_record = (getattr(shot, "media_assets", {}) or {}).get("source")
         rendered_hash = source_record.get("generation_input_hash") if isinstance(source_record, dict) else ""
         if _shot_has_current_source(shot):
-            # Legacy source records did not persist the renderer manifest.  Use
-            # their last shot hash once as a migration baseline, then keep the
-            # asset record as the source of truth for all future comparisons.
-            if not rendered_hash:
-                rendered_hash = str(getattr(shot, "generation_input_hash", "") or "") or new_hash
+            required_manifest_fields = (
+                "generation_input_hash",
+                "renderer_manifest_version",
+                "compiled_prompt_digest",
+                "workflow_template_digest",
+                "submitted_workflow_digest",
+                "derived_seed",
+                "source_duration_seconds",
+            )
+            if not isinstance(source_record, dict) or not rendered_hash or not all(field in source_record for field in required_manifest_fields):
                 if isinstance(source_record, dict):
-                    source_record["generation_input_hash"] = rendered_hash
-            if rendered_hash != new_hash:
+                    source_record["renderer_verification_status"] = "UNVERIFIED_LEGACY"
+            elif rendered_hash != new_hash or diff_renderer_contract(source_record, manifest):
+                diff = diff_renderer_contract(source_record, manifest) or {
+                    "reason": "RENDERER_INPUT_CHANGED",
+                    "detail": "Renderer input differs from rendered source.",
+                }
+                source_record["renderer_verification_status"] = "STALE"
                 old_hashes[str(number)] = str(rendered_hash)
+                contract_diffs[str(number)] = diff
                 changed.append(number)
                 if not bool(getattr(shot, "stale", False)):
-                    mark_shot_stale(shot, "generation_input_fingerprint_changed")
+                    mark_shot_stale(shot, diff["reason"])
                 else:
                     shot.qc_status = "STALE"
+            else:
+                source_record["renderer_verification_status"] = "VERIFIED"
         # This field remains a useful expected-value diagnostic for old API
         # clients, but it is never used as the rendered source's authority.
         shot.generation_input_hash = new_hash
@@ -235,6 +324,7 @@ def reconcile_generation_fingerprints(
             "reason": "generation_input_fingerprint_changed",
             "old_hashes": old_hashes,
             "new_hashes": {str(number): new_hashes[str(number)] for number in changed},
+            "contract_diffs": contract_diffs,
             "created_at": utc_now(),
         }
         if not isinstance(getattr(project, "invalidation_events", None), list):
@@ -245,6 +335,8 @@ def reconcile_generation_fingerprints(
         "old_hashes": old_hashes,
         "new_hashes": new_hashes,
         "event": event,
+        "contract_status": "READY",
+        "contract_diffs": contract_diffs,
     }
 
 
@@ -484,9 +576,16 @@ def _ensure_asset_metadata(
     record.setdefault("qc_status", "PENDING")
     record.setdefault("workflow_template_digest", "")
     record.setdefault("submitted_workflow_digest", "")
+    record.setdefault("compiled_prompt_digest", "")
     record.setdefault("derived_seed", int(seed) if seed is not None else None)
     record.setdefault("source_duration_seconds", getattr(shot, "source_duration_seconds", None) if shot is not None else None)
     record.setdefault("renderer_manifest_version", RENDERER_MANIFEST_VERSION if record.get("generation_input_hash") else "")
+    record.setdefault("renderer_contract_status", "")
+    record.setdefault(
+        "renderer_verification_status",
+        "UNVERIFIED_LEGACY" if record.get("tier") == "source" and record.get("generation_input_hash") else "",
+    )
+    record.setdefault("external_input_digests", {})
     if "source_resolution" not in record:
         width, height = record.get("width"), record.get("height")
         record["source_resolution"] = f"{width}x{height}" if width and height else getattr(shot, "source_resolution", None)

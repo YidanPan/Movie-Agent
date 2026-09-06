@@ -110,13 +110,13 @@ class PhaseOneDataCorrectnessTests(unittest.TestCase):
                 {"state_delta": {"protagonist": {"emotion": "shocked"}}},
             )
             self.assertEqual(updated.storyboard[0].state_delta["protagonist"]["emotion"], "shocked")
-            self.assertTrue(updated.storyboard[0].stale)
+            self.assertFalse(updated.storyboard[0].stale)
             self.assertEqual(updated.continuity_state_ledger["shots"]["1"]["after"]["protagonist"]["emotion"], "shocked")
 
     def test_editable_field_contract_matches_api_payload(self) -> None:
         self.assertEqual(SHOT_EDITABLE_FIELDS, frozenset(UpdateShotPayload.model_fields))
 
-    def test_state_delta_edit_invalidates_changed_fingerprints_only(self) -> None:
+    def test_legacy_source_is_not_staled_by_renderer_algorithm_migration(self) -> None:
         first = _shot(1, state_delta={"hero": {"emotion": "calm"}})
         second = _shot(2, state_delta={})
         project = MovieProject("film-fingerprint", "idea", 8, "style", "planned", {}, {}, {}, [first, second])
@@ -127,9 +127,10 @@ class PhaseOneDataCorrectnessTests(unittest.TestCase):
         self.assertEqual(initial["affected_shots"], [])
         first.state_delta = {"hero": {"emotion": "shocked"}}
         result = reconcile_generation_fingerprints(project)
-        self.assertEqual(result["affected_shots"], [1, 2])
-        self.assertTrue(first.stale)
-        self.assertTrue(second.stale)
+        self.assertEqual(result["affected_shots"], [])
+        self.assertFalse(first.stale)
+        self.assertFalse(second.stale)
+        self.assertEqual(first.media_assets["source"]["renderer_verification_status"], "UNVERIFIED_LEGACY")
 
     def test_planned_shot_is_not_marked_stale_without_source(self) -> None:
         project = MovieProject("film-planned", "idea", 4, "style", "planned", {}, {}, {}, [_shot(1)])

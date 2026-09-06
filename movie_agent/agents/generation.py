@@ -235,9 +235,10 @@ class GenerationAgent:
             derived_seed=seed,
             submitted_workflow=workflow,
             workflow_identity=self.settings.comfy_workflow_template or "verified-comfyui-workflow",
+            film_language=film_language,
         )
         shot.generation_input_hash = manifest.fingerprint()
-        shot.qc_details["renderer_manifest"] = manifest.to_dict()
+        shot.qc_details["renderer_manifest"] = manifest.audit_dict()
         ensure_shot_metadata(
             shot,
             provider="comfyui",
@@ -278,9 +279,13 @@ class GenerationAgent:
             seed=shot.seed,
             workflow_template_digest=manifest.workflow_template_digest,
             submitted_workflow_digest=manifest.submitted_workflow_digest,
+            compiled_prompt_digest=manifest.compiled_prompt_digest,
             derived_seed=manifest.derived_seed,
             source_duration_seconds=manifest.source_duration_seconds,
             renderer_manifest_version=manifest.to_dict()["renderer_manifest_version"],
+            renderer_contract_status=manifest.contract_status,
+            renderer_verification_status="VERIFIED",
+            external_input_digests=manifest.external_input_digests,
             created_at=utc_now(),
             qc_status="PENDING",
         )
