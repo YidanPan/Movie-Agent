@@ -261,7 +261,7 @@ def diagnostics_snapshot(
     readiness_actions = list(dict.fromkeys(
         item["next_action"]
         for item in readiness["blockers"]
-        if item.get("next_action")
+        if item.get("next_action") and (item.get("severity") == "BLOCKING" or not item.get("track_key"))
     ))
     next_actions = readiness_actions or legacy_next_actions
     progress = round((ready_count / len(shots)) * 100) if shots else 0

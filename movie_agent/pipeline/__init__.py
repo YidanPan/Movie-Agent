@@ -12,6 +12,7 @@ from .planning import PlanningPipeline, planning_snapshot
 from .rendering import RenderPipeline, shot_render_context
 from movie_agent.services.readiness import (
     PRODUCTION_ACTIONS,
+    PRODUCTION_ACTION_CONTRACT,
     ProductionActionContext,
     ProductionBlocker,
     ProductionBlockedError,
@@ -35,6 +36,7 @@ __all__ = [
     "ProductionBlocker",
     "ProductionActionContext",
     "PRODUCTION_ACTIONS",
+    "PRODUCTION_ACTION_CONTRACT",
     "ProductionBlockedError",
     "action_readiness",
     "production_blockers",

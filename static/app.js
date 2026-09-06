@@ -1310,24 +1310,23 @@ function renderProductionAttention(project = state.project) {
     els.productionAttentionCount.textContent = `${blockingCount} BLOCKING · ${Number(readiness?.warning_count || 0)} WARNING`;
   }
   if (!els.productionAttentionList) return;
+  const coverage = MovieAgentModules.productionActions.validateProductionActionCoverage(project);
   els.productionAttentionList.innerHTML = blockers.slice(0, 4).map((item) => {
     const shot = item.shot_number ? ` · SHOT ${String(item.shot_number).padStart(2, "0")}` : "";
-    const action = item.next_action ? `<button type="button" class="production-attention-action type-control" data-readiness-action="${esc(item.next_action)}" data-readiness-shot="${esc(item.shot_number || "")}">${esc(MovieAgentModules.productionActions.productionActionLabel(item.next_action))} →</button>` : "";
+    const actionCode = MovieAgentModules.productionActions.canonicalAction(item.next_action);
+    const unavailable = !item.next_action || !coverage.supported || coverage.missing.includes(actionCode);
+    const action = item.next_action ? `<button type="button" class="production-attention-action type-control" data-readiness-action="${esc(item.next_action)}" data-readiness-shot="${esc(item.shot_number || "")}" data-readiness-track="${esc(item.track_key || "")}"${unavailable ? " disabled" : ""}>${esc(unavailable ? "ACTION UNAVAILABLE" : MovieAgentModules.productionActions.productionActionLabel(item.next_action, project))}${unavailable ? "" : " →"}</button>` : "";
     return `<article class="production-attention-item" data-severity="${esc(item.severity || "WARNING")}"><span class="production-attention-symbol" aria-hidden="true">${item.severity === "BLOCKING" ? "!" : "·"}</span><div><strong>${esc(item.code)}${shot}</strong><p>${esc(item.message || "Production review required.")}</p></div>${action}</article>`;
   }).join("");
 }
 
-async function handleProductionAction(event) {
-  const button = event.target.closest("[data-readiness-action]");
-  if (!button || !state.project) return;
-  const action = String(button.dataset.readinessAction || "").toUpperCase();
-  const shotNumber = Number(button.dataset.readinessShot || 0);
+function productionActionHandlers() {
   const openManual = (tab) => {
     renderManual(state.project, tab);
     MovieAgentModules.productionActions.scrollTo(els.manualBody, REDUCED_MOTION);
   };
-  const handlers = {
-    REVIEW_SHOT: () => shotNumber && openDrawer(state.project, shotNumber),
+  return {
+    REVIEW_SHOT: ({ shotNumber }) => shotNumber && openDrawer(state.project, shotNumber),
     APPROVE_PREVIS: async () => {
       const payload = await MovieAgentModules.api.requestJSON(`/api/projects/${state.project.project_id}/previs/approve`, { method: "POST" });
       applyProjectSnapshot(payload);
@@ -1340,11 +1339,11 @@ async function handleProductionAction(event) {
     REPLAN_STORYBOARD: () => MovieAgentModules.productionActions.scrollTo(els.filmstripPanel, REDUCED_MOTION),
     REVIEW_AUDIO_TIMELINE: () => MovieAgentModules.productionActions.scrollTo(els.audioDesignConsole, REDUCED_MOTION),
     OPEN_SOUND: () => MovieAgentModules.productionActions.scrollTo(els.audioDesignConsole, REDUCED_MOTION),
-    OPEN_RENDER_DIAGNOSTICS: () => MovieAgentModules.productionActions.scrollTo(els.monitorPanel, REDUCED_MOTION),
     REVIEW_RENDER_DIAGNOSTICS: () => MovieAgentModules.productionActions.scrollTo(els.monitorPanel, REDUCED_MOTION),
+    OPEN_RENDER_DIAGNOSTICS: () => MovieAgentModules.productionActions.scrollTo(els.monitorPanel, REDUCED_MOTION),
     LOCK_DIALOGUE: () => openManual("script"),
-    RENDER_SHOT: () => shotNumber && renderSingleShot(shotNumber),
-    REPLAN_SHOT: () => shotNumber && regenerateShot(shotNumber, "replan"),
+    RENDER_SHOT: ({ shotNumber }) => shotNumber && renderSingleShot(shotNumber),
+    REPLAN_SHOT: ({ shotNumber }) => shotNumber && regenerateShot(shotNumber, "replan"),
     START_RENDER: () => startRender(),
     START_AI_EDIT: () => startAiEdit(),
     APPROVE_FINAL_CUT: () => approveAiEdit(),
@@ -1352,11 +1351,21 @@ async function handleProductionAction(event) {
     EXPORT: () => exportFinalCut(),
     VERIFY_FINAL_MASTER: () => MovieAgentModules.productionActions.scrollTo(els.deliverFinal, REDUCED_MOTION),
     REVIEW_DELIVERY_PREFLIGHT: () => MovieAgentModules.productionActions.scrollTo(els.deliverPanel, REDUCED_MOTION),
+    REGENERATE_AUDIO_TRACK: ({ trackKey }) => trackKey && regenerateAudioTrack(trackKey),
+    REVIEW_AUDIO_TRACK: ({ trackKey }) => trackKey && selectAudioTrack(trackKey),
   };
+}
+
+async function handleProductionAction(event) {
+  const button = event.target.closest("[data-readiness-action]");
+  if (!button || !state.project) return;
+  const action = String(button.dataset.readinessAction || "").toUpperCase();
+  const shotNumber = Number(button.dataset.readinessShot || 0);
   try {
     await MovieAgentModules.productionActions.executeProductionAction(action, {
+      project: state.project,
       shotNumber,
-      handlers,
+      trackKey: button.dataset.readinessTrack || "",
       onUnavailable: (code) => toast(`ACTION UNAVAILABLE · ${code}`, true),
     });
   } catch (error) {
@@ -5227,6 +5236,7 @@ async function loadHealth() {
 }
 
 function init() {
+  MovieAgentModules.productionActions.registerProductionActionHandlers(productionActionHandlers());
   initTheme();
   if (LOW_PERFORMANCE) document.body.classList.add("low-performance");
   applyView(currentView());

@@ -64,6 +64,16 @@ def test_job_ledger_rejects_duplicate_active_submission_and_allows_retry_after_f
         assert second["job_id"] != first["job_id"]
 
 
+def test_job_ledger_persists_target_scope_for_runtime_readiness():
+    with TemporaryDirectory() as temporary_directory:
+        ledger = JobLedger(Path(temporary_directory) / "projects")
+        job = ledger.start("film-1234abcd", kind="audio_track", stage="audio", track_key="music")
+        assert job["track_key"] == "music"
+        assert job["shot_number"] is None
+        runtime = ledger.runtime_state("film-1234abcd")
+        assert runtime["active_jobs"][0]["track_key"] == "music"
+
+
 def test_new_process_marks_a_stale_running_job_orphaned_and_keeps_resume_history():
     with TemporaryDirectory() as temporary_directory:
         root = Path(temporary_directory)

@@ -24,7 +24,21 @@ export function audioTracksFor(project = {}) {
       pan: 0,
       ducking: key === "music",
     };
-    return [key, { ...fallback, ...(source[key] || {}), key }];
+    const actionReadiness = project?.readiness?.track_actions?.[key] || {};
+    const regenerateReady = actionReadiness.REGENERATE_AUDIO_TRACK
+      ? Boolean(actionReadiness.REGENERATE_AUDIO_TRACK.ready)
+      : fallback.can_regenerate;
+    const reviewReady = actionReadiness.REVIEW_AUDIO_TRACK
+      ? Boolean(actionReadiness.REVIEW_AUDIO_TRACK.ready)
+      : true;
+    return [key, {
+      ...fallback,
+      ...(source[key] || {}),
+      key,
+      action_readiness: actionReadiness,
+      can_regenerate: key !== "voice" && regenerateReady,
+      can_review: reviewReady,
+    }];
   }));
 }
 

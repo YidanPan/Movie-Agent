@@ -1179,6 +1179,7 @@ class MovieOrchestrator:
         """Regenerate one sound track's plan while preserving user controls."""
 
         project = self.store.load(project_id)
+        ensure_action_ready(project, self.settings, "REGENERATE_AUDIO_TRACK", track_key=track_key)
         had_edit_output = bool(
             edit_output_exists(project)
             or project.status in {"editing_rough_cut", "rough_cut_ready", "editing_final"}

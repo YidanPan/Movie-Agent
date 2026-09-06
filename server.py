@@ -32,7 +32,7 @@ from movie_agent.services.errors import error_info, record_failure
 from movie_agent.services.subtitles import render_srt, render_vtt, script_subtitle_track
 from movie_agent.services.media_quality import best_master_path, best_screening_path, quality_snapshot
 from movie_agent.pipeline.diagnostics import delivery_preflight, diagnostics_snapshot
-from movie_agent.services.readiness import PRODUCTION_ACTIONS, ProductionBlockedError, ensure_action_ready, production_readiness
+from movie_agent.services.readiness import PRODUCTION_ACTION_CONTRACT, PRODUCTION_ACTIONS, ProductionBlockedError, ensure_action_ready, production_readiness
 from movie_agent.pipeline.jobs import JobAlreadyRunning, JobLedger
 from movie_agent.services.cache_cleanup import clean_working_cache, storage_summary
 from movie_agent.services.state_ledger import validate_state_delta_shape
@@ -310,7 +310,8 @@ def serialized_project(project) -> dict[str, Any]:
     # Diagnostics contain only status, counts, redacted errors and media
     # availability.  Paths and prompts remain inside the project payload's
     # existing compatibility fields and are never copied into this view.
-    readiness = production_readiness(project, settings)
+    runtime_state = job_ledger.runtime_state(project.project_id)
+    readiness = production_readiness(project, settings, runtime_state=runtime_state) if runtime_state.get("active_jobs") else production_readiness(project, settings)
     diagnostics = diagnostics_snapshot(
         project,
         ffprobe_bin=settings.ffprobe_bin,
@@ -321,6 +322,8 @@ def serialized_project(project) -> dict[str, Any]:
     diagnostics["job"] = job_ledger.summary(project.project_id)
     payload["diagnostics"] = diagnostics
     payload["readiness"] = readiness
+    payload["production_action_contract"] = PRODUCTION_ACTION_CONTRACT
+    # Compatibility for older clients; new clients consume the versioned envelope.
     payload["production_actions"] = PRODUCTION_ACTIONS
     payload["delivery_preflight"] = delivery_preflight(
         project,
@@ -373,6 +376,8 @@ def run_with_sse(
     project_id: str | None = None,
     stage: str = "pipeline",
     job_kind: str | None = None,
+    shot_number: int | None = None,
+    track_key: str | None = None,
 ) -> StreamingResponse | JSONResponse:
     """Run a blocking call while persisting a reconnectable event ledger.
 
@@ -388,6 +393,8 @@ def run_with_sse(
                 project_id,
                 kind=job_kind or stage,
                 stage=stage,
+                shot_number=shot_number,
+                track_key=track_key,
             )
         except JobAlreadyRunning as conflict:
             return JSONResponse(
@@ -421,6 +428,8 @@ def run_with_sse(
                     resolved_project_id,
                     kind=job_kind or stage,
                     stage=stage,
+                    shot_number=shot_number,
+                    track_key=track_key,
                 )
                 job_id = started["job_id"]
             except JobAlreadyRunning as conflict:
@@ -794,13 +803,34 @@ async def update_final_look(project_id: str, request: Request):
 
 @app.post("/api/projects/{project_id}/audio/tracks/{track_key}/regenerate")
 def regenerate_audio_track(project_id: str, track_key: str):
+    started_job = None
     try:
         with project_lock(project_id):
+            project = orchestrator.store.load(project_id)
+            ensure_action_ready(
+                project,
+                settings,
+                "REGENERATE_AUDIO_TRACK",
+                track_key=track_key,
+                runtime_state=job_ledger.runtime_state(project_id),
+            )
+            started_job = job_ledger.start(project_id, kind="audio_track", stage="audio", track_key=track_key)
             project = orchestrator.regenerate_audio_track(project_id, track_key)
+            job_ledger.finish(project_id, started_job["job_id"], status="succeeded")
     except FileNotFoundError:
         return project_not_found(project_id)
+    except JobAlreadyRunning as error:
+        return JSONResponse({"error": str(error), "error_code": "JOB_ALREADY_RUNNING", "job": error.snapshot}, status_code=409)
+    except ProductionBlockedError as error:
+        return structured_error_response(error, status_code=409, stage="audio")
     except ValueError as error:
+        if started_job:
+            job_ledger.finish(project_id, started_job["job_id"], status="failed", error=error_info(error, stage="audio"))
         return JSONResponse({"error": str(error)}, status_code=400)
+    except Exception as error:  # noqa: BLE001 - keep the durable job truthful
+        if started_job:
+            job_ledger.finish(project_id, started_job["job_id"], status="failed", error=error_info(error, stage="audio"))
+        return structured_error_response(error, status_code=502, stage="audio")
     return serialized_project(project)
 
 
@@ -985,16 +1015,35 @@ def render_single_shot(project_id: str, shot_number: int):
             {"error": "Currently in mock mode. Set VIDEO_GENERATION_MODE=comfyui in Spark's .env to enable shot generation."},
             status_code=400,
         )
+    started_job = None
     try:
         with project_lock(project_id):
+            project = orchestrator.store.load(project_id)
+            ensure_action_ready(
+                project,
+                settings,
+                "RENDER_SHOT",
+                shot_number=shot_number,
+                runtime_state=job_ledger.runtime_state(project_id),
+            )
+            started_job = job_ledger.start(project_id, kind="generation", stage="generation", shot_number=shot_number)
             project = orchestrator.render_shot(project_id, shot_number)
+            job_ledger.finish(project_id, started_job["job_id"], status="succeeded")
     except FileNotFoundError:
         return project_not_found(project_id)
+    except JobAlreadyRunning as error:
+        return JSONResponse({"error": str(error), "error_code": "JOB_ALREADY_RUNNING", "job": error.snapshot}, status_code=409)
     except ProductionBlockedError as error:
+        if started_job:
+            job_ledger.finish(project_id, started_job["job_id"], status="failed", error=error_info(error, stage="generation"))
         return structured_error_response(error, status_code=409, stage="generation")
     except ValueError as error:
+        if started_job:
+            job_ledger.finish(project_id, started_job["job_id"], status="failed", error=error_info(error, stage="generation"))
         return JSONResponse({"error": str(error)}, status_code=400)
     except Exception as error:  # noqa: BLE001 - surface generation failures to the inspector
+        if started_job:
+            job_ledger.finish(project_id, started_job["job_id"], status="failed", error=error_info(error, stage="generation"))
         return structured_error_response(error, status_code=502, stage="generation")
     return serialized_project(project)
 
@@ -1229,7 +1278,7 @@ async def export_video(project_id: str, request: Request):
         with project_lock(project_id):
             project = orchestrator.store.load(project_id)
             try:
-                ensure_action_ready(project, settings, "EXPORT")
+                ensure_action_ready(project, settings, "EXPORT", runtime_state=job_ledger.runtime_state(project_id))
             except ProductionBlockedError as error:
                 preflight = delivery_preflight(
                     project,

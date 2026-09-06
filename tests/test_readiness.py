@@ -219,6 +219,8 @@ def test_serialized_project_computes_readiness_once(monkeypatch):
         payload = server.serialized_project(project)
         assert calls["count"] == 1
         assert payload["readiness"] == payload["diagnostics"]["readiness"]
+        assert payload["production_action_contract"]["schema_version"] == 1
+        assert payload["production_action_contract"]["actions"]["RENDER_SHOT"]["scope"] == "shot"
 
 
 def test_render_shot_ignores_unrelated_shot_blocker():
@@ -300,3 +302,71 @@ def test_production_blocked_error_is_recoverable_when_resolution_exists():
             assert error.to_dict()["recoverable"] is True
         else:
             raise AssertionError("Expected a recoverable production blocker")
+
+
+def test_backend_action_contract_has_schema_version():
+    from movie_agent.services.readiness import ACTION_CONTRACT_SCHEMA_VERSION, PRODUCTION_ACTION_CONTRACT
+
+    assert PRODUCTION_ACTION_CONTRACT["schema_version"] == ACTION_CONTRACT_SCHEMA_VERSION == 1
+    assert PRODUCTION_ACTION_CONTRACT["actions"]["RENDER_SHOT"]["scope"] == "shot"
+    assert PRODUCTION_ACTION_CONTRACT["actions"]["REGENERATE_AUDIO_TRACK"]["scope"] == "track"
+
+
+def test_track_action_rejects_unknown_track():
+    with TemporaryDirectory() as directory:
+        orchestrator = make_orchestrator(Path(directory))
+        project = orchestrator.create_project("A signal changes a quiet room.", 48, "grounded")
+        try:
+            action_readiness(project, orchestrator.settings, "REGENERATE_AUDIO_TRACK", track_key="master")
+        except ValueError as error:
+            assert "Invalid audio track" in str(error)
+        else:
+            raise AssertionError("Unknown audio track must be rejected")
+
+
+def test_voice_blocker_does_not_block_music_regeneration():
+    with TemporaryDirectory() as directory:
+        orchestrator = make_orchestrator(Path(directory))
+        project = orchestrator.create_project("A signal changes a quiet room.", 48, "grounded")
+        project.audio_tracks["voice"]["status"] = "VOICE_PROVIDER_REQUIRED"
+        project.audio_tracks["music"]["status"] = "READY"
+        result = action_readiness(project, orchestrator.settings, "REGENERATE_AUDIO_TRACK", track_key="music")
+        assert result["ready"] is True
+
+
+def test_music_blocker_does_not_block_voice_regeneration():
+    with TemporaryDirectory() as directory:
+        orchestrator = make_orchestrator(Path(directory))
+        project = orchestrator.create_project("A signal changes a quiet room.", 48, "grounded")
+        project.audio_tracks["voice"]["status"] = "READY"
+        project.audio_tracks["music"]["status"] = "MUSIC_PROVIDER_REQUIRED"
+        result = action_readiness(project, orchestrator.settings, "REGENERATE_AUDIO_TRACK", track_key="voice")
+        assert result["ready"] is True
+
+
+def test_same_track_active_job_blocks_conflicting_mutation():
+    with TemporaryDirectory() as directory:
+        orchestrator = make_orchestrator(Path(directory))
+        project = orchestrator.create_project("A signal changes a quiet room.", 48, "grounded")
+        runtime = {"active_jobs": [{"job_id": "job-1", "kind": "audio_track", "status": "running", "track_key": "music"}]}
+        result = action_readiness(project, orchestrator.settings, "REGENERATE_AUDIO_TRACK", track_key="music", runtime_state=runtime)
+        assert result["ready"] is False
+        assert result["blockers"][0]["code"] == "ACTIVE_AUDIO_TRACK_JOB"
+
+
+def test_other_track_job_does_not_block_unrelated_track():
+    with TemporaryDirectory() as directory:
+        orchestrator = make_orchestrator(Path(directory))
+        project = orchestrator.create_project("A signal changes a quiet room.", 48, "grounded")
+        runtime = {"active_jobs": [{"job_id": "job-1", "kind": "audio_track", "status": "running", "track_key": "music"}]}
+        result = action_readiness(project, orchestrator.settings, "REGENERATE_AUDIO_TRACK", track_key="voice", runtime_state=runtime)
+        assert result["ready"] is True
+
+
+def test_other_shot_active_job_does_not_block_review():
+    with TemporaryDirectory() as directory:
+        orchestrator = make_orchestrator(Path(directory))
+        project = orchestrator.create_project("A signal changes a quiet room.", 48, "grounded")
+        runtime = {"active_jobs": [{"job_id": "job-1", "kind": "generation", "status": "running", "shot_number": 4}]}
+        result = action_readiness(project, orchestrator.settings, "REVIEW_SHOT", shot_number=2, runtime_state=runtime)
+        assert result["ready"] is True

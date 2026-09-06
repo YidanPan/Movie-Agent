@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from movie_agent.agents.visual_bible import validate_visual_bible_bindings
+from movie_agent.services.audio import TRACK_ORDER
 from movie_agent.services.media_quality import best_master_path
 from movie_agent.services.story_world import validate_story_world_references
 from movie_agent.state import describe_status
@@ -26,28 +27,35 @@ ACTION_ORDER = (
     "GENERATE_FINAL_MASTER",
     "EXPORT",
 )
+ACTION_CONTRACT_SCHEMA_VERSION = 1
 LEGACY_ACTION_ALIASES = {"REGENERATE_SHOT": "RENDER_SHOT"}
 PRODUCTION_ACTIONS = {
-    "START_RENDER": {"scope": "project", "kind": "execute"},
-    "RENDER_SHOT": {"scope": "shot", "kind": "execute"},
-    "REPLAN_SHOT": {"scope": "shot", "kind": "plan"},
-    "START_AI_EDIT": {"scope": "project", "kind": "execute"},
-    "APPROVE_FINAL_CUT": {"scope": "project", "kind": "review"},
-    "GENERATE_FINAL_MASTER": {"scope": "project", "kind": "execute"},
-    "EXPORT": {"scope": "project", "kind": "execute"},
-    "APPROVE_PREVIS": {"scope": "project", "kind": "review"},
-    "REPLAN_STORYBOARD": {"scope": "project", "kind": "plan"},
-    "REPLAN_STORY_WORLD": {"scope": "project", "kind": "plan"},
-    "REVIEW_VISUAL_BIBLE": {"scope": "project", "kind": "review"},
-    "OPEN_REFERENCE_BANK": {"scope": "project", "kind": "review"},
-    "REVIEW_SHOT": {"scope": "shot", "kind": "review"},
-    "REVIEW_AUDIO_TIMELINE": {"scope": "project", "kind": "review"},
-    "OPEN_SOUND": {"scope": "project", "kind": "review"},
-    "OPEN_RENDER_DIAGNOSTICS": {"scope": "project", "kind": "review"},
-    "REVIEW_RENDER_DIAGNOSTICS": {"scope": "project", "kind": "review"},
-    "LOCK_DIALOGUE": {"scope": "project", "kind": "plan"},
-    "VERIFY_FINAL_MASTER": {"scope": "project", "kind": "review"},
-    "REVIEW_DELIVERY_PREFLIGHT": {"scope": "project", "kind": "review"},
+    "START_RENDER": {"scope": "project", "kind": "execute", "label": "START RENDER", "requires_confirmation": False},
+    "RENDER_SHOT": {"scope": "shot", "kind": "execute", "label": "RENDER SHOT", "requires_confirmation": False},
+    "REPLAN_SHOT": {"scope": "shot", "kind": "plan", "label": "REPLAN SHOT", "requires_confirmation": False},
+    "START_AI_EDIT": {"scope": "project", "kind": "execute", "label": "START AI EDIT", "requires_confirmation": False},
+    "APPROVE_FINAL_CUT": {"scope": "project", "kind": "review", "label": "APPROVE FINAL CUT", "requires_confirmation": True},
+    "GENERATE_FINAL_MASTER": {"scope": "project", "kind": "execute", "label": "GENERATE FINAL MASTER", "requires_confirmation": False},
+    "EXPORT": {"scope": "project", "kind": "execute", "label": "EXPORT", "requires_confirmation": True},
+    "APPROVE_PREVIS": {"scope": "project", "kind": "review", "label": "APPROVE PREVIS", "requires_confirmation": True},
+    "REPLAN_STORYBOARD": {"scope": "project", "kind": "plan", "label": "REVIEW STORYBOARD", "requires_confirmation": False},
+    "REPLAN_STORY_WORLD": {"scope": "project", "kind": "plan", "label": "REVIEW STORY WORLD", "requires_confirmation": False},
+    "REVIEW_VISUAL_BIBLE": {"scope": "project", "kind": "review", "label": "OPEN VISUAL BIBLE", "requires_confirmation": False},
+    "OPEN_REFERENCE_BANK": {"scope": "project", "kind": "review", "label": "OPEN REFERENCES", "requires_confirmation": False},
+    "REVIEW_SHOT": {"scope": "shot", "kind": "review", "label": "REVIEW SHOT", "requires_confirmation": False},
+    "REVIEW_AUDIO_TIMELINE": {"scope": "project", "kind": "review", "label": "OPEN AUDIO", "requires_confirmation": False},
+    "OPEN_SOUND": {"scope": "project", "kind": "review", "label": "OPEN SOUND", "requires_confirmation": False},
+    "OPEN_RENDER_DIAGNOSTICS": {"scope": "project", "kind": "review", "label": "OPEN RENDER", "requires_confirmation": False},
+    "REVIEW_RENDER_DIAGNOSTICS": {"scope": "project", "kind": "review", "label": "OPEN RENDER", "requires_confirmation": False},
+    "LOCK_DIALOGUE": {"scope": "project", "kind": "plan", "label": "LOCK DIALOGUE", "requires_confirmation": False},
+    "VERIFY_FINAL_MASTER": {"scope": "project", "kind": "review", "label": "VERIFY MASTER", "requires_confirmation": False},
+    "REVIEW_DELIVERY_PREFLIGHT": {"scope": "project", "kind": "review", "label": "REVIEW DELIVERY", "requires_confirmation": False},
+    "REGENERATE_AUDIO_TRACK": {"scope": "track", "kind": "execute", "label": "REGENERATE TRACK", "requires_confirmation": False},
+    "REVIEW_AUDIO_TRACK": {"scope": "track", "kind": "review", "label": "REVIEW TRACK", "requires_confirmation": False},
+}
+PRODUCTION_ACTION_CONTRACT = {
+    "schema_version": ACTION_CONTRACT_SCHEMA_VERSION,
+    "actions": PRODUCTION_ACTIONS,
 }
 DOMAIN_PRIORITY = ("PLAN", "WORLD", "PREVIS", "RENDERER", "REFERENCE", "VISUAL", "AUDIO", "EDIT", "DELIVERY")
 
@@ -75,11 +83,15 @@ _DEFAULT_BLOCKER_ACTIONS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "STYLE_DRIFT": (("START_AI_EDIT", "APPROVE_FINAL_CUT", "GENERATE_FINAL_MASTER", "EXPORT"), ("REVIEW_SHOT",)),
     "SCRIPT_TIMING_REVIEW": (("APPROVE_FINAL_CUT", "GENERATE_FINAL_MASTER", "EXPORT"), ("START_AI_EDIT", "REVIEW_AUDIO_TIMELINE")),
     "SPEECH_OVERFLOW": (("APPROVE_FINAL_CUT", "GENERATE_FINAL_MASTER", "EXPORT"), ("START_AI_EDIT", "REVIEW_AUDIO_TIMELINE")),
-    "VOICE_PROVIDER_REQUIRED": (("APPROVE_FINAL_CUT", "GENERATE_FINAL_MASTER", "EXPORT"), ("START_AI_EDIT", "OPEN_SOUND")),
     "DIALOGUE_UNLOCKED": (("START_AI_EDIT", "APPROVE_FINAL_CUT", "GENERATE_FINAL_MASTER", "EXPORT"), ("LOCK_DIALOGUE",)),
     "ROUGH_CUT_MISSING": (("APPROVE_FINAL_CUT", "GENERATE_FINAL_MASTER", "EXPORT"), ("START_AI_EDIT",)),
     "FINAL_MASTER_MISSING": (("EXPORT",), ("GENERATE_FINAL_MASTER", "VERIFY_FINAL_MASTER")),
     "DELIVERY_PREFLIGHT_FAILED": (("EXPORT",), ("REVIEW_DELIVERY_PREFLIGHT",)),
+    "ACTIVE_RENDER_JOB": (("START_RENDER", "RENDER_SHOT", "REPLAN_SHOT"), ("OPEN_RENDER_DIAGNOSTICS",)),
+    "ACTIVE_AI_EDIT_JOB": (("START_AI_EDIT",), ("OPEN_RENDER_DIAGNOSTICS",)),
+    "ACTIVE_AUDIO_TRACK_JOB": (("REGENERATE_AUDIO_TRACK",), ("OPEN_SOUND",)),
+    "VOICE_PROVIDER_REQUIRED": (("START_AI_EDIT", "APPROVE_FINAL_CUT", "GENERATE_FINAL_MASTER", "EXPORT", "REGENERATE_AUDIO_TRACK"), ("OPEN_SOUND",)),
+    "MUSIC_PROVIDER_REQUIRED": (("START_AI_EDIT", "APPROVE_FINAL_CUT", "GENERATE_FINAL_MASTER", "EXPORT", "REGENERATE_AUDIO_TRACK"), ("OPEN_SOUND",)),
 }
 
 
@@ -90,6 +102,7 @@ class ProductionBlocker:
     severity: str
     message: str
     shot_number: int | None = None
+    track_key: str | None = None
     next_action: str | None = None
     blocking_stage: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -141,6 +154,7 @@ def _blocker(
     *,
     severity: str = "BLOCKING",
     shot_number: int | None = None,
+    track_key: str | None = None,
     next_action: str | None = None,
     blocking_stage: str | None = None,
     metadata: dict[str, Any] | None = None,
@@ -155,6 +169,7 @@ def _blocker(
         severity=severity,
         message=message,
         shot_number=shot_number,
+        track_key=track_key,
         next_action=next_action,
         blocking_stage=blocking_stage or domain,
         metadata=dict(metadata or {}),
@@ -262,10 +277,58 @@ def _reference_blockers(project: Any, settings: Any) -> list[ProductionBlocker]:
     return result
 
 
-def production_blockers(project: Any, settings: Any = None) -> list[ProductionBlocker]:
+def _runtime_job_blockers(runtime_state: dict[str, Any] | None) -> list[ProductionBlocker]:
+    """Translate active job metadata into scoped, data-only action blockers."""
+
+    result: list[ProductionBlocker] = []
+    for job in (runtime_state or {}).get("active_jobs", []) if isinstance(runtime_state, dict) else []:
+        if not isinstance(job, dict) or str(job.get("status") or "").lower() not in {"queued", "running", "active"}:
+            continue
+        kind = str(job.get("kind") or job.get("stage") or "pipeline").lower()
+        shot_number = job.get("shot_number")
+        track_key = str(job.get("track_key") or "").strip().lower() or None
+        try:
+            shot_number = int(shot_number) if shot_number is not None else None
+        except (TypeError, ValueError):
+            shot_number = None
+        if "audio" in kind or track_key:
+            code = "ACTIVE_AUDIO_TRACK_JOB"
+            actions = ("REGENERATE_AUDIO_TRACK",)
+            message = f"Audio track {track_key or 'project'} already has an active job."
+            domain = "AUDIO"
+            next_action = "OPEN_SOUND"
+        elif "edit" in kind:
+            code = "ACTIVE_AI_EDIT_JOB"
+            actions = ("START_AI_EDIT",)
+            message = "AI Edit already has an active job for this project."
+            domain = "EDIT"
+            next_action = "OPEN_RENDER_DIAGNOSTICS"
+        else:
+            code = "ACTIVE_RENDER_JOB"
+            actions = ("START_RENDER", "RENDER_SHOT", "REPLAN_SHOT") if shot_number is None else ("RENDER_SHOT", "REPLAN_SHOT")
+            message = f"Render job is already active{f' for shot {shot_number}' if shot_number is not None else ''}."
+            domain = "RENDERER"
+            next_action = "OPEN_RENDER_DIAGNOSTICS"
+        result.append(_blocker(
+            code,
+            domain,
+            message,
+            shot_number=shot_number,
+            track_key=track_key,
+            next_action=next_action,
+            blocking_stage="RENDER" if domain == "RENDERER" else "EDIT",
+            blocks_actions=actions,
+            resolves_by_actions=(next_action,),
+            metadata={"job_id": str(job.get("job_id") or "")},
+        ))
+    return result
+
+
+def production_blockers(project: Any, settings: Any = None, runtime_state: dict[str, Any] | None = None) -> list[ProductionBlocker]:
     """Collect all known blockers from the persisted project truth."""
 
     blockers: list[ProductionBlocker] = []
+    blockers.extend(_runtime_job_blockers(runtime_state))
     status = str(getattr(project, "status", "") or "").lower()
     storyboard = list(getattr(project, "storyboard", []) or [])
     world = getattr(project, "story_world", {}) or {}
@@ -345,13 +408,32 @@ def production_blockers(project: Any, settings: Any = None) -> list[ProductionBl
             blockers.append(_blocker("SCRIPT_TIMING_REVIEW", "AUDIO", "Voice timing needs review before edit approval.", next_action="REVIEW_AUDIO_TIMELINE", blocking_stage="EDIT"))
         if bool(voice_timeline.get("overflow")) or bool(voice_timeline.get("speech_overflow")):
             blockers.append(_blocker("SPEECH_OVERFLOW", "AUDIO", "Voice duration exceeds its available timing window.", next_action="REVIEW_AUDIO_TIMELINE", blocking_stage="EDIT"))
-    voice = (getattr(project, "audio_tracks", {}) or {}).get("voice", {})
-    if isinstance(voice, dict) and voice.get("status") in {"AUDIO PENDING", "PROVIDER REQUIRED", "VOICE_PROVIDER_REQUIRED"}:
-        # Mock projects intentionally have no real voice renderer.  Keep that
-        # fact visible as a warning, while real-provider projects treat it as
-        # a production gate.
-        severity = "WARNING" if bool(_setting(settings, "mock_mode", False)) else "BLOCKING"
-        blockers.append(_blocker("VOICE_PROVIDER_REQUIRED", "AUDIO", "A voice provider or real voice asset is required.", severity=severity, next_action="OPEN_SOUND", blocking_stage="EDIT", applies_to_actions=("START_AI_EDIT", "APPROVE_FINAL_CUT", "GENERATE_FINAL_MASTER", "EXPORT")))
+    audio_tracks = getattr(project, "audio_tracks", {}) or {}
+    audio_requirements = (
+        ("voice", "VOICE_PROVIDER_REQUIRED", {"AUDIO PENDING", "PROVIDER REQUIRED", "VOICE_PROVIDER_REQUIRED"}, "A voice provider or real voice asset is required."),
+        ("music", "MUSIC_PROVIDER_REQUIRED", {"AUDIO PENDING", "PROVIDER REQUIRED", "MUSIC_PROVIDER_REQUIRED", "BRIEF READY · AUDIO PENDING"}, "A music provider or real score asset is required."),
+    )
+    for track_key, code, pending_statuses, message in audio_requirements:
+        track = audio_tracks.get(track_key, {}) if isinstance(audio_tracks, dict) else {}
+        if not isinstance(track, dict) or str(track.get("status") or "").upper() not in pending_statuses:
+            continue
+        # Mock projects intentionally have no real renderer for every track.
+        # Keep that fact visible as a warning, while real-provider projects
+        # treat the affected track as a production gate.
+        severity = "WARNING" if settings is None or bool(_setting(settings, "mock_mode", False)) else "BLOCKING"
+        blocks = ("START_AI_EDIT", "APPROVE_FINAL_CUT", "GENERATE_FINAL_MASTER", "EXPORT", "REGENERATE_AUDIO_TRACK")
+        applies = ("REGENERATE_AUDIO_TRACK", "REVIEW_AUDIO_TRACK")
+        blockers.append(_blocker(
+            code,
+            "AUDIO",
+            message,
+            severity=severity,
+            track_key=track_key,
+            next_action="OPEN_SOUND",
+            blocking_stage="EDIT",
+            blocks_actions=blocks,
+            applies_to_actions=applies,
+        ))
 
     dialogue_locked = bool(script.get("dialogue_locked")) if isinstance(script, dict) else False
     if status in {"ready_for_ai_edit", "editing_rough_cut", "rough_cut_ready", "editing_final", "completed_mock", "completed_text_ai_video_mock", "completed_comfyui"} and not dialogue_locked:
@@ -372,7 +454,7 @@ def production_blockers(project: Any, settings: Any = None) -> list[ProductionBl
     deduped: list[ProductionBlocker] = []
     seen: set[tuple[Any, ...]] = set()
     for item in blockers:
-        key = (item.code, item.domain, item.shot_number, item.metadata.get("entity_id"))
+        key = (item.code, item.domain, item.shot_number, item.track_key, item.metadata.get("entity_id"), item.metadata.get("job_id"))
         if key not in seen:
             seen.add(key)
             deduped.append(item)
@@ -397,15 +479,22 @@ def production_blockers(project: Any, settings: Any = None) -> list[ProductionBl
     )
 
 
-def production_readiness(project: Any, settings: Any = None) -> dict[str, Any]:
+def production_readiness(project: Any, settings: Any = None, runtime_state: dict[str, Any] | None = None) -> dict[str, Any]:
     """Return the one readiness contract used by API, diagnostics, and UI."""
 
-    blockers = production_blockers(project, settings)
+    blockers = production_blockers(project, settings, runtime_state)
     storyboard = list(getattr(project, "storyboard", []) or [])
     blocking = [item for item in blockers if item.severity == "BLOCKING"]
     warnings = [item for item in blockers if item.severity == "WARNING"]
-    global_blocking = [item for item in blocking if item.shot_number is None]
-    next_action = next((item.next_action for item in blockers if item.next_action), None)
+    global_blocking = [item for item in blocking if item.shot_number is None and item.track_key is None]
+    next_action = next(
+        (
+            item.next_action
+            for item in blockers
+            if item.next_action and (item.severity == "BLOCKING" or item.track_key is None)
+        ),
+        None,
+    )
     state = describe_status(getattr(project, "status", "planning_live"))
     actions = {
         action: _action_readiness_from_blockers(blockers, action)
@@ -419,6 +508,13 @@ def production_readiness(project: Any, settings: Any = None) -> dict[str, Any]:
         for shot in storyboard
         if int(getattr(shot, "number", 0) or 0)
     }
+    track_actions = {
+        track_key: {
+            "REGENERATE_AUDIO_TRACK": _action_readiness_from_blockers(blockers, "REGENERATE_AUDIO_TRACK", track_key=track_key),
+            "REVIEW_AUDIO_TRACK": _action_readiness_from_blockers(blockers, "REVIEW_AUDIO_TRACK", track_key=track_key),
+        }
+        for track_key in TRACK_ORDER
+    }
     return {
         "ready": not blocking,
         "global_clear": not global_blocking,
@@ -430,6 +526,7 @@ def production_readiness(project: Any, settings: Any = None) -> dict[str, Any]:
         "warning_count": len(warnings),
         "actions": actions,
         "shot_actions": shot_actions,
+        "track_actions": track_actions,
     }
 
 
@@ -440,10 +537,9 @@ def _action_readiness_from_blockers(
     shot_number: int | None = None,
     track_key: str | None = None,
 ) -> dict[str, Any]:
-    del track_key  # Reserved for audio-scoped actions in the next contract phase.
     action = canonical_action(action)
-    blocking = [item for item in blockers if _blocker_matches_context(item, action, shot_number, blocking=True)]
-    warnings = [item for item in blockers if _blocker_matches_context(item, action, shot_number, blocking=False)]
+    blocking = [item for item in blockers if _blocker_matches_context(item, action, shot_number, track_key, blocking=True)]
+    warnings = [item for item in blockers if _blocker_matches_context(item, action, shot_number, track_key, blocking=False)]
     resolution_actions = list(dict.fromkeys(
         action_name
         for item in blocking
@@ -451,6 +547,8 @@ def _action_readiness_from_blockers(
     ))
     return {
         "action": action,
+        "shot_number": shot_number,
+        "track_key": track_key,
         "ready": not blocking,
         "blockers": [item.to_dict() for item in blocking],
         "warnings": [item.to_dict() for item in warnings],
@@ -459,16 +557,15 @@ def _action_readiness_from_blockers(
     }
 
 
-def action_blockers(project: Any, settings: Any, action: str, *, shot_number: int | None = None, track_key: str | None = None) -> list[ProductionBlocker]:
+def action_blockers(project: Any, settings: Any, action: str, *, shot_number: int | None = None, track_key: str | None = None, runtime_state: dict[str, Any] | None = None) -> list[ProductionBlocker]:
     """Return blockers that explicitly declare this action unsafe."""
 
     action = canonical_action(action)
     shot_number = _validate_shot_number(project, shot_number) if shot_number is not None else None
-    del track_key
     return [
         item
-        for item in production_blockers(project, settings)
-        if _blocker_matches_context(item, action, shot_number, blocking=True)
+        for item in production_blockers(project, settings, runtime_state)
+        if _blocker_matches_context(item, action, shot_number, track_key, blocking=True)
     ]
 
 
@@ -476,6 +573,7 @@ def _blocker_matches_context(
     item: ProductionBlocker,
     action: str,
     shot_number: int | None,
+    track_key: str | None,
     *,
     blocking: bool,
 ) -> bool:
@@ -490,6 +588,8 @@ def _blocker_matches_context(
             return False
         if affected and shot_number not in {int(value) for value in affected}:
             return False
+    if track_key is not None and item.track_key is not None and item.track_key != track_key:
+        return False
     if item.shot_number is not None and shot_number is None and action in {"RENDER_SHOT", "REPLAN_SHOT"}:
         return False
     if blocking:
@@ -511,22 +611,43 @@ def _validate_shot_number(project: Any, shot_number: int | None) -> int | None:
     return value
 
 
-def action_blockers_for_context(project: Any, settings: Any, context: ProductionActionContext) -> list[ProductionBlocker]:
-    blockers = production_blockers(project, settings)
-    return [item for item in blockers if _blocker_matches_context(item, context.action, context.shot_number, blocking=True)]
+def _validate_track_key(action: str, track_key: str | None) -> str | None:
+    scope = (PRODUCTION_ACTIONS.get(canonical_action(action)) or {}).get("scope")
+    if scope == "track":
+        value = str(track_key or "").strip().lower()
+        if value not in TRACK_ORDER:
+            raise ValueError(f"Invalid audio track: {track_key}")
+        return value
+    if track_key is not None:
+        raise ValueError(f"Action {canonical_action(action)} does not accept an audio track target.")
+    return None
 
 
-def action_readiness(project: Any, settings: Any, action: str, *, shot_number: int | None = None, track_key: str | None = None) -> dict[str, Any]:
+def action_blockers_for_context(project: Any, settings: Any, context: ProductionActionContext, runtime_state: dict[str, Any] | None = None) -> list[ProductionBlocker]:
+    blockers = production_blockers(project, settings, runtime_state)
+    return [item for item in blockers if _blocker_matches_context(item, context.action, context.shot_number, context.track_key, blocking=True)]
+
+
+def action_readiness(project: Any, settings: Any, action: str, *, shot_number: int | None = None, track_key: str | None = None, runtime_state: dict[str, Any] | None = None) -> dict[str, Any]:
+    action = canonical_action(action)
     shot_number = _validate_shot_number(project, shot_number) if shot_number is not None else None
-    blockers = production_blockers(project, settings)
+    track_key = _validate_track_key(action, track_key)
+    scope = (PRODUCTION_ACTIONS.get(action) or {}).get("scope")
+    if scope == "shot" and shot_number is None:
+        raise ValueError(f"Action {action} requires a shot target.")
+    blockers = production_blockers(project, settings, runtime_state)
     return _action_readiness_from_blockers(blockers, action, shot_number=shot_number, track_key=track_key)
 
 
-def ensure_action_ready(project: Any, settings: Any, action: str, *, shot_number: int | None = None, track_key: str | None = None) -> None:
+def ensure_action_ready(project: Any, settings: Any, action: str, *, shot_number: int | None = None, track_key: str | None = None, runtime_state: dict[str, Any] | None = None) -> None:
     canonical = canonical_action(action)
     shot_number = _validate_shot_number(project, shot_number) if shot_number is not None else None
+    track_key = _validate_track_key(canonical, track_key)
+    scope = (PRODUCTION_ACTIONS.get(canonical) or {}).get("scope")
+    if scope == "shot" and shot_number is None:
+        raise ValueError(f"Action {canonical} requires a shot target.")
     context = ProductionActionContext(canonical, shot_number=shot_number, track_key=track_key)
-    blockers = action_blockers_for_context(project, settings, context)
+    blockers = action_blockers_for_context(project, settings, context, runtime_state)
     if blockers:
         raise ProductionBlockedError(canonical, blockers, shot_number=shot_number, track_key=track_key)
 
