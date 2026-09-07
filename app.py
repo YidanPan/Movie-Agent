@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import logging
 from pathlib import Path
 
 # Gradio parses GRADIO_SERVER_PORT during import. Some hosted runtimes expose
@@ -12,6 +13,8 @@ if not os.getenv("GRADIO_SERVER_PORT"):
     os.environ.pop("GRADIO_SERVER_PORT", None)
 
 import gradio as gr
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
 from movie_agent.config import Settings
 from movie_agent.orchestrator import MovieOrchestrator
