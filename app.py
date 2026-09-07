@@ -488,7 +488,15 @@ def _video_update(path: str | None):
     return _hidden_video()
 
 
-with gr.Blocks(title="Movie-Agent · 流影制片台", css=APP_CSS) as demo:
+# Gradio 6 moved custom CSS from the Blocks constructor to launch(). Keep a
+# small compatibility branch so local environments still running Gradio 5 can
+# import and launch the MVP while Studio uses the SDK-native path.
+_gradio_major = int(str(getattr(gr, "__version__", "5")).split(".", 1)[0])
+_blocks_kwargs = {"title": "Movie-Agent · 流影制片台"}
+if _gradio_major < 6:
+    _blocks_kwargs["css"] = APP_CSS
+
+with gr.Blocks(**_blocks_kwargs) as demo:
     gr.HTML(
         """
         <header class="app-topbar">
@@ -634,4 +642,7 @@ with gr.Blocks(title="Movie-Agent · 流影制片台", css=APP_CSS) as demo:
 
 
 if __name__ == "__main__":
-    demo.queue(default_concurrency_limit=1).launch(server_name="0.0.0.0", server_port=settings.port)
+    _launch_kwargs = {"server_name": "0.0.0.0", "server_port": settings.port}
+    if _gradio_major >= 6:
+        _launch_kwargs["css"] = APP_CSS
+    demo.queue(default_concurrency_limit=1).launch(**_launch_kwargs)
