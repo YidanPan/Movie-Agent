@@ -2,10 +2,14 @@
 
 from typing import Any
 
-from movie_agent.services.llm import CreativeLLM
+from movie_agent.services.llm import CreativeLLM, require_fields
 from movie_agent.services.subtitles import align_script_to_shots, ensure_dialogue_assets, shot_count_for_duration
 from movie_agent.services.narrative import beat_count_for_duration, normalise_story_beats
-from movie_agent.services.story_world import story_world_prompt, validate_story_world_references
+from movie_agent.services.story_world import (
+    canonicalize_story_world_references,
+    story_world_prompt,
+    validate_story_world_references,
+)
 
 
 def _as_text(value: Any) -> str:
@@ -47,6 +51,7 @@ class WriterAgent:
                 "each item containing shot, speaker, text, kind, start_seconds, end_seconds; "
                 "if there is no character dialogue, use speaker=NARRATOR, kind=narration; lines should be short and audible.",
             )
+            require_fields(result, ("story", "narration"), agent="Writer")
             script = {
                 "story": _as_text(result["story"]),
                 "narration": _as_text(result["narration"]),
@@ -116,6 +121,7 @@ class WriterAgent:
                 "Each cue must contain shot, speaker, kind, text, start_seconds, end_seconds; arrays may be empty and a shot may have no cue. "
                 "Use speaker=NARRATOR and kind=narration when appropriate. Keep each line natural for voice performance.",
             )
+            require_fields(result, ("narration", "dialogue_book", "subtitle_track"), agent="Story Supervisor")
             result_script = {
                 **script,
                 "narration": _as_text(result.get("narration") or script.get("narration", "")),
@@ -219,7 +225,9 @@ class WriterAgent:
                 "transition_hook: how this beat connects to the next. scene_id, character_ids, and prop_ids must come only from the supplied Story World, "
                 "importance and duration_weight are numeric values reflecting narrative weight. Do not omit fields.",
             )
+            require_fields(result, ("beats",), agent="Story Beats")
             raw_beats = result.get("beats")
+            raw_beats = canonicalize_story_world_references(raw_beats, story_world)
             if isinstance(raw_beats, list) and 4 <= len(raw_beats) <= 12:
                 beats: list[dict[str, Any]] = []
                 for index, raw in enumerate(raw_beats):

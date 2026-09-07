@@ -2,7 +2,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 
-from movie_agent.agents.storyboard import StoryboardAgent
+from movie_agent.agents.storyboard import StoryboardAgent, _normalise_state_delta, _normalise_transition_types
 from movie_agent.agents.visual_bible import UI_PALETTE_FALLBACK, VisualBibleAgent, normalise_ui_palette, validate_ui_palette
 from movie_agent.config import Settings
 from movie_agent.models import MovieProject, Shot
@@ -10,6 +10,7 @@ from movie_agent.orchestrator import MovieOrchestrator
 from movie_agent.services.change_impact import SHOT_EDITABLE_FIELDS
 from movie_agent.services.revisions import reconcile_generation_fingerprints
 from movie_agent.services.state_ledger import validate_state_delta
+from movie_agent.services.story_world import canonicalize_story_world_references
 from server import UpdateShotPayload
 
 
@@ -60,6 +61,30 @@ class _StoryboardLLM:
 
 
 class PhaseOneDataCorrectnessTests(unittest.TestCase):
+    def test_scene_change_with_default_continuous_transition_is_normalized(self) -> None:
+        first = _shot(1)
+        second = _shot(2)
+        second.scene_id = "hospital"
+        _normalise_transition_types([first, second])
+        self.assertEqual(second.transition_type, "HARD_CUT")
+        self.assertIn("TRANSITION_TYPE_NORMALIZED", second.qc_flags)
+
+    def test_state_delta_resolves_active_semantic_placeholders(self) -> None:
+        result = _normalise_state_delta(
+            {"character": {"emotion": "alert"}, "scene": {"lighting_state": "dim"}},
+            {"characters": {"alex": {"name": "Alex"}}, "scenes": {"home": {}}},
+            scene_id="home",
+            character_ids=["alex"],
+        )
+        self.assertEqual(set(result), {"alex", "home"})
+
+    def test_known_story_world_names_are_canonicalized_but_unknown_names_survive(self) -> None:
+        result = canonicalize_story_world_references(
+            [{"character_ids": ["Alex", "invented"], "scene_id": "home"}],
+            {"characters": {"alex": {"name": "Alex"}}, "scenes": {}, "props": {}},
+        )
+        self.assertEqual(result[0]["character_ids"], ["alex", "invented"])
+
     def test_storyboard_schema_requests_state_delta(self) -> None:
         llm = _StoryboardLLM()
         StoryboardAgent(llm=llm).create(
@@ -75,6 +100,7 @@ class PhaseOneDataCorrectnessTests(unittest.TestCase):
         )
         self.assertIn('"state_delta":{}', llm.prompt)
         self.assertIn("STATE DELTA RULES", llm.prompt)
+        self.assertIn("Return exactly 6 shots", llm.prompt)
 
     def test_mock_storyboard_has_meaningful_state_delta(self) -> None:
         shots = StoryboardAgent().create(
@@ -151,6 +177,15 @@ class PhaseOneDataCorrectnessTests(unittest.TestCase):
         )
         self.assertIn("ui_palette", bible["scenes"][0])
         self.assertEqual(bible["scenes"][0]["ui_palette"]["temperature"], "neutral")
+
+    def test_visual_bible_preserves_model_locks_when_binding_world_entities(self) -> None:
+        bible = VisualBibleAgent._bind_entities(
+            [{"character_id": "Alex", "lock": "stable face and costume"}],
+            {"characters": {"alex": {"name": "Alex"}}},
+            "characters",
+        )
+        self.assertEqual(bible[0]["character_id"], "alex")
+        self.assertEqual(bible[0]["lock"], "stable face and costume")
 
 
 if __name__ == "__main__":

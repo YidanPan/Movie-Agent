@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from movie_agent.models import Shot
-from movie_agent.services.llm import CreativeLLM
+from movie_agent.services.llm import CreativeLLM, require_fields
 
 
 class PlanningQualityGate:
@@ -168,6 +168,7 @@ class SemanticCopyrightReviewer:
             f"Visual bible: {'; '.join(f'{key}: {value}' for key, value in visual_bible.items())}\n"
             f"Storyboard: {'; '.join(f'{shot.number}. {shot.image_description} {shot.action}' for shot in storyboard)}",
         )
+        require_fields(result, ("risk_level", "reasons", "rewrite_guidance"), agent="Copyright Reviewer")
         risk_level = str(result.get("risk_level", "")).strip().lower()
         reasons = result.get("reasons", [])
         if not isinstance(reasons, list):

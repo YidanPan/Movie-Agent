@@ -1,6 +1,6 @@
 """Director agent: turns an idea into project-level creative constraints."""
 
-from movie_agent.services.llm import CreativeLLM
+from movie_agent.services.llm import CreativeLLM, require_fields
 
 
 class DirectorAgent:
@@ -17,6 +17,11 @@ class DirectorAgent:
                     f"Idea: {idea}\nTarget duration: {duration_seconds} seconds\nVisual style: {visual_style}\n"
                     "Return keys: theme, narrative_scale, visual_style, director_intent, compliance_constraints."
                 ),
+            )
+            require_fields(
+                result,
+                ("theme", "narrative_scale", "visual_style", "director_intent", "compliance_constraints"),
+                agent="Director",
             )
             result["original_idea"] = idea
             result["target_duration"] = f"{duration_seconds} seconds"

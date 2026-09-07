@@ -72,7 +72,10 @@ class MovieOrchestrator:
         self.using_creative_llm = creative_llm is not None
         self.director = DirectorAgent(creative_llm)
         self.writer = WriterAgent(creative_llm)
-        supported_modes = {"T2V"} if settings.video_generation_mode == "comfyui" else None
+        # V0.2 keeps video generation mocked and the current renderer
+        # manifest is T2V-only.  Do not let a text model select I2V/R2V before
+        # those providers and their renderer contracts are actually enabled.
+        supported_modes = {"T2V"}
         self.storyboard_agent = StoryboardAgent(creative_llm, supported_modes)
         self.visual_bible_agent = VisualBibleAgent(creative_llm)
         self.generation_agent = GenerationAgent(settings)

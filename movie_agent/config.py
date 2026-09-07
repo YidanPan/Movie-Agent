@@ -39,6 +39,7 @@ class Settings:
     comfy_max_retries: int = 2
     modelscope_timeout_seconds: int = 240
     modelscope_max_retries: int = 2
+    modelscope_max_tokens: int = 8192
     modelscope_vision_model: str | None = None
     vision_keyframes_per_shot: int = 3
 
@@ -71,6 +72,7 @@ class Settings:
             comfy_max_retries=max(1, int(os.getenv("COMFY_MAX_RETRIES", "2"))),
             modelscope_timeout_seconds=max(10, int(os.getenv("MODELSCOPE_TIMEOUT_SECONDS", "240"))),
             modelscope_max_retries=max(1, int(os.getenv("MODELSCOPE_MAX_RETRIES", "2"))),
+            modelscope_max_tokens=max(1024, int(os.getenv("MODELSCOPE_MAX_TOKENS", "8192"))),
             modelscope_vision_model=os.getenv("MODELSCOPE_VISION_MODEL") or None,
             vision_keyframes_per_shot=min(5, max(1, int(os.getenv("VISION_KEYFRAMES_PER_SHOT", "3")))),
         )

@@ -3,7 +3,7 @@
 import re
 from typing import Any
 
-from movie_agent.services.llm import CreativeLLM
+from movie_agent.services.llm import CreativeLLM, require_fields
 from movie_agent.services.story_world import story_world_prompt, world_entities, normalise_story_world
 
 
@@ -80,6 +80,11 @@ class VisualBibleAgent:
                 "cinematography must be an object with lens_language, camera_motion, composition, film_texture, color_pipeline. "
                 "Do not omit structured fields; use an empty string only when a field is genuinely not applicable.",
             )
+            require_fields(
+                result,
+                ("character_card", "scene_card", "style_card", "character_lock", "scene_lock", "cinematography_lock"),
+                agent="Visual Bible",
+            )
             structured_keys = {"characters", "scenes", "props", "cinematography"}
             output = {
                 key: value if key in structured_keys and isinstance(value, (list, dict)) else str(value)
@@ -89,6 +94,7 @@ class VisualBibleAgent:
                 output["characters"] = self._bind_entities(output.get("characters"), world, "characters")
                 output["scenes"] = self._bind_entities(output.get("scenes"), world, "scenes")
                 output["props"] = self._bind_entities(output.get("props"), world, "props")
+                self._apply_global_lock_defaults(output)
                 output["scenes"] = [
                     {**scene, "ui_palette": normalise_ui_palette(scene.get("ui_palette"))}
                     for scene in output["scenes"]
@@ -161,14 +167,41 @@ class VisualBibleAgent:
         return output
 
     @staticmethod
+    def _apply_global_lock_defaults(output: dict[str, Any]) -> None:
+        """Use locked top-level cards when a model omits a repeated field."""
+
+        defaults = (
+            ("characters", "character_lock", ("lock", "appearance_lock", "face_lock", "hair_lock", "costume_lock", "silhouette_lock")),
+            ("scenes", "scene_lock", ("lock", "environment_lock", "architecture_lock", "lighting_lock", "palette_lock")),
+            ("props", "prop_lock", ("lock", "appearance_lock", "material_lock", "color_lock", "state_rules")),
+        )
+        for collection, default_key, fields in defaults:
+            default = str(output.get(default_key) or "").strip()
+            if not default:
+                continue
+            for item in output.get(collection) or []:
+                if not isinstance(item, dict):
+                    continue
+                for field in fields:
+                    if not str(item.get(field) or "").strip():
+                        item[field] = default
+
+    @staticmethod
     def _bind_entities(value: Any, world: dict[str, Any], kind: str) -> list[dict[str, Any]]:
         prefix = kind[:-1]
         source = value if isinstance(value, list) else []
-        by_id = {str(item.get(f"{prefix}_id") or item.get("id")): item for item in source if isinstance(item, dict)}
+        by_id: dict[str, dict[str, Any]] = {}
+        for item in source:
+            if not isinstance(item, dict):
+                continue
+            reference = str(item.get(f"{prefix}_id") or item.get("id") or item.get("name") or "").strip().casefold()
+            if reference:
+                by_id[reference] = item
         result: list[dict[str, Any]] = []
         for entity in world_entities(world, kind):
             entity_id = str(entity.get(f"{prefix}_id") or "")
-            result.append({**(by_id.get(entity_id) or {}), **entity, f"{prefix}_id": entity_id})
+            model_item = by_id.get(entity_id.casefold()) or by_id.get(str(entity.get("name") or "").strip().casefold()) or {}
+            result.append({**entity, **model_item, f"{prefix}_id": entity_id})
         return result
 
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any, Iterable
 
-from movie_agent.services.llm import CreativeLLM
+from movie_agent.services.llm import CreativeLLM, require_fields
 
 
 ENTITY_KINDS = ("characters", "scenes", "props")
@@ -144,6 +144,48 @@ def validate_story_world_references(
     }
 
 
+def canonicalize_story_world_references(
+    value: Iterable[dict[str, Any]] | None,
+    world: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    """Map known entity display names back to their canonical IDs.
+
+    Models sometimes return ``Alex`` where the registry requires ``alex``.
+    Only exact known IDs or names are mapped; unknown references remain
+    untouched so the strict validator can still block invented entities.
+    """
+
+    result: list[dict[str, Any]] = []
+    for item in value or []:
+        if not isinstance(item, dict):
+            continue
+        normalized = dict(item)
+        for kind in ENTITY_KINDS:
+            field = "scene_id" if kind == "scenes" else f"{kind[:-1]}_ids"
+            references = normalized.get(field)
+            if isinstance(references, str):
+                references = [part.strip() for part in references.split(",") if part.strip()]
+            if not isinstance(references, (list, tuple, set)):
+                continue
+            mapped = [resolve_story_world_reference(reference, world, kind) for reference in references]
+            normalized[field] = mapped[0] if field == "scene_id" and mapped else mapped
+        result.append(normalized)
+    return result
+
+
+def resolve_story_world_reference(value: Any, world: dict[str, Any] | None, kind: str) -> str:
+    """Resolve one known ID/name while leaving unknown values visible."""
+
+    reference = str(value or "").strip()
+    folded = reference.casefold()
+    for entity in world_entities(world, kind):
+        entity_id = str(entity.get(f"{kind[:-1]}_id") or "").strip()
+        name = str(entity.get("name") or "").strip()
+        if folded in {entity_id.casefold(), name.casefold()}:
+            return entity_id
+    return reference
+
+
 def extract_story_world(
     idea: str,
     brief: dict[str, Any],
@@ -161,6 +203,7 @@ def extract_story_world(
             "Return {characters:[{character_id,name,role}], scenes:[{scene_id,name,story_role}], "
             "props:[{prop_id,name,story_role}]}. Include only named or narratively important entities.",
         )
+        require_fields(result, ("characters", "scenes", "props"), agent="Story World")
         return normalise_story_world(result)
 
     # Mock mode keeps a deliberately small, stable world. Descriptive locks
@@ -177,9 +220,11 @@ def extract_story_world(
 __all__ = [
     "ENTITY_KINDS",
     "canonical_entity_id",
+    "canonicalize_story_world_references",
     "entity_ids",
     "extract_story_world",
     "normalise_story_world",
+    "resolve_story_world_reference",
     "story_world_prompt",
     "validate_story_world_references",
     "world_entities",

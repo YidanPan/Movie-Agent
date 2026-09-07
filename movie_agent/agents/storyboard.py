@@ -4,11 +4,18 @@ from typing import Any
 
 from movie_agent.models import Shot
 from movie_agent.services.mock_creator import build_storyboard
-from movie_agent.services.llm import CreativeLLM
+from movie_agent.services.llm import CreativeLLM, require_fields
 from movie_agent.services.storyboard_quality import StoryboardRelevanceGate
 from movie_agent.services.narrative import allocate_two_stage_durations, normalise_story_beats, validate_beat_shot_mapping
 from movie_agent.services.state_ledger import validate_state_delta
-from movie_agent.services.story_world import story_world_prompt, validate_story_world_references, world_entities
+from movie_agent.services.subtitles import shot_count_for_duration
+from movie_agent.services.story_world import (
+    canonicalize_story_world_references,
+    resolve_story_world_reference,
+    story_world_prompt,
+    validate_story_world_references,
+    world_entities,
+)
 
 _MIN_SHOT_SECONDS = 4
 _MAX_SHOT_SECONDS = 8
@@ -113,12 +120,57 @@ def _previous_ending(shots: list[Shot], current_index: int) -> str:
     return shots[current_index - 1].ending_state or shots[current_index - 1].action
 
 
-def _normalise_state_delta(raw: Any, story_world: dict[str, Any] | None) -> dict[str, Any]:
+def _normalise_state_delta(
+    raw: Any,
+    story_world: dict[str, Any] | None,
+    *,
+    scene_id: str = "",
+    character_ids: list[str] | None = None,
+    prop_ids: list[str] | None = None,
+) -> dict[str, Any]:
     delta = raw if isinstance(raw, dict) else {}
+    active_ids = {
+        "character": (character_ids or [""])[0] if len(character_ids or []) == 1 else "",
+        "scene": scene_id if scene_id else "",
+        "prop": (prop_ids or [""])[0] if len(prop_ids or []) == 1 else "",
+    }
+    normalized: dict[str, Any] = {}
+    for entity, changes in delta.items():
+        key = str(entity).strip()
+        mapped = active_ids.get(key.casefold(), "")
+        if not mapped:
+            for kind in ("characters", "scenes", "props"):
+                candidate = resolve_story_world_reference(key, story_world, kind)
+                if candidate != key:
+                    mapped = candidate
+                    break
+        target = mapped or key
+        if target in normalized and isinstance(normalized[target], dict) and isinstance(changes, dict):
+            normalized[target].update(changes)
+        else:
+            normalized[target] = changes
+    delta = normalized
     validation = validate_state_delta(delta, story_world)
     if not validation["valid"]:
         raise ValueError(f"STATE_LEDGER_REVIEW_REQUIRED: {validation['errors']}")
     return delta
+
+
+def _normalise_transition_types(shots: list[Shot]) -> None:
+    """Make scene changes explicit when a model leaves the transition default."""
+
+    previous_scene = ""
+    for shot in shots:
+        current_scene = str(shot.scene_id or "").strip()
+        if previous_scene and current_scene and previous_scene != current_scene and shot.transition_type == "CONTINUOUS":
+            shot.transition_type = "HARD_CUT"
+            shot.qc_flags.append("TRANSITION_TYPE_NORMALIZED")
+            details = dict(shot.qc_details or {})
+            planning = dict(details.get("planning") or {})
+            planning["transition_normalization"] = "scene_change_requires_hard_cut"
+            details["planning"] = planning
+            shot.qc_details = details
+        previous_scene = current_scene or previous_scene
 
 
 def _mock_state_delta(shot: Shot, index: int, total_shots: int, story_world: dict[str, Any] | None) -> dict[str, Any]:
@@ -168,6 +220,7 @@ class StoryboardAgent:
             if any(unknown.values()):
                 raise ValueError(f"STORY_WORLD_REVIEW_REQUIRED: {unknown}")
         if self.llm:
+            requested_shot_count = shot_count_for_duration(duration_seconds)
             beats_context = ""
             if beats:
                 beats_lines = [
@@ -182,7 +235,8 @@ class StoryboardAgent:
             result = self.llm.complete_json(
                 "You are a film storyboard artist. Break the story into a continuous sequence of "
                 "original sci-fi shots that form a coherent film, not independent clips. "
-                "Each shot 4-8 seconds, 6-10 shots total, avoid complex multi-person interactions and existing film/TV IP. "
+                f"Each shot 4-8 seconds. Return exactly {requested_shot_count} shots (not fewer or more), "
+                "avoid complex multi-person interactions and existing film/TV IP. "
                 f"Available generation modes: {', '.join(sorted(self.allowed_generation_modes))}. "
                 "The sum of all shot duration_seconds must equal the total duration exactly. "
                 "IMPORTANT: Each shot prompt must describe only the DELTA from the previous shot — "
@@ -216,11 +270,17 @@ class StoryboardAgent:
                 ),
             )
             raw_shots = result.get("shots")
+            raw_shots = canonicalize_story_world_references(raw_shots, story_world)
             if not isinstance(raw_shots, list) or not 6 <= len(raw_shots) <= 10:
                 raise ValueError("Storyboard agent did not return 6-10 shots.")
             for raw_shot in raw_shots:
                 if not isinstance(raw_shot, dict):
                     raise ValueError("Storyboard agent returned an invalid shot.")
+                require_fields(
+                    raw_shot,
+                    ("duration_seconds", "framing", "image_description", "action", "sound_design", "generation_mode", "prompt"),
+                    agent="Storyboard",
+                )
             raw_durations = [_parse_duration(raw_shot.get("duration_seconds")) for raw_shot in raw_shots]
             beat_by_id = {str(beat["beat_id"]): beat for beat in beats}
             requested_beats = [
@@ -277,13 +337,20 @@ class StoryboardAgent:
                         shot_complexity=_complexity(raw_shot.get("shot_complexity"), str(raw_shot["action"]), str(raw_shot["image_description"])),
                         transition_type=str(raw_shot.get("transition_type") or "CONTINUOUS").upper(),
                         speech_policy=str(raw_shot.get("speech_policy") or "NARRATION").upper(),
-                        state_delta=_normalise_state_delta(raw_shot.get("state_delta") or {}, story_world),
+                        state_delta=_normalise_state_delta(
+                            raw_shot.get("state_delta") or {},
+                            story_world,
+                            scene_id=str(raw_shot.get("scene_id") or beat.get("scene_id") or beat.get("scene") or ""),
+                            character_ids=_character_ids(raw_shot.get("character_ids") or beat.get("character_ids")),
+                            prop_ids=_character_ids(raw_shot.get("prop_ids") or beat.get("prop_ids")),
+                        ),
                     ), beat, number - 1)
                 )
             if story_world:
                 unknown = validate_story_world_references([shot.to_dict() for shot in shots], story_world)
                 if any(unknown.values()):
                     raise ValueError(f"STORY_WORLD_REVIEW_REQUIRED: {unknown}")
+            _normalise_transition_types(shots)
             mapping = validate_beat_shot_mapping(shots, beats)
             for shot in shots:
                 planning = dict((shot.qc_details or {}).get("planning") or {})
@@ -317,6 +384,7 @@ class StoryboardAgent:
             unknown = validate_story_world_references([shot.to_dict() for shot in shots], story_world)
             if any(unknown.values()):
                 raise ValueError(f"STORY_WORLD_REVIEW_REQUIRED: {unknown}")
+        _normalise_transition_types(shots)
         for shot in shots:
             planning = dict((shot.qc_details or {}).get("planning") or {})
             planning["beat_mapping"] = mapping

@@ -290,11 +290,23 @@ html, body { width: 100%; min-width: 0; }
 """
 
 
-def create_project(idea: str, duration: int, visual_style: str):
+def create_project(idea: str, duration: int, visual_style: str, progress=gr.Progress()):
+    active_agent = "项目初始化"
+
+    def on_event(event: dict) -> None:
+        nonlocal active_agent
+        event_type = event.get("type")
+        agent = str(event.get("agent") or "").strip()
+        if event_type == "agent_start" and agent:
+            active_agent = agent
+            progress(0, desc=f"正在运行 {agent} Agent")
+        elif event_type == "agent_done" and agent:
+            progress(1, desc=f"{agent} Agent 完成")
+
     try:
-        project = orchestrator.create_project(idea, duration, visual_style)
+        project = orchestrator.create_project(idea, duration, visual_style, event_callback=on_event)
     except Exception as error:
-        return _empty_project_outputs(f"创作失败：{error}")
+        return _empty_project_outputs(f"创作失败（{active_agent}）：{error}")
     text_mode = "ModelScope AI 文案" if orchestrator.using_creative_llm else "mock 文案"
     video_mode = "Spark 真实视频待生成" if settings.video_generation_mode == "comfyui" else "mock 视频流程"
     return _project_outputs(
