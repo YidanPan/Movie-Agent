@@ -11,6 +11,7 @@ export const deliverStatus = (project = {}, hasFinalVideo = false) => {
   const canonical = String(project?.pipeline_state?.state || "");
   if (canonical === "editing" || status === "editing_rough_cut") return { key: "editing", badge: "AI EDITING", title: "AI 剪辑正在组装", copy: "镜头、声音与字幕正在进入粗剪时间线。" };
   if (canonical === "rough_cut_ready" || status === "rough_cut_ready") return { key: "rough", badge: "ROUGH CUT READY", title: "粗剪已完成，等待审片", copy: "先预览 Rough Cut，再决定是否批准最终成片。" };
+  if (status === "final_cut_approved") return { key: "approved", badge: "FINAL CUT APPROVED", title: "Final Cut 已批准", copy: "剪辑版本已确认；下一步生成可交付的 Final Master。" };
   if (canonical === "shots_ready" || status === "ready_for_ai_edit") return { key: "ready", badge: "SHOTS READY", title: "AI Edit 已就绪", copy: "全部镜头通过质检；先选择声音设计，再启动 Rough Cut。" };
   if (status.startsWith("completed")) {
     return hasFinalVideo

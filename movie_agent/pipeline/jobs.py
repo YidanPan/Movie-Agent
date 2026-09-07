@@ -122,6 +122,7 @@ class JobLedger:
         *,
         shot_number: int | None = None,
         track_key: str | None = None,
+        mutates_project: bool = True,
     ) -> dict[str, Any]:
         timestamp = _now()
         return {
@@ -132,6 +133,7 @@ class JobLedger:
             "stage": _safe_text(stage, 80) or _safe_text(kind, 80) or "pipeline",
             "shot_number": _safe_int(shot_number) if shot_number is not None else None,
             "track_key": _safe_text(track_key, 40).lower() or None,
+            "mutates_project": bool(mutates_project),
             "status": "running",
             "started_at": timestamp,
             "updated_at": timestamp,
@@ -153,6 +155,7 @@ class JobLedger:
         stage: str | None = None,
         shot_number: int | None = None,
         track_key: str | None = None,
+        mutates_project: bool = True,
     ) -> dict[str, Any]:
         """Start a job, rejecting duplicate active submissions safely."""
 
@@ -170,7 +173,14 @@ class JobLedger:
                 current["finished_at"] = current.get("updated_at", _now())
                 current["recoverable"] = True
                 self._write_locked(project_id, current)
-            job = self._new_job(project_id, kind, stage or kind, shot_number=shot_number, track_key=track_key)
+            job = self._new_job(
+                project_id,
+                kind,
+                stage or kind,
+                shot_number=shot_number,
+                track_key=track_key,
+                mutates_project=mutates_project,
+            )
             self._active.add(job["job_id"])
             self._write_locked(project_id, job)
             return self._public(job, include_events=False)
@@ -295,6 +305,7 @@ class JobLedger:
             "stage": _safe_text(job.get("stage"), 80),
             "shot_number": _safe_int(job.get("shot_number")) if job.get("shot_number") is not None else None,
             "track_key": _safe_text(job.get("track_key"), 40).lower() or None,
+            "mutates_project": bool(job.get("mutates_project", True)),
             "status": status,
             "started_at": _safe_text(job.get("started_at"), 80),
             "updated_at": _safe_text(job.get("updated_at"), 80),
@@ -331,7 +342,7 @@ class JobLedger:
             if not job:
                 return {"active_jobs": []}
             public = self._public(job, include_events=False)
-            if public.get("status") not in _ACTIVE:
+            if public.get("status") not in _ACTIVE or public.get("mutates_project") is not True:
                 return {"active_jobs": []}
             return {"active_jobs": [public]}
 

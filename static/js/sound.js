@@ -20,14 +20,18 @@ export function audioTracksFor(project = {}) {
       enabled: true,
       volume_db: key === "voice" ? -2 : key === "music" ? -14 : key === "sfx" ? -10 : -22,
       preview_url: null,
-      can_regenerate: key !== "voice",
+      can_replan: key !== "voice",
+      can_render: key === "music" || key === "voice",
       pan: 0,
       ducking: key === "music",
     };
     const actionReadiness = project?.readiness?.track_actions?.[key] || {};
-    const regenerateReady = actionReadiness.REGENERATE_AUDIO_TRACK
-      ? Boolean(actionReadiness.REGENERATE_AUDIO_TRACK.ready)
-      : fallback.can_regenerate;
+    const replanReady = actionReadiness.REPLAN_AUDIO_TRACK
+      ? Boolean(actionReadiness.REPLAN_AUDIO_TRACK.ready)
+      : fallback.can_replan;
+    const renderReady = actionReadiness.RENDER_AUDIO_TRACK
+      ? Boolean(actionReadiness.RENDER_AUDIO_TRACK.ready)
+      : fallback.can_render;
     const reviewReady = actionReadiness.REVIEW_AUDIO_TRACK
       ? Boolean(actionReadiness.REVIEW_AUDIO_TRACK.ready)
       : true;
@@ -36,7 +40,11 @@ export function audioTracksFor(project = {}) {
       ...(source[key] || {}),
       key,
       action_readiness: actionReadiness,
-      can_regenerate: key !== "voice" && regenerateReady,
+      can_replan: key !== "voice" && replanReady,
+      can_render: renderReady,
+      // Compatibility for older DOM adapters; new actions use explicit
+      // planning/rendering capabilities instead of a misleading regenerate.
+      can_regenerate: key !== "voice" && replanReady,
       can_review: reviewReady,
     }];
   }));

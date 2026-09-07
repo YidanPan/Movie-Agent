@@ -2438,6 +2438,13 @@ main {
 .export-preflight[data-state="checking"], .export-preflight[data-state="unknown"] { color: var(--meta); }
 .export-sheet-foot .cta { flex: 0 0 auto; padding-inline: 23px; }
 
+.production-confirmation { position: fixed; inset: 0; z-index: 82; display: grid; place-items: center; padding: 22px; background: rgba(3, 3, 2, 0.64); }
+.production-confirmation-card { width: min(460px, 100%); padding: 28px; background: var(--surface-1); border: 1px solid var(--amber); box-shadow: 0 22px 64px rgba(0, 0, 0, 0.42); }
+.production-confirmation-card h2 { margin: 10px 0 8px; color: var(--text-strong); font-family: var(--sans); font-size: 1.35rem; }
+.production-confirmation-card p { margin: 0; color: var(--dim); font-family: var(--sans); line-height: 1.7; }
+.production-confirmation-card footer { display: flex; justify-content: flex-end; gap: 9px; margin-top: 24px; }
+.production-confirmation-card footer button { min-height: 44px; }
+
 /* ── Inspector：镜头 / 剧组详情 ───────────────────────────── */
 
 .drawer-backdrop {

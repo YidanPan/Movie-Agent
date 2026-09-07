@@ -183,6 +183,7 @@ class MovieProject:
     last_error_at: str = ""
     last_error: dict[str, Any] = field(default_factory=dict)
     renderer_contract: dict[str, Any] = field(default_factory=dict)
+    delivery_verification: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
@@ -252,6 +253,7 @@ class MovieProject:
             last_error_at=str(data.get("last_error_at") or ""),
             last_error=data.get("last_error") or {},
             renderer_contract=data.get("renderer_contract") or {},
+            delivery_verification=data.get("delivery_verification") or {},
         )
         # Older project JSON files predate the sound department. Migrate them
         # in memory so the next save exposes the same audio contract.

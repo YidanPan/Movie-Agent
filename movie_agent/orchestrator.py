@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from collections.abc import Callable
+from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
@@ -26,8 +27,10 @@ from movie_agent.services.audio import (
     apply_audio_track_params,
     ensure_audio_design,
     mark_audio_stage,
-    regenerate_track,
+    replan_track,
 )
+from movie_agent.services.music import FileMusicProvider
+from movie_agent.services.media_quality import best_master_path, probe_media, export_dimensions
 from movie_agent.services.voice import ContinuousVoiceService, mark_voice_alignment_stale
 from movie_agent.services.state_ledger import rebuild_state_ledger_from_shot, build_state_ledger, validate_state_delta_or_raise
 from movie_agent.services.change_impact import SHOT_EDITABLE_FIELDS, TIMING_FIELDS, resolve_change_impact
@@ -669,6 +672,7 @@ class MovieOrchestrator:
         """Explicitly approve a repaired storyboard and resume planning."""
 
         project = self.store.load(project_id)
+        ensure_action_ready(project, self.settings, "APPROVE_PREVIS")
         review = self.storyboard_agent.review_storyboard(project.storyboard, project.story_beats)
         if review.get("decision") != "PASS":
             raise ValueError("PREVIS_REVIEW_REQUIRED: storyboard still contains unresolved review items.")
@@ -705,6 +709,7 @@ class MovieOrchestrator:
         project = self.store.load(project_id)
         if not 1 <= shot_number <= len(project.storyboard):
             raise ValueError(f"Shot number must be between 1 and {len(project.storyboard)}.")
+        ensure_action_ready(project, self.settings, "APPROVE_SHOT", shot_number=shot_number)
         shot = project.storyboard[shot_number - 1]
         project.logs.append(self.reviewer.approve_manual(shot, project_id=project.project_id))
         if self._shots_ready(project):
@@ -1175,27 +1180,62 @@ class MovieOrchestrator:
         self.store.save(project)
         return project
 
-    def regenerate_audio_track(self, project_id: str, track_key: str) -> MovieProject:
-        """Regenerate one sound track's plan while preserving user controls."""
+    def replan_audio_track(self, project_id: str, track_key: str) -> MovieProject:
+        """Re-plan one sound track without claiming that media was rendered."""
 
         project = self.store.load(project_id)
-        ensure_action_ready(project, self.settings, "REGENERATE_AUDIO_TRACK", track_key=track_key)
+        ensure_action_ready(project, self.settings, "REPLAN_AUDIO_TRACK", track_key=track_key)
         had_edit_output = bool(
             edit_output_exists(project)
             or project.status in {"editing_rough_cut", "rough_cut_ready", "editing_final"}
             or str(project.status).startswith("completed")
         )
-        regenerate_track(project, track_key)
+        replan_track(project, track_key)
         if had_edit_output:
-            self._invalidate_edit_outputs(project, reason=f"{track_key}_track_regenerated", source="audio")
+            self._invalidate_edit_outputs(project, reason=f"{track_key}_track_replanned", source="audio")
             project.mix_state["stage_status"] = {stage: "queued" for stage in EDIT_AUDIO_STAGES}
             project.mix_state["active_stage"] = None
             project.mix_state["status"] = "DESIGN UPDATED · RE-CUT REQUIRED"
-        project.logs.append(f"Sound Design Agent: {track_key.upper()} track re-planned.")
+        project.logs.append(f"Sound Design Agent: {track_key.upper()} track plan re-planned.")
+        self.store.save(project)
+        return project
+
+    def regenerate_audio_track(self, project_id: str, track_key: str) -> MovieProject:
+        """Compatibility wrapper for the legacy regenerate endpoint."""
+
+        return self.replan_audio_track(project_id, track_key)
+
+    def render_audio_track(self, project_id: str, track_key: str) -> MovieProject:
+        """Render one real provider-backed audio track, never just its plan."""
+
+        project = self.store.load(project_id)
+        key = str(track_key or "").strip().lower()
+        ensure_action_ready(project, self.settings, "RENDER_AUDIO_TRACK", track_key=key)
+        if key == "voice":
+            return self.generate_voice_track(project_id)
+        if key != "music":
+            raise RuntimeError(f"No real provider is configured for the {key.upper()} track yet.")
+
+        track = (project.audio_tracks or {}).get("music") or {}
+        source = Path(str(track.get("media_path") or ""))
+        if not source.is_file() and str(project.music_mode or "").lower() == "upload":
+            source = self.settings.outputs_dir / project.project_id / "audio" / str(project.music_asset_name or "")
+        if not source.is_file():
+            raise RuntimeError("MUSIC_PROVIDER_REQUIRED: choose a library or uploaded score before rendering Music.")
+        provider = FileMusicProvider(source, ffmpeg_bin=self.settings.ffmpeg_bin)
+        ensure_audio_design(
+            project,
+            music_provider=provider,
+            music_output_dir=self.settings.outputs_dir / project.project_id / "audio",
+        )
+        project.mix_state["media_mixed"] = False
+        project.logs.append("Music Provider: Real score rendered from the current Music Brief.")
         self.store.save(project)
         return project
 
     def approve_edit(self, project_id: str, subtitle_mode: str | None = None) -> MovieProject:
+        """Approve the current edit revision without rendering a master."""
+
         project = self.store.load(project_id)
         ensure_action_ready(project, self.settings, "APPROVE_FINAL_CUT")
         self._require_dialogue_locked(project)
@@ -1205,22 +1245,86 @@ class MovieOrchestrator:
             raise ValueError("All current shot revisions must be approved before the final cut can be approved.")
         if subtitle_mode:
             project.subtitle_mode = normalise_subtitle_mode(subtitle_mode)
-        project.status = "editing_final"
+        project.status = "final_cut_approved"
         ensure_audio_design(project)
         reset_final_look(project)
-        project.mix_state["active_stage"] = "final_encode"
-        project.mix_state["status"] = "FINAL ENCODE"
-        project.logs.append(f"Editor Agent: Final approval received; exporting with {project.subtitle_mode} subtitle mode.")
-        self.store.save(project)
-        if self.settings.video_generation_mode == "comfyui":
-            project.logs.append(self.editor.assemble(project, project.subtitle_mode))
-            project.status = "completed_comfyui"
-        else:
-            project.logs.append(self.editor.assemble_mock(project))
-            project.status = "completed_text_ai_video_mock" if self.using_creative_llm else "completed_mock"
-        project.logs.append(f"Project complete: Final cut approved; delivery mode is {project.subtitle_mode}.")
-        project.mix_state["status"] = "FINAL MIX READY"
+        project.edit_plan = {
+            **(project.edit_plan or {}),
+            "status": "final_cut_approved",
+            "approved": True,
+            "approved_subtitle_mode": project.subtitle_mode,
+        }
         project.mix_state["active_stage"] = None
+        project.mix_state["status"] = "FINAL CUT APPROVED · MASTER PENDING"
+        project.logs.append(f"Editor Agent: Final Cut approved; ready to generate a Final Master with {project.subtitle_mode} subtitles.")
+        self.store.save(project)
+        return project
+
+    def generate_final_master(self, project_id: str) -> MovieProject:
+        """Generate or recover the Final Master from an approved edit."""
+
+        project = self.store.load(project_id)
+        ensure_action_ready(project, self.settings, "GENERATE_FINAL_MASTER")
+        self._require_dialogue_locked(project)
+        approved = bool((project.edit_plan or {}).get("approved"))
+        if not approved and project.status != "final_cut_approved" and not str(project.status).startswith("completed"):
+            raise ValueError("Approve the current Final Cut before generating the Final Master.")
+        if not self._shots_ready(project):
+            raise ValueError("All current shot revisions must be approved before generating the Final Master.")
+        project.status = "editing_final"
+        project.mix_state["active_stage"] = "final_encode"
+        project.mix_state["status"] = "FINAL MASTER GENERATION"
+        self.store.save(project)
+        try:
+            if self.settings.video_generation_mode == "comfyui":
+                project.logs.append(self.editor.assemble(project, project.subtitle_mode))
+                project.status = "completed_comfyui"
+            else:
+                project.logs.append(self.editor.assemble_mock(project))
+                project.status = "completed_text_ai_video_mock" if self.using_creative_llm else "completed_mock"
+            project.logs.append(f"Project complete: Final Master generated from approved cut ({project.subtitle_mode}).")
+            project.mix_state["status"] = "FINAL MASTER READY"
+            project.mix_state["active_stage"] = None
+            self.store.save(project)
+        except Exception:
+            project.status = "final_cut_approved"
+            project.mix_state["status"] = "FINAL MASTER GENERATION FAILED"
+            project.mix_state["active_stage"] = None
+            self.store.save(project)
+            raise
+        return project
+
+    def verify_final_master(self, project_id: str) -> MovieProject:
+        """Verify the actual current master asset and persist the result."""
+
+        project = self.store.load(project_id)
+        record = (project.video_assets or {}).get("final_master")
+        path = best_master_path(project)
+        metadata = probe_media(path, self.settings.ffprobe_bin) if path else {}
+        target_width, target_height = export_dimensions(project.target_resolution, "16:9")
+        width, height = metadata.get("width"), metadata.get("height")
+        duration = metadata.get("duration_seconds")
+        expected_duration = float(project.duration_seconds or 0)
+        checks = {
+            "asset_record": isinstance(record, dict),
+            "file_exists": bool(path and path.is_file()),
+            "not_stale": isinstance(record, dict) and record.get("stale") is not True,
+            "ffprobe": bool(metadata.get("exists")) and bool(metadata.get("codec")),
+            "resolution": isinstance(width, int) and isinstance(height, int) and width >= target_width and height >= target_height,
+            "duration": isinstance(duration, (int, float)) and (not expected_duration or abs(float(duration) - expected_duration) <= 1.5),
+        }
+        verification = {
+            "status": "VERIFIED" if all(checks.values()) else "FAILED",
+            "valid": all(checks.values()),
+            "checks": checks,
+            "resolution": f"{width}x{height}" if width and height else None,
+            "duration_seconds": duration,
+            "verified_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+        }
+        project.delivery_verification = verification
+        if isinstance(record, dict):
+            record["verification_status"] = verification["status"]
+            record["verification_checks"] = dict(checks)
         self.store.save(project)
         return project
 

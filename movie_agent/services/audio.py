@@ -520,8 +520,8 @@ def mark_audio_stage(project: Any, stage: str, status: str) -> Any:
     return project
 
 
-def regenerate_track(project: Any, track_key: str) -> Any:
-    """Bump a track revision while keeping user toggles and mix settings."""
+def replan_track(project: Any, track_key: str) -> Any:
+    """Rebuild one track's plan without pretending that media was rendered."""
 
     key = str(track_key or "").strip().lower()
     if key not in TRACK_ORDER:
@@ -529,9 +529,15 @@ def regenerate_track(project: Any, track_key: str) -> Any:
     ensure_audio_design(project)
     track = project.audio_tracks[key]
     track["revision"] = int(track.get("revision", 1) or 1) + 1
-    track["status"] = "REGENERATED · READY" if key != "voice" else track["status"]
+    track["status"] = "REPLAN READY" if key != "voice" else track["status"]
     if key == "music":
         project.music_brief["version"] = int(project.music_brief.get("version", 1) or 1) + 1
     project.mix_state["media_mixed"] = False
     project.mix_state["status"] = "DESIGN UPDATED"
     return project
+
+
+def regenerate_track(project: Any, track_key: str) -> Any:
+    """Compatibility alias for integrations that still call the old helper."""
+
+    return replan_track(project, track_key)

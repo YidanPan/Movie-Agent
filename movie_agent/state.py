@@ -40,6 +40,7 @@ STATUS_TO_STATE: dict[str, ProjectState] = {
     "editing_rough_cut": ProjectState.EDITING,
     "rough_cut_ready": ProjectState.ROUGH_CUT_READY,
     "editing_final": ProjectState.EDITING,
+    "final_cut_approved": ProjectState.EDITING,
     "completed_mock": ProjectState.FINAL_READY,
     "completed_text_ai_video_mock": ProjectState.FINAL_READY,
     "completed_comfyui": ProjectState.FINAL_READY,

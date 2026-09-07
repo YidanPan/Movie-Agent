@@ -211,16 +211,17 @@ def test_serialized_project_computes_readiness_once(monkeypatch):
         calls = {"count": 0}
         original = server.production_readiness
 
-        def counted(project_value, settings_value):
+        def counted(project_value, settings_value, **kwargs):
             calls["count"] += 1
-            return original(project_value, settings_value)
+            return original(project_value, settings_value, **kwargs)
 
         monkeypatch.setattr(server, "production_readiness", counted)
         payload = server.serialized_project(project)
         assert calls["count"] == 1
         assert payload["readiness"] == payload["diagnostics"]["readiness"]
-        assert payload["production_action_contract"]["schema_version"] == 1
+        assert payload["production_action_contract"]["schema_version"] == 2
         assert payload["production_action_contract"]["actions"]["RENDER_SHOT"]["scope"] == "shot"
+        assert payload["production_action_contract"]["actions"]["RENDER_SHOT"]["mutates_project"] is True
 
 
 def test_render_shot_ignores_unrelated_shot_blocker():
@@ -307,9 +308,10 @@ def test_production_blocked_error_is_recoverable_when_resolution_exists():
 def test_backend_action_contract_has_schema_version():
     from movie_agent.services.readiness import ACTION_CONTRACT_SCHEMA_VERSION, PRODUCTION_ACTION_CONTRACT
 
-    assert PRODUCTION_ACTION_CONTRACT["schema_version"] == ACTION_CONTRACT_SCHEMA_VERSION == 1
+    assert PRODUCTION_ACTION_CONTRACT["schema_version"] == ACTION_CONTRACT_SCHEMA_VERSION == 2
     assert PRODUCTION_ACTION_CONTRACT["actions"]["RENDER_SHOT"]["scope"] == "shot"
-    assert PRODUCTION_ACTION_CONTRACT["actions"]["REGENERATE_AUDIO_TRACK"]["scope"] == "track"
+    assert PRODUCTION_ACTION_CONTRACT["actions"]["REPLAN_AUDIO_TRACK"]["scope"] == "track"
+    assert PRODUCTION_ACTION_CONTRACT["actions"]["RENDER_AUDIO_TRACK"]["mutates_project"] is True
 
 
 def test_track_action_rejects_unknown_track():
@@ -351,7 +353,7 @@ def test_same_track_active_job_blocks_conflicting_mutation():
         runtime = {"active_jobs": [{"job_id": "job-1", "kind": "audio_track", "status": "running", "track_key": "music"}]}
         result = action_readiness(project, orchestrator.settings, "REGENERATE_AUDIO_TRACK", track_key="music", runtime_state=runtime)
         assert result["ready"] is False
-        assert result["blockers"][0]["code"] == "ACTIVE_AUDIO_TRACK_JOB"
+        assert result["blockers"][0]["code"] == "ACTIVE_PROJECT_MUTATION_JOB"
 
 
 def test_other_track_job_does_not_block_unrelated_track():
@@ -360,7 +362,7 @@ def test_other_track_job_does_not_block_unrelated_track():
         project = orchestrator.create_project("A signal changes a quiet room.", 48, "grounded")
         runtime = {"active_jobs": [{"job_id": "job-1", "kind": "audio_track", "status": "running", "track_key": "music"}]}
         result = action_readiness(project, orchestrator.settings, "REGENERATE_AUDIO_TRACK", track_key="voice", runtime_state=runtime)
-        assert result["ready"] is True
+        assert result["ready"] is False
 
 
 def test_other_shot_active_job_does_not_block_review():
@@ -370,3 +372,21 @@ def test_other_shot_active_job_does_not_block_review():
         runtime = {"active_jobs": [{"job_id": "job-1", "kind": "generation", "status": "running", "shot_number": 4}]}
         result = action_readiness(project, orchestrator.settings, "REVIEW_SHOT", shot_number=2, runtime_state=runtime)
         assert result["ready"] is True
+
+
+def test_active_project_mutation_blocks_mutations_but_keeps_review_actions_available():
+    from movie_agent.services.readiness import PRODUCTION_ACTIONS
+
+    with TemporaryDirectory() as directory:
+        orchestrator = make_orchestrator(Path(directory))
+        project = orchestrator.create_project("A signal changes a quiet room.", 48, "grounded")
+        runtime = {"active_jobs": [{"job_id": "job-1", "kind": "generation", "status": "running", "shot_number": 4, "mutates_project": True}]}
+        for action, metadata in PRODUCTION_ACTIONS.items():
+            if not metadata.get("mutates_project"):
+                continue
+            kwargs = {"shot_number": 1} if metadata.get("scope") == "shot" else {}
+            kwargs["track_key"] = "music" if metadata.get("scope") == "track" else None
+            if kwargs.get("track_key") is None:
+                kwargs.pop("track_key")
+            assert action_readiness(project, orchestrator.settings, action, runtime_state=runtime, **kwargs)["ready"] is False
+        assert action_readiness(project, orchestrator.settings, "REVIEW_SHOT", shot_number=1, runtime_state=runtime)["ready"] is True

@@ -1,5 +1,10 @@
-const LEGACY_ACTION_ALIASES = { REGENERATE_SHOT: "RENDER_SHOT" };
-const SUPPORTED_SCHEMA_VERSION = 1;
+const LEGACY_ACTION_ALIASES = {
+  REGENERATE_SHOT: "RENDER_SHOT",
+  REGENERATE_AUDIO_TRACK: "REPLAN_AUDIO_TRACK",
+  REPLAN_STORYBOARD: "REVIEW_STORYBOARD",
+  REPLAN_STORY_WORLD: "REVIEW_STORY_WORLD",
+};
+const SUPPORTED_SCHEMA_VERSION = 2;
 
 // Fallback labels are presentation-only compatibility data for snapshots
 // produced before production_action_contract existed. Scope, kind, and
@@ -13,8 +18,8 @@ const ACTION_FALLBACK_LABELS = {
   GENERATE_FINAL_MASTER: "GENERATE FINAL MASTER",
   EXPORT: "EXPORT",
   APPROVE_PREVIS: "APPROVE PREVIS",
-  REPLAN_STORYBOARD: "REVIEW STORYBOARD",
-  REPLAN_STORY_WORLD: "REVIEW STORY WORLD",
+  REVIEW_STORYBOARD: "REVIEW STORYBOARD",
+  REVIEW_STORY_WORLD: "REVIEW STORY WORLD",
   REVIEW_VISUAL_BIBLE: "OPEN VISUAL BIBLE",
   OPEN_REFERENCE_BANK: "OPEN REFERENCES",
   REVIEW_SHOT: "REVIEW SHOT",
@@ -25,7 +30,8 @@ const ACTION_FALLBACK_LABELS = {
   LOCK_DIALOGUE: "LOCK DIALOGUE",
   VERIFY_FINAL_MASTER: "VERIFY MASTER",
   REVIEW_DELIVERY_PREFLIGHT: "REVIEW DELIVERY",
-  REGENERATE_AUDIO_TRACK: "REGENERATE TRACK",
+  REPLAN_AUDIO_TRACK: "REPLAN TRACK",
+  RENDER_AUDIO_TRACK: "RENDER TRACK",
   REVIEW_AUDIO_TRACK: "REVIEW TRACK",
 };
 
@@ -75,6 +81,16 @@ export function validateProductionActionCoverage(project) {
   return { supported: true, missing };
 }
 
+export async function requestProductionConfirmation(action, context = {}) {
+  const metadata = context.metadata || {};
+  if (typeof context.requestConfirmation !== "function") return false;
+  return Boolean(await context.requestConfirmation({
+    action: canonicalAction(action),
+    metadata,
+    project: context.project || null,
+  }));
+}
+
 export async function executeProductionAction(action, context = {}) {
   const requested = String(action || "").toUpperCase();
   const code = canonicalAction(requested);
@@ -89,6 +105,11 @@ export async function executeProductionAction(action, context = {}) {
     console.warn(`[production-actions] No handler registered for: ${code}`);
     context.onUnavailable?.(code);
     return false;
+  }
+  const metadata = contract?.actions?.[code] || {};
+  if (metadata.requires_confirmation && metadata.confirmation_mode !== "sheet") {
+    const confirmed = await requestProductionConfirmation(code, { ...context, metadata });
+    if (!confirmed) return false;
   }
   await handler(context);
   return true;
@@ -105,6 +126,7 @@ export function moduleProductionActions() {
     productionActionLabel,
     registerProductionActionHandlers,
     validateProductionActionCoverage,
+    requestProductionConfirmation,
     executeProductionAction,
     scrollTo,
   };

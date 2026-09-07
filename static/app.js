@@ -202,6 +202,11 @@ const els = {
   soundSummaryBody: $("#sound-summary-body"),
   soundSummaryStatus: $("#sound-summary-status"),
   exportSheet: $("#export-sheet"),
+  productionConfirmation: $("#production-confirmation"),
+  productionConfirmationTitle: $("#production-confirmation-title"),
+  productionConfirmationCopy: $("#production-confirmation-copy"),
+  productionConfirmationConfirm: $("#production-confirmation-confirm"),
+  productionConfirmationCancel: $("#production-confirmation-cancel"),
   btnExportClose: $("#btn-export-close"),
   btnExportRun: $("#btn-export-run"),
   exportSelection: $("#export-selection"),
@@ -1327,6 +1332,13 @@ function productionActionHandlers() {
   };
   return {
     REVIEW_SHOT: ({ shotNumber }) => shotNumber && openDrawer(state.project, shotNumber),
+    APPROVE_SHOT: async ({ shotNumber }) => {
+      if (!shotNumber) return;
+      const payload = await MovieAgentModules.api.requestJSON(`/api/projects/${state.project.project_id}/shots/${shotNumber}/approve`, { method: "POST" });
+      applyProjectSnapshot(payload);
+      renderWorkspace(payload);
+      toast(`SHOT ${String(shotNumber).padStart(2, "0")} 已通过人工视觉审核。`);
+    },
     APPROVE_PREVIS: async () => {
       const payload = await MovieAgentModules.api.requestJSON(`/api/projects/${state.project.project_id}/previs/approve`, { method: "POST" });
       applyProjectSnapshot(payload);
@@ -1335,8 +1347,8 @@ function productionActionHandlers() {
     },
     OPEN_REFERENCE_BANK: () => openManual("visual"),
     REVIEW_VISUAL_BIBLE: () => openManual("visual"),
-    REPLAN_STORY_WORLD: () => openManual("brief"),
-    REPLAN_STORYBOARD: () => MovieAgentModules.productionActions.scrollTo(els.filmstripPanel, REDUCED_MOTION),
+    REVIEW_STORY_WORLD: () => openManual("brief"),
+    REVIEW_STORYBOARD: () => MovieAgentModules.productionActions.scrollTo(els.filmstripPanel, REDUCED_MOTION),
     REVIEW_AUDIO_TIMELINE: () => MovieAgentModules.productionActions.scrollTo(els.audioDesignConsole, REDUCED_MOTION),
     OPEN_SOUND: () => MovieAgentModules.productionActions.scrollTo(els.audioDesignConsole, REDUCED_MOTION),
     REVIEW_RENDER_DIAGNOSTICS: () => MovieAgentModules.productionActions.scrollTo(els.monitorPanel, REDUCED_MOTION),
@@ -1347,13 +1359,49 @@ function productionActionHandlers() {
     START_RENDER: () => startRender(),
     START_AI_EDIT: () => startAiEdit(),
     APPROVE_FINAL_CUT: () => approveAiEdit(),
-    GENERATE_FINAL_MASTER: () => approveAiEdit(),
+    GENERATE_FINAL_MASTER: () => generateFinalMaster(),
     EXPORT: () => exportFinalCut(),
-    VERIFY_FINAL_MASTER: () => MovieAgentModules.productionActions.scrollTo(els.deliverFinal, REDUCED_MOTION),
+    VERIFY_FINAL_MASTER: () => verifyFinalMaster(),
     REVIEW_DELIVERY_PREFLIGHT: () => MovieAgentModules.productionActions.scrollTo(els.deliverPanel, REDUCED_MOTION),
-    REGENERATE_AUDIO_TRACK: ({ trackKey }) => trackKey && regenerateAudioTrack(trackKey),
+    REPLAN_AUDIO_TRACK: ({ trackKey }) => trackKey && replanAudioTrack(trackKey),
+    RENDER_AUDIO_TRACK: ({ trackKey }) => trackKey && renderAudioTrack(trackKey),
     REVIEW_AUDIO_TRACK: ({ trackKey }) => trackKey && selectAudioTrack(trackKey),
   };
+}
+
+function requestProductionConfirmation(action, metadata = {}) {
+  const copy = {
+    APPROVE_PREVIS: ["批准 Previs", "确认当前分镜审查通过，后续可以进入镜头生成。", "批准 Previs"],
+    APPROVE_FINAL_CUT: ["批准 Final Cut", "确认当前粗剪通过审片；后续将进入 Final Master 生成。", "批准 Final Cut"],
+  }[String(action || "").toUpperCase()] || ["确认制作动作", "确认执行当前生产动作并写入项目状态。", "确认执行"];
+  if (!els.productionConfirmation) return Promise.resolve(false);
+  els.productionConfirmationTitle.textContent = copy[0];
+  els.productionConfirmationCopy.textContent = copy[1];
+  els.productionConfirmationConfirm.textContent = copy[2];
+  els.productionConfirmation.classList.remove("hidden");
+  els.productionConfirmation.classList.add("is-open");
+  els.productionConfirmation.setAttribute("aria-hidden", "false");
+  return new Promise((resolve) => {
+    const finish = (confirmed) => {
+      els.productionConfirmation.classList.remove("is-open");
+      els.productionConfirmation.classList.add("hidden");
+      els.productionConfirmation.setAttribute("aria-hidden", "true");
+      els.productionConfirmationConfirm.removeEventListener("click", onConfirm);
+      els.productionConfirmationCancel.removeEventListener("click", onCancel);
+      document.removeEventListener("keydown", onKeydown);
+      resolve(confirmed);
+    };
+    const onConfirm = () => finish(true);
+    const onCancel = () => finish(false);
+    const onKeydown = (event) => {
+      if (event.key === "Escape") onCancel();
+      if (event.key === "Enter") onConfirm();
+    };
+    els.productionConfirmationConfirm.addEventListener("click", onConfirm);
+    els.productionConfirmationCancel.addEventListener("click", onCancel);
+    document.addEventListener("keydown", onKeydown);
+    els.productionConfirmationConfirm.focus();
+  });
 }
 
 async function handleProductionAction(event) {
@@ -1367,6 +1415,7 @@ async function handleProductionAction(event) {
       shotNumber,
       trackKey: button.dataset.readinessTrack || "",
       onUnavailable: (code) => toast(`ACTION UNAVAILABLE · ${code}`, true),
+      requestConfirmation: ({ action, metadata }) => requestProductionConfirmation(action, metadata),
     });
   } catch (error) {
     toast(`动作执行失败：${error.message}`, true);
@@ -2192,7 +2241,8 @@ function renderAudioTrackList(project, target) {
     const track = tracks[key];
     const labels = AUDIO_TRACK_LABELS[key];
     const enabled = track.enabled !== false;
-    const canRegenerate = track.can_regenerate !== false;
+    const canReplan = track.can_replan !== false;
+    const canRender = track.can_render === true;
     const previewUrl = track.preview_url || "";
     const selected = state.audioInspectorTrack === key;
     return `<article class="audio-track ${enabled ? "is-enabled" : "is-muted"} ${selected ? "is-selected" : ""}" data-audio-track="${key}" data-audio-track-select="${key}" tabindex="0" aria-label="选择 ${labels.en} 音轨" aria-current="${selected ? "true" : "false"}">
@@ -2200,7 +2250,7 @@ function renderAudioTrackList(project, target) {
       <div class="audio-track-main"><div class="audio-track-title"><span class="type-system-meta">${labels.en}</span><strong class="type-control">${esc(track.name || labels.zh)}</strong></div><p class="type-helper">${esc(track.source || "SOUND DESIGN PLAN")}</p></div>
       <div class="audio-track-meter" aria-label="音量 ${esc(track.volume_db ?? 0)} dB"><i style="--meter-level:${Math.max(8, Math.min(100, 68 + Number(track.volume_db || 0) * 2))}%"></i></div>
       <div class="audio-track-status type-status">${esc(track.status || "QUEUED")}<small class="type-system-meta">${esc(String(track.volume_db ?? 0))} dB</small></div>
-      <div class="audio-track-actions"><button type="button" class="audio-track-action type-control" data-audio-preview="${key}" data-audio-url="${esc(previewUrl)}">试听</button><button type="button" class="audio-track-action type-control" data-audio-regenerate="${key}" ${canRegenerate ? "" : "disabled"}>重新生成</button></div>
+      <div class="audio-track-actions"><button type="button" class="audio-track-action type-control" data-audio-preview="${key}" data-audio-url="${esc(previewUrl)}">试听</button><button type="button" class="audio-track-action type-control" data-audio-replan="${key}" ${canReplan ? "" : "disabled"}>重新规划</button><button type="button" class="audio-track-action type-control" data-audio-render="${key}" ${canRender ? "" : "disabled"}>渲染音频</button></div>
     </article>`;
   }).join("");
 }
@@ -2259,7 +2309,7 @@ function syncAudioInspectors(project = state.project) {
     const preview = inspector.querySelector("[data-audio-inspector-preview]");
     const regenerate = inspector.querySelector("[data-audio-inspector-regenerate]");
     if (preview) { preview.dataset.audioPreview = key; preview.dataset.audioUrl = track.preview_url || ""; }
-    if (regenerate) { regenerate.dataset.audioInspectorRegenerate = key; regenerate.disabled = track.can_regenerate === false; }
+    if (regenerate) { regenerate.dataset.audioInspectorRegenerate = key; regenerate.disabled = track.can_replan === false; }
   });
 }
 
@@ -2466,21 +2516,43 @@ async function persistAudioDesign(changes = {}) {
   }
 }
 
-async function regenerateAudioTrack(trackKey) {
+async function replanAudioTrack(trackKey) {
   if (!state.project) return;
-  const button = document.querySelector(`[data-audio-regenerate="${trackKey}"]`);
+  const button = document.querySelector(`[data-audio-replan="${trackKey}"], [data-audio-inspector-regenerate="${trackKey}"]`);
   if (button) { button.disabled = true; button.textContent = "规划中…"; }
   try {
-    const response = await fetch(`/api/projects/${encodeURIComponent(state.project.project_id)}/audio/tracks/${encodeURIComponent(trackKey)}/regenerate`, { method: "POST" });
+    const response = await fetch(`/api/projects/${encodeURIComponent(state.project.project_id)}/audio/tracks/${encodeURIComponent(trackKey)}/replan`, { method: "POST" });
     const project = await response.json();
     if (!response.ok) throw new Error(project.error || `HTTP ${response.status}`);
     state.project = project;
     renderAudioDesign(project);
     renderLogFeed(project);
-    toast(`${trackKey.toUpperCase()} 音轨已重新规划。`);
+    toast(`${trackKey.toUpperCase()} 音轨计划已更新。`);
   } catch (error) {
     toast(`音轨更新失败：${error.message}`, true);
-    if (button) { button.disabled = false; button.textContent = "重新生成"; }
+    if (button) { button.disabled = false; button.textContent = "重新规划"; }
+  }
+}
+
+function regenerateAudioTrack(trackKey) {
+  return replanAudioTrack(trackKey);
+}
+
+async function renderAudioTrack(trackKey) {
+  if (!state.project) return;
+  const button = document.querySelector(`[data-audio-render="${trackKey}"]`);
+  if (button) { button.disabled = true; button.textContent = "渲染中…"; }
+  try {
+    const response = await fetch(`/api/projects/${encodeURIComponent(state.project.project_id)}/audio/tracks/${encodeURIComponent(trackKey)}/render`, { method: "POST" });
+    const project = await response.json();
+    if (!response.ok) throw new Error(project.error || `HTTP ${response.status}`);
+    state.project = project;
+    renderAudioDesign(project);
+    renderWorkspace(project);
+    toast(`${trackKey.toUpperCase()} 真实音频已渲染。`);
+  } catch (error) {
+    toast(`音轨渲染失败：${error.message}`, true);
+    if (button) { button.disabled = false; button.textContent = "渲染音频"; }
   }
 }
 
@@ -2525,9 +2597,11 @@ function handleAudioInteraction(event) {
     return;
   }
   const inspectorRegenerate = event.target.closest("[data-audio-inspector-regenerate]");
-  if (inspectorRegenerate) { regenerateAudioTrack(inspectorRegenerate.dataset.audioInspectorRegenerate || state.audioInspectorTrack); return; }
-  const regenerate = event.target.closest("[data-audio-regenerate]");
-  if (regenerate) { regenerateAudioTrack(regenerate.dataset.audioRegenerate); return; }
+  if (inspectorRegenerate) { replanAudioTrack(inspectorRegenerate.dataset.audioInspectorRegenerate || state.audioInspectorTrack); return; }
+  const replan = event.target.closest("[data-audio-replan], [data-audio-regenerate]");
+  if (replan) { replanAudioTrack(replan.dataset.audioReplan || replan.dataset.audioRegenerate); return; }
+  const render = event.target.closest("[data-audio-render]");
+  if (render) { renderAudioTrack(render.dataset.audioRender); return; }
   const preview = event.target.closest("[data-audio-preview]");
   if (preview) {
     const url = preview.dataset.audioUrl;
@@ -2883,6 +2957,7 @@ function renderDeliverProgress(project, description = "") {
   const percent = roughReady ? 100 : Math.round((activeIndex / stageCount) * 100);
   if (els.deliverProgressPercent) els.deliverProgressPercent.textContent = `${percent}%`;
   if (els.deliverProgressBar) els.deliverProgressBar.style.width = `${percent}%`;
+  const finalCutApproved = status === "final_cut_approved";
   const preApproval = editing || roughReady || editReady;
   if (els.editConsoleNote) {
     els.editConsoleNote.textContent = project?.script?.dialogue_locked
@@ -2890,9 +2965,14 @@ function renderDeliverProgress(project, description = "") {
       : "请先在“剧本与旁白”页锁定台词本，剪辑才能继续。";
   }
   if (els.btnApproveEdit) {
-    els.btnApproveEdit.classList.toggle("hidden", !roughReady);
-    const actionReady = productionActionReady(project, "APPROVE_FINAL_CUT");
-    els.btnApproveEdit.disabled = state.editing || !roughReady || (actionReady === false);
+    const showAction = (roughReady || finalCutApproved) && !state.editing;
+    const action = finalCutApproved ? "GENERATE_FINAL_MASTER" : "APPROVE_FINAL_CUT";
+    const actionReady = productionActionReady(project, action);
+    els.btnApproveEdit.classList.toggle("hidden", !showAction);
+    els.btnApproveEdit.disabled = state.editing || !showAction || (actionReady === false);
+    els.btnApproveEdit.innerHTML = finalCutApproved
+      ? '生成 Final Master <span class="cta-arrow" aria-hidden="true">→</span>'
+      : '批准 Final Cut <span class="cta-arrow" aria-hidden="true">→</span>';
   }
   if (els.btnRecut) els.btnRecut.classList.toggle("hidden", !preApproval);
   if (els.subtitleModeControl) els.subtitleModeControl.classList.toggle("hidden", !preApproval);
@@ -3110,11 +3190,16 @@ async function renderScreening(project) {
     els.btnAiEdit.innerHTML = state.editing ? "AI Edit 粗剪中…" : 'AI 剪辑成片 <span class="cta-arrow" aria-hidden="true">→</span>';
   }
   if (els.btnApproveEdit) {
-    const showApprove = status === "rough_cut_ready" && !state.editing;
-    const actionReady = productionActionReady(project, "APPROVE_FINAL_CUT");
+    const showApprove = ["rough_cut_ready", "final_cut_approved"].includes(status) && !state.editing;
+    const action = status === "final_cut_approved" ? "GENERATE_FINAL_MASTER" : "APPROVE_FINAL_CUT";
+    const actionReady = productionActionReady(project, action);
     els.btnApproveEdit.classList.toggle("hidden", !showApprove);
     els.btnApproveEdit.disabled = state.editing || (actionReady === false);
-    if (!state.editing) els.btnApproveEdit.innerHTML = '批准最终成片 <span class="cta-arrow" aria-hidden="true">→</span>';
+    if (!state.editing) {
+      els.btnApproveEdit.innerHTML = status === "final_cut_approved"
+        ? '生成 Final Master <span class="cta-arrow" aria-hidden="true">→</span>'
+        : '批准 Final Cut <span class="cta-arrow" aria-hidden="true">→</span>';
+    }
   }
   if (els.btnExportFinal) {
     els.btnExportFinal.classList.toggle("hidden", !showFinal);
@@ -4347,17 +4432,8 @@ async function approveAiEdit() {
   const mode = els.subtitleMode?.value || "burned";
   if (els.btnApproveEdit) {
     els.btnApproveEdit.disabled = true;
-    els.btnApproveEdit.textContent = "交付中…";
+    els.btnApproveEdit.textContent = "批准中…";
   }
-  if (els.deliverStateTitle) els.deliverStateTitle.textContent = "最终成片编码中";
-  if (els.deliverStateCopy) els.deliverStateCopy.textContent = "FFmpeg 正在写入最终画面与字幕轨，请稍候。";
-  if (els.deliverStateBadge) {
-    els.deliverStateBadge.textContent = "FINAL ENCODE";
-    els.deliverStateBadge.dataset.state = "editing";
-  }
-  state.editProgressStep = 6;
-  renderDeliverProgress({ ...state.project, status: "editing_rough_cut" }, "Final Encode · FFmpeg 编码交付");
-  if (els.deliverProgressTitle) els.deliverProgressTitle.textContent = "最终成片编码中";
   try {
     const response = await fetch(`/api/projects/${state.project.project_id}/edit/approve`, {
       method: "POST",
@@ -4367,22 +4443,59 @@ async function approveAiEdit() {
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
     state.project = payload;
-    rememberCrewEvent("editor", { status: "done" });
-    appendCrewStatus("editor", "FINAL CUT", `Delivery encoded · ${mode.toUpperCase()} subtitles`);
-    syncCrewBoard(payload, { silent: true });
     renderWorkspace(payload);
-    toast(`最终成片已批准（${mode === "burned" ? "烧录字幕" : mode === "soft" ? "软字幕" : "无字幕"}）。`);
-    renderScreening(payload).then(() => {
-      if (state.hasFinalVideo) openPremiere(payload);
-    });
+    toast(`Final Cut 已批准（${mode === "burned" ? "烧录字幕" : mode === "soft" ? "软字幕" : "无字幕"}），可生成 Final Master。`);
   } catch (error) {
-    toast(`批准成片失败：${error.message}`, true);
+    toast(`批准 Final Cut 失败：${error.message}`, true);
     if (state.project) renderWorkspace(state.project);
     if (els.btnApproveEdit) {
       els.btnApproveEdit.disabled = false;
-      els.btnApproveEdit.innerHTML = '批准最终成片 <span class="cta-arrow" aria-hidden="true">→</span>';
+      els.btnApproveEdit.innerHTML = '批准 Final Cut <span class="cta-arrow" aria-hidden="true">→</span>';
     }
   }
+}
+
+async function generateFinalMaster() {
+  if (!state.project || state.editing) return;
+  if (els.btnApproveEdit) {
+    els.btnApproveEdit.disabled = true;
+    els.btnApproveEdit.textContent = "生成中…";
+  }
+  try {
+    const response = await fetch(`/api/projects/${encodeURIComponent(state.project.project_id)}/final-master/generate`, { method: "POST" });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    state.project = payload;
+    renderWorkspace(payload);
+    await renderScreening(payload);
+    toast("Final Master 已生成，可以进行交付校验。 ");
+  } catch (error) {
+    toast(`Final Master 生成失败：${error.message}`, true);
+    if (state.project) renderWorkspace(state.project);
+  } finally {
+    if (els.btnApproveEdit && state.project && !state.hasFinalVideo) els.btnApproveEdit.disabled = false;
+  }
+}
+
+async function verifyFinalMaster() {
+  if (!state.project) return;
+  try {
+    const response = await fetch(`/api/projects/${encodeURIComponent(state.project.project_id)}/final-master/verify`, { method: "POST" });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    state.project = payload;
+    renderWorkspace(payload);
+    const status = payload.delivery_verification?.status || "UNKNOWN";
+    toast(`Final Master 校验：${status}`, status !== "VERIFIED");
+  } catch (error) {
+    toast(`Final Master 校验失败：${error.message}`, true);
+  }
+}
+
+async function handleFinalCutAction() {
+  if (state.project?.status === "final_cut_approved") return generateFinalMaster();
+  const confirmed = await requestProductionConfirmation("APPROVE_FINAL_CUT");
+  if (confirmed) return approveAiEdit();
 }
 
 async function regenerateShot(shotNumber, action = "replan") {
@@ -5290,7 +5403,7 @@ function init() {
   els.btnRecut?.addEventListener("click", startAiEdit);
   els.btnReedit?.addEventListener("click", startAiEdit);
   els.btnEditSubtitles?.addEventListener("click", openSubtitleEditor);
-  els.btnApproveEdit?.addEventListener("click", approveAiEdit);
+  els.btnApproveEdit?.addEventListener("click", handleFinalCutAction);
   els.techSummaryToggle?.addEventListener("click", () => {
     const details = els.techSummaryDetails;
     if (!details) return;

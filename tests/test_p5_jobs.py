@@ -74,6 +74,14 @@ def test_job_ledger_persists_target_scope_for_runtime_readiness():
         assert runtime["active_jobs"][0]["track_key"] == "music"
 
 
+def test_readiness_runtime_ignores_non_mutating_job():
+    with TemporaryDirectory() as temporary_directory:
+        ledger = JobLedger(Path(temporary_directory) / "projects")
+        job = ledger.start("film-1234abcd", kind="verification", stage="delivery", mutates_project=False)
+        assert job["mutates_project"] is False
+        assert ledger.runtime_state("film-1234abcd") == {"active_jobs": []}
+
+
 def test_new_process_marks_a_stale_running_job_orphaned_and_keeps_resume_history():
     with TemporaryDirectory() as temporary_directory:
         root = Path(temporary_directory)

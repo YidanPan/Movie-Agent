@@ -68,7 +68,8 @@ class FinalLookTests(unittest.TestCase):
             )
             orchestrator.lock_dialogue(project.project_id)
             orchestrator.create_rough_cut(project.project_id)
-            completed = orchestrator.approve_edit(project.project_id)
+            approved = orchestrator.approve_edit(project.project_id)
+            completed = orchestrator.generate_final_master(approved.project_id)
 
             finished = orchestrator.set_final_look(
                 completed.project_id,

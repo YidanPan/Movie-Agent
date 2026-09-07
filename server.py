@@ -311,7 +311,10 @@ def serialized_project(project) -> dict[str, Any]:
     # availability.  Paths and prompts remain inside the project payload's
     # existing compatibility fields and are never copied into this view.
     runtime_state = job_ledger.runtime_state(project.project_id)
-    readiness = production_readiness(project, settings, runtime_state=runtime_state) if runtime_state.get("active_jobs") else production_readiness(project, settings)
+    # Always evaluate the public contract against the same persisted Job
+    # Ledger snapshot.  This keeps diagnostics, readiness and action guards
+    # on one runtime truth even when the snapshot has no active jobs.
+    readiness = production_readiness(project, settings, runtime_state=runtime_state)
     diagnostics = diagnostics_snapshot(
         project,
         ffprobe_bin=settings.ffprobe_bin,
@@ -801,8 +804,7 @@ async def update_final_look(project_id: str, request: Request):
     return serialized_project(project)
 
 
-@app.post("/api/projects/{project_id}/audio/tracks/{track_key}/regenerate")
-def regenerate_audio_track(project_id: str, track_key: str):
+def _run_audio_track_action(project_id: str, track_key: str, action: str):
     started_job = None
     try:
         with project_lock(project_id):
@@ -810,12 +812,15 @@ def regenerate_audio_track(project_id: str, track_key: str):
             ensure_action_ready(
                 project,
                 settings,
-                "REGENERATE_AUDIO_TRACK",
+                action,
                 track_key=track_key,
                 runtime_state=job_ledger.runtime_state(project_id),
             )
             started_job = job_ledger.start(project_id, kind="audio_track", stage="audio", track_key=track_key)
-            project = orchestrator.regenerate_audio_track(project_id, track_key)
+            if action == "REPLAN_AUDIO_TRACK":
+                project = orchestrator.replan_audio_track(project_id, track_key)
+            else:
+                project = orchestrator.render_audio_track(project_id, track_key)
             job_ledger.finish(project_id, started_job["job_id"], status="succeeded")
     except FileNotFoundError:
         return project_not_found(project_id)
@@ -832,6 +837,23 @@ def regenerate_audio_track(project_id: str, track_key: str):
             job_ledger.finish(project_id, started_job["job_id"], status="failed", error=error_info(error, stage="audio"))
         return structured_error_response(error, status_code=502, stage="audio")
     return serialized_project(project)
+
+
+@app.post("/api/projects/{project_id}/audio/tracks/{track_key}/replan")
+def replan_audio_track(project_id: str, track_key: str):
+    return _run_audio_track_action(project_id, track_key, "REPLAN_AUDIO_TRACK")
+
+
+@app.post("/api/projects/{project_id}/audio/tracks/{track_key}/render")
+def render_audio_track(project_id: str, track_key: str):
+    return _run_audio_track_action(project_id, track_key, "RENDER_AUDIO_TRACK")
+
+
+@app.post("/api/projects/{project_id}/audio/tracks/{track_key}/regenerate")
+def regenerate_audio_track(project_id: str, track_key: str):
+    """Legacy route; its canonical operation is now REPLAN_AUDIO_TRACK."""
+
+    return _run_audio_track_action(project_id, track_key, "REPLAN_AUDIO_TRACK")
 
 
 @app.post("/api/projects/{project_id}/audio/tracks/voice/generate")
@@ -901,6 +923,13 @@ async def approve_edit(project_id: str, request: Request):
         return JSONResponse({"error": "Request must be valid JSON."}, status_code=400)
     try:
         with project_lock(project_id):
+            project = orchestrator.store.load(project_id)
+            ensure_action_ready(
+                project,
+                settings,
+                "APPROVE_FINAL_CUT",
+                runtime_state=job_ledger.runtime_state(project_id),
+            )
             project = orchestrator.approve_edit(project_id, payload.subtitle_mode)
     except FileNotFoundError:
         return project_not_found(project_id)
@@ -1048,15 +1077,75 @@ def render_single_shot(project_id: str, shot_number: int):
     return serialized_project(project)
 
 
+@app.post("/api/projects/{project_id}/final-master/generate")
+def generate_final_master(project_id: str):
+    """Generate or recover a real Final Master from the approved edit."""
+
+    started_job = None
+    try:
+        with project_lock(project_id):
+            project = orchestrator.store.load(project_id)
+            ensure_action_ready(
+                project,
+                settings,
+                "GENERATE_FINAL_MASTER",
+                runtime_state=job_ledger.runtime_state(project_id),
+            )
+            started_job = job_ledger.start(project_id, kind="final_master", stage="final_master")
+            project = orchestrator.generate_final_master(project_id)
+            job_ledger.finish(project_id, started_job["job_id"], status="succeeded")
+    except FileNotFoundError:
+        return project_not_found(project_id)
+    except JobAlreadyRunning as error:
+        return JSONResponse({"error": str(error), "error_code": "JOB_ALREADY_RUNNING", "job": error.snapshot}, status_code=409)
+    except ProductionBlockedError as error:
+        if started_job:
+            job_ledger.finish(project_id, started_job["job_id"], status="failed", error=error_info(error, stage="final_master"))
+        return structured_error_response(error, status_code=409, stage="final_master")
+    except ValueError as error:
+        if started_job:
+            job_ledger.finish(project_id, started_job["job_id"], status="failed", error=error_info(error, stage="final_master"))
+        return JSONResponse({"error": str(error)}, status_code=400)
+    except Exception as error:  # noqa: BLE001 - keep the durable job truthful
+        if started_job:
+            job_ledger.finish(project_id, started_job["job_id"], status="failed", error=error_info(error, stage="final_master"))
+        return structured_error_response(error, status_code=502, stage="final_master")
+    return serialized_project(project)
+
+
+@app.post("/api/projects/{project_id}/final-master/verify")
+def verify_final_master(project_id: str):
+    """Inspect the current Final Master asset instead of merely navigating."""
+
+    try:
+        with project_lock(project_id):
+            project = orchestrator.verify_final_master(project_id)
+    except FileNotFoundError:
+        return project_not_found(project_id)
+    except ValueError as error:
+        return JSONResponse({"error": str(error)}, status_code=400)
+    return serialized_project(project)
+
+
 @app.post("/api/projects/{project_id}/shots/{shot_number}/approve")
 def approve_single_shot(project_id: str, shot_number: int):
     """Explicitly approve a shot after the no-vision manual review gate."""
 
     try:
         with project_lock(project_id):
+            project = orchestrator.store.load(project_id)
+            ensure_action_ready(
+                project,
+                settings,
+                "APPROVE_SHOT",
+                shot_number=shot_number,
+                runtime_state=job_ledger.runtime_state(project_id),
+            )
             project = orchestrator.approve_shot(project_id, shot_number)
     except FileNotFoundError:
         return project_not_found(project_id)
+    except ProductionBlockedError as error:
+        return structured_error_response(error, status_code=409, stage="shot_review")
     except ValueError as error:
         return JSONResponse({"error": str(error)}, status_code=400)
     return serialized_project(project)
@@ -1068,9 +1157,18 @@ def approve_previs(project_id: str):
 
     try:
         with project_lock(project_id):
+            project = orchestrator.store.load(project_id)
+            ensure_action_ready(
+                project,
+                settings,
+                "APPROVE_PREVIS",
+                runtime_state=job_ledger.runtime_state(project_id),
+            )
             project = orchestrator.approve_previs(project_id)
     except FileNotFoundError:
         return project_not_found(project_id)
+    except ProductionBlockedError as error:
+        return structured_error_response(error, status_code=409, stage="previs")
     except ValueError as error:
         return JSONResponse({"error": str(error)}, status_code=400)
     return serialized_project(project)
@@ -1295,7 +1393,7 @@ async def export_video(project_id: str, request: Request):
                         "error_code": "DELIVERY_NOT_READY",
                         "stage": "export",
                         "preflight": preflight,
-                        "readiness": production_readiness(project, settings),
+                        "readiness": production_readiness(project, settings, runtime_state=job_ledger.runtime_state(project_id)),
                         "action": error.action,
                         "blockers": [item.to_dict() for item in error.blockers],
                         "next_actions": list(error.next_actions),
