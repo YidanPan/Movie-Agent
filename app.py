@@ -2,7 +2,14 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
+
+# Gradio parses GRADIO_SERVER_PORT during import. Some hosted runtimes expose
+# the variable as an empty string while providing the actual port via PORT;
+# remove only that invalid empty value so Settings can apply the platform port.
+if not os.getenv("GRADIO_SERVER_PORT"):
+    os.environ.pop("GRADIO_SERVER_PORT", None)
 
 import gradio as gr
 

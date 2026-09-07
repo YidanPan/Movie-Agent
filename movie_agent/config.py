@@ -49,7 +49,9 @@ class Settings:
             comfy_base_url=os.getenv("COMFY_BASE_URL", "http://127.0.0.1:8188"),
             comfy_timeout_seconds=int(os.getenv("COMFY_TIMEOUT_SECONDS", "900")),
             workflows_dir=Path(os.getenv("WORKFLOWS_DIR", "./workflows")),
-            port=int(os.getenv("PORT", "9071")),
+            # ModelScope Studio supplies PORT; keep GRADIO_SERVER_PORT as a
+            # compatible fallback and use Gradio's conventional local port.
+            port=int(os.getenv("PORT") or os.getenv("GRADIO_SERVER_PORT") or "7860"),
             projects_dir=Path(os.getenv("PROJECTS_DIR", "./projects")),
             mock_mode=os.getenv("MOCK_MODE", "true").lower() == "true",
             model_provider=os.getenv("MODEL_PROVIDER", "mock").lower(),
