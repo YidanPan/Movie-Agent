@@ -96,6 +96,12 @@ class ReviewerAgent:
         shot.status = "approved_mock"
         shot.stale = False
         shot.qc_status = "PASSED_MOCK"
+        shot.media_generation = {
+            **(shot.media_generation or {}),
+            "generation_status": shot.status,
+            "qa_status": shot.qc_status,
+            "qa_score": 100,
+        }
         record = (shot.media_assets or {}).get("source") if isinstance(shot.media_assets, dict) else None
         if isinstance(record, dict):
             record["qc_status"] = shot.qc_status
@@ -174,17 +180,25 @@ class ReviewerAgent:
                 },
                 "review_state": "MEDIA_INTEGRITY_PASSED",
                 "next_action": "APPROVE_SHOT",
-            "reference_strategy": reference_strategy,
-            "reference_flags": reference_flags,
-            "resolved_shot_context": context_snapshot,
-            "context_flags": list(context.context_flags),
-            "entity_state_before": context.entity_state_before,
-            "entity_state_after": context.entity_state_after,
-        }
+                "reference_strategy": reference_strategy,
+                "reference_flags": reference_flags,
+                "resolved_shot_context": context_snapshot,
+                "context_flags": list(context.context_flags),
+                "entity_state_before": context.entity_state_before,
+                "entity_state_after": context.entity_state_after,
+            }
             self._sync_qc_flags(shot)
             shot.status = "awaiting_visual_review"
             shot.stale = False
             shot.qc_status = "AWAITING_VISUAL_REVIEW"
+            shot.media_generation = {
+                **(shot.media_generation or {}),
+                "generation_status": shot.status,
+                "qa_status": shot.qc_status,
+                "qa_score": None,
+                "current_shot_keyframes": [str(path) for path in frames],
+                "ending_frame_path": str(ending_frame or ""),
+            }
             source_record = (shot.media_assets or {}).get("source") if isinstance(shot.media_assets, dict) else None
             if isinstance(source_record, dict):
                 source_record["qc_status"] = shot.qc_status
@@ -250,6 +264,13 @@ class ReviewerAgent:
         ):
             self._archive_ending_frame(project_id, shot, ending_frame, approved=False)
             shot.status = "qc_failed_continuity"
+            shot.media_generation = {
+                **(shot.media_generation or {}),
+                "generation_status": shot.status,
+                "qa_status": "FAILED",
+                "qa_score": min((value for value in scores.values() if isinstance(value, int)), default=0),
+                "current_shot_keyframes": [str(path) for path in frames],
+            }
             flag_text = ", ".join(drift_flags) if drift_flags else "none"
             raise RuntimeError(
                 f"Shot {shot.number} visual quality check failed: missing {', '.join(missing_dimensions) or 'none'}, "
@@ -260,6 +281,15 @@ class ReviewerAgent:
         shot.status = "approved_comfyui"
         shot.stale = False
         shot.qc_status = "PASSED_VISION"
+        numeric_scores = [value for value in scores.values() if isinstance(value, int)]
+        shot.media_generation = {
+            **(shot.media_generation or {}),
+            "generation_status": shot.status,
+            "qa_status": shot.qc_status,
+            "qa_score": round(sum(numeric_scores) / len(numeric_scores), 2) if numeric_scores else None,
+            "current_shot_keyframes": [str(path) for path in frames],
+            "ending_frame_path": str(ending_frame or ""),
+        }
         source_record = (shot.media_assets or {}).get("source") if isinstance(shot.media_assets, dict) else None
         if isinstance(source_record, dict):
             source_record["qc_status"] = shot.qc_status
@@ -297,6 +327,12 @@ class ReviewerAgent:
         shot.status = "approved_comfyui"
         shot.qc_status = "APPROVED_MANUAL"
         shot.stale = False
+        shot.media_generation = {
+            **(shot.media_generation or {}),
+            "generation_status": shot.status,
+            "qa_status": shot.qc_status,
+            "approved_by": "manual",
+        }
         source_record = (shot.media_assets or {}).get("source") if isinstance(shot.media_assets, dict) else None
         if isinstance(source_record, dict):
             source_record["qc_status"] = shot.qc_status

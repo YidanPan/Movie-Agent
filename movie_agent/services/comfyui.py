@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
+import mimetypes
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -23,6 +24,9 @@ class WorkflowOverrides:
     prompt: str
     seed: int
     duration_seconds: int | None = None
+    # Filenames returned by ComfyUI's /upload/image endpoint.  Existing T2V
+    # manifests ignore this field; I2V/R2V manifests may bind it explicitly.
+    reference_images: tuple[str, ...] = ()
 
 
 class ComfyUIClient:
@@ -60,6 +64,37 @@ class ComfyUIClient:
                 return history[prompt_id]
             time.sleep(poll_seconds)
         raise ComfyUIError(f"任务 {prompt_id} 在 {self.timeout_seconds} 秒内未完成。")
+
+    def upload_image(self, path: Path, *, subfolder: str = "movie-agent") -> str:
+        """Upload a local reference to ComfyUI's input directory.
+
+        The method is only called by an I2V/R2V workflow.  T2V and mock modes
+        never touch the endpoint, so a missing reference service cannot break
+        startup or planning.
+        """
+
+        source = Path(path)
+        if not source.is_file():
+            raise ComfyUIError(f"Reference image does not exist: {source}")
+        mime = mimetypes.guess_type(source.name)[0] or "application/octet-stream"
+        boundary = f"----movie-agent-{time.time_ns()}"
+        file_bytes = source.read_bytes()
+        parts = [
+            f"--{boundary}\r\nContent-Disposition: form-data; name=\"image\"; filename=\"{source.name}\"\r\nContent-Type: {mime}\r\n\r\n".encode(),
+            file_bytes,
+            f"\r\n--{boundary}\r\nContent-Disposition: form-data; name=\"overwrite\"\r\n\r\ntrue\r\n--{boundary}\r\nContent-Disposition: form-data; name=\"subfolder\"\r\n\r\n{subfolder}\r\n--{boundary}--\r\n".encode(),
+        ]
+        request = Request(
+            f"{self.base_url}/upload/image",
+            data=b"".join(parts),
+            headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+            method="POST",
+        )
+        response = self._send(request, self.timeout_seconds)
+        filename = response.get("name") or response.get("filename")
+        if not isinstance(filename, str) or not filename.strip():
+            raise ComfyUIError("ComfyUI image upload returned no filename.")
+        return filename.strip()
 
     def _get_json(self, path: str, timeout: int | None = None) -> dict[str, Any]:
         request = Request(f"{self.base_url}{path}", method="GET")
@@ -118,6 +153,21 @@ def load_verified_workflow(template_path: Path, overrides: WorkflowOverrides) ->
             _manifest_field(manifest, "duration_field", "duration_seconds"),
             _duration_value(manifest, overrides.duration_seconds),
         )
+    bindings = manifest.get("reference_inputs")
+    if bindings and overrides.reference_images:
+        if not isinstance(bindings, list):
+            raise ComfyUIError("工作流清单的 reference_inputs 必须是数组。")
+        for index, binding in enumerate(bindings):
+            if not isinstance(binding, dict):
+                raise ComfyUIError("工作流清单包含无效的 reference_inputs 项。")
+            if index >= len(overrides.reference_images):
+                break
+            source_node = binding.get("source_node")
+            source_field = _manifest_field(binding, "source_field", "image")
+            target_node = binding.get("target_node")
+            target_field = _manifest_field(binding, "target_field", "first_frame")
+            _set_input(workflow, source_node, source_field, overrides.reference_images[index])
+            _set_input(workflow, target_node, target_field, [str(source_node), 0])
     return workflow
 
 

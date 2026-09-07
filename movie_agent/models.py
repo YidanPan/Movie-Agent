@@ -86,8 +86,17 @@ class Shot:
     prop_ids: list[str] = field(default_factory=list)
     speech_policy: str = "NARRATION"
     state_delta: dict[str, Any] = field(default_factory=dict)
+    # V0.3 media contract.  Keeping this as one JSON object lets providers
+    # add task metadata without changing the planning schema again.
+    media_generation: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        if not self.media_generation:
+            self.media_generation = {"shot_id": f"shot-{int(self.number):02d}", "generation_status": self.status}
+        else:
+            self.media_generation = dict(self.media_generation)
+            self.media_generation.setdefault("shot_id", f"shot-{int(self.number):02d}")
+            self.media_generation.setdefault("generation_status", self.status)
         if self.source_duration_seconds <= 0:
             self.source_duration_seconds = int(self.duration_seconds)
         if not self.desired_duration:

@@ -4,6 +4,8 @@
 
 `minimax_h3_t2v_api.json` 是由官方 MiniMax-H3 T2V 模板整理出的静态 API 工作流，已在 Spark 上以 608×352、5 秒、8 steps 的设置生成 MP4。它不包含模型权重或生成结果；运行时只改写清单许可的提示词与随机种子。
 
+`minimax_h3_i2v_api.json` 是 V0.3 的实验性 I2V 草案，声明了一个上传关键帧到 `first_frame` 的绑定，但尚未在当前 Spark 实例上完成端到端验证。它不会被默认配置选中；只有在 Spark 上确认节点版本、输入字段和输出链路后，才应通过 `COMFY_WORKFLOW_TEMPLATE` 显式启用。
+
 不要由 Agent 从零构造 ComfyUI 节点图。每个模板需增加以下 `_movie_agent` 清单；实际提交前，应用会自动移除该清单，只向 ComfyUI 发送原始节点图。
 
 ```json

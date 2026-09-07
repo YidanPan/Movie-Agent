@@ -61,3 +61,28 @@ class VerifiedWorkflowTests(unittest.TestCase):
             workflow = load_verified_workflow(path, WorkflowOverrides("new", 2, 5))
 
         self.assertEqual(workflow["6"]["inputs"]["length"], 124)
+
+    def test_manifest_can_bind_uploaded_reference_images(self) -> None:
+        template = {
+            "1": {"inputs": {"text": "unused"}},
+            "2": {"inputs": {"noise_seed": 0}},
+            "6": {"inputs": {"first_frame": None}},
+            "16": {"inputs": {"image": "placeholder.png"}},
+            "_movie_agent": {
+                "prompt_node": "1",
+                "seed_node": "2",
+                "reference_inputs": [{
+                    "source_node": "16",
+                    "source_field": "image",
+                    "target_node": "6",
+                    "target_field": "first_frame",
+                }],
+            },
+        }
+        with TemporaryDirectory() as temporary_directory:
+            path = Path(temporary_directory) / "workflow.json"
+            path.write_text(json.dumps(template), encoding="utf-8")
+            workflow = load_verified_workflow(path, WorkflowOverrides("unused", 1, reference_images=("shot-ref.png",)))
+
+        self.assertEqual(workflow["16"]["inputs"]["image"], "shot-ref.png")
+        self.assertEqual(workflow["6"]["inputs"]["first_frame"], ["16", 0])

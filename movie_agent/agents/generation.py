@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import shutil
+import json
+import hashlib
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -130,6 +132,14 @@ class GenerationAgent:
         shot.stale = False
         shot.qc_status = "PENDING"
         shot.attempts += 1
+        shot.media_generation = {
+            **(shot.media_generation or {}),
+            "shot_id": f"shot-{shot.number:02d}",
+            "provider": "mock",
+            "generation_status": "MOCK_QUEUED",
+            "provider_task_id": "",
+            "retry_count": int(getattr(shot, "retry_count", 0) or 0),
+        }
         return f"Generation Agent: Shot {shot.number} entered the mock generation queue."
 
     def generate(
@@ -187,6 +197,29 @@ class GenerationAgent:
         seed = derive_shot_seed(project_id, reference_seed, shot.number)
         reference_inputs = self.reference_bank.generation_reference_paths(project_id, shot, previous_shot, context=context)
         reference_flags = list(reference_inputs.get("reference_flags") or [])
+        reference_images = self._prepare_workflow_references(template_path, shot)
+        external_input_digests = self._reference_digests(reference_inputs)
+        keyframe_path = Path(str((shot.media_generation or {}).get("keyframe_path") or ""))
+        if keyframe_path.is_file():
+            external_input_digests["keyframe:0"] = self._file_digest(keyframe_path)
+        negative_prompt = (
+            "existing film or TV characters, titles, logos, brands, real-person likenesses, "
+            "copyrighted designs, subtitles, watermarks, language other than English"
+        )
+        shot.media_generation = {
+            **(shot.media_generation or {}),
+            "shot_id": f"shot-{shot.number:02d}",
+            "character_references": [str(path) for path in reference_inputs.get("character", [])],
+            "scene_reference": [str(path) for path in reference_inputs.get("scene", [])],
+            "previous_shot_reference": [str(path) for path in reference_inputs.get("previous_frame", [])],
+            "prompt": str(shot.prompt or ""),
+            "negative_prompt": negative_prompt,
+            "seed": seed,
+            "provider": "comfyui",
+            "generation_status": "SUBMITTING",
+            "retry_count": int(getattr(shot, "retry_count", 0) or 0),
+            "qa_score": None,
+        }
         shot.qc_details = {
             **(shot.qc_details or {}),
             "reference_inputs": {
@@ -195,7 +228,7 @@ class GenerationAgent:
                 if key != "reference_flags"
             },
             "reference_flags": reference_flags,
-            "reference_strategy": "TEXTUAL_LOCK_ONLY_T2V",
+            "reference_strategy": "I2V_KEYFRAME_PLUS_LOCKS" if reference_images else "TEXTUAL_LOCK_ONLY_T2V",
             "resolved_shot_context": context.to_dict(),
         }
         continuity_prompt = build_continuity_prompt(
@@ -219,6 +252,7 @@ class GenerationAgent:
                 prompt=continuity_prompt,
                 seed=seed,
                 duration_seconds=shot.source_duration_seconds or shot.duration_seconds,
+                reference_images=tuple(reference_images),
             ),
         )
         manifest = compile_renderer_input(
@@ -236,6 +270,7 @@ class GenerationAgent:
             submitted_workflow=workflow,
             workflow_identity=self.settings.comfy_workflow_template or "verified-comfyui-workflow",
             film_language=film_language,
+            external_input_digests=external_input_digests,
         )
         shot.generation_input_hash = manifest.fingerprint()
         shot.qc_details["renderer_manifest"] = manifest.audit_dict()
@@ -247,6 +282,8 @@ class GenerationAgent:
         )
         try:
             prompt_id = self.client.submit(workflow)
+            shot.media_generation["provider_task_id"] = prompt_id
+            shot.media_generation["generation_status"] = "RUNNING"
             result = self.client.wait_for_completion(prompt_id)
             source = self._resolve_video(result)
             destination_dir = self.settings.outputs_dir / project_id / "shots" / "source"
@@ -254,12 +291,19 @@ class GenerationAgent:
             destination = destination_dir / f"shot-{shot.number:02d}.mp4"
             shutil.copy2(source, destination)
         except (ComfyUIError, OSError) as error:
+            shot.media_generation["generation_status"] = "FAILED"
+            shot.media_generation["error"] = str(error)[:300]
             record_failure(shot, error, stage="generation")
             shot.status = "generation_failed"
             shot.qc_status = "FAILED"
             safe_message = error_info(error, stage="generation")["error_message"]
             raise ComfyUIError(f"Shot {shot.number} generation failed: {safe_message}") from error
         shot.output_placeholder = str(destination)
+        shot.media_generation.update({
+            "image_path": shot.media_generation.get("keyframe_path", ""),
+            "video_path": str(destination),
+            "generation_status": "COMPLETED",
+        })
         # The model output is the immutable source.  It must not be labelled a
         # Final Master until normalization/edit approval has produced one.
         # A regenerated source invalidates any normalized per-shot master;
@@ -295,7 +339,52 @@ class GenerationAgent:
         shot.source_duration = source_record.get("source_duration")
         shot.stale = False
         shot.status = "generated_comfyui"
+        shot.media_generation["generation_status"] = shot.status
         return f"Generation Agent: Shot {shot.number} completed (ComfyUI task {prompt_id})."
+
+    def _prepare_workflow_references(self, template_path: Path, shot: Shot) -> list[str]:
+        """Upload only manifest-declared I2V inputs to the active ComfyUI."""
+
+        try:
+            raw = json.loads(template_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return []
+        manifest = raw.get("_movie_agent") if isinstance(raw, dict) else None
+        bindings = manifest.get("reference_inputs") if isinstance(manifest, dict) else None
+        if not bindings:
+            return []
+        keyframe = Path(str((shot.media_generation or {}).get("keyframe_path") or ""))
+        if not keyframe.is_file():
+            raise ComfyUIError(
+                f"Shot {shot.number} uses a reference workflow but has no persisted keyframe_path; complete Phase B first."
+            )
+        uploader = getattr(self.client, "upload_image", None)
+        if not callable(uploader):
+            raise ComfyUIError("The configured ComfyUI client cannot upload I2V reference images.")
+        return [str(uploader(keyframe))]
+
+    @staticmethod
+    def _reference_digests(reference_inputs: dict[str, list[Path]]) -> dict[str, str]:
+        """Fingerprint every selected reference so a changed image is a new render input."""
+
+        digests: dict[str, str] = {}
+        for role, paths in reference_inputs.items():
+            if role == "reference_flags":
+                continue
+            for index, path in enumerate(paths):
+                candidate = Path(path)
+                if not candidate.is_file():
+                    continue
+                digests[f"{role}:{index}"] = GenerationAgent._file_digest(candidate)
+        return digests
+
+    @staticmethod
+    def _file_digest(path: Path) -> str:
+        digest = hashlib.sha256()
+        with Path(path).open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
 
     def _resolve_video(self, result: dict[str, Any]) -> Path:
         outputs = result.get("outputs")

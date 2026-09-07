@@ -22,6 +22,7 @@ REFERENCE_KINDS = {
     "prop",
     "cinematography",
     "review_keyframe",
+    "shot_keyframe",
     "approved_keyframe",
     "previous_approved_shot_ending_frame",
 }

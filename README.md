@@ -88,6 +88,19 @@ MODELSCOPE_VISION_MODEL=你的视觉模型标识
 VISION_KEYFRAMES_PER_SHOT=3
 ```
 
+### V0.3 媒体 provider 开关
+
+V0.3 的图片任务默认关闭，避免 Studio 启动或 mock 制作意外消耗外部配额：
+
+```text
+IMAGE_GENERATION_MODE=mock
+MODELSCOPE_IMAGE_MODEL=<仅在确认模型/API-Inference 权限后填写>
+MEDIA_POLL_SECONDS=5
+MEDIA_MAX_POLLS=120
+```
+
+启用真实图片任务时，将 `IMAGE_GENERATION_MODE` 改为 `modelscope`，并只为角色、场景或单个镜头调用 Reference Image / Keyframe provider。任务遵循 `submit → task_id → poll → download`，生成结果先进入 Persistent Reference Bank 的 pending review 状态，不会自动成为 approved reference。`VIDEO_GENERATION_MODE=mock` 仍然独立有效。
+
 启用后，质检会比较角色、场景与视觉规范，将结论写入同目录的 `review.json`；角色/场景分数低于 70、模型判定失败或发现高版权风险时，该镜头会触发已有的重试机制。未配置视觉模型时，系统不会伪称已完成视觉理解，只会保存关键帧并标注为待人工复核。
 
 ## 当前能力
@@ -142,6 +155,7 @@ Windows 上启动后访问 `http://127.0.0.1:9071`。其他系统请按其终端
 | ModelScope 文本创作 | `MODEL_PROVIDER=modelscope`、`MODELSCOPE_API_KEY`、`MODELSCOPE_MODEL` |
 | Spark 真实生成 | `VIDEO_GENERATION_MODE=comfyui`、`COMFY_BASE_URL`、已验证的 H3 工作流 |
 | 视觉质检 | `MODELSCOPE_VISION_MODEL`、`VISION_KEYFRAMES_PER_SHOT` |
+| V0.3 图片参考/关键帧 | `IMAGE_GENERATION_MODE=modelscope`、`MODELSCOPE_IMAGE_MODEL`、`MEDIA_POLL_SECONDS`、`MEDIA_MAX_POLLS` |
 
 令牌只能放在 `.env` 或平台密文中，不能提交到 Git。默认服务端口是 `9071`，默认 ComfyUI 地址是 `http://127.0.0.1:8188`。
 

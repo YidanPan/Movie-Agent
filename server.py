@@ -36,6 +36,7 @@ from movie_agent.pipeline.diagnostics import delivery_preflight, diagnostics_sna
 from movie_agent.services.readiness import PRODUCTION_ACTION_CONTRACT, PRODUCTION_ACTIONS, ProductionBlockedError, ensure_action_ready, production_readiness
 from movie_agent.pipeline.jobs import JobAlreadyRunning, JobLedger
 from movie_agent.services.cache_cleanup import clean_working_cache, storage_summary
+from movie_agent.services.reference_generation import ReferenceImageRequest, generate_reference_image
 from movie_agent.services.state_ledger import validate_state_delta_shape
 from movie_agent.services.change_impact import SHOT_EDITABLE_FIELDS
 
@@ -208,6 +209,26 @@ class UpdateShotPayload(BaseModel):
         if not cleaned:
             raise ValueError("Cannot save empty text.")
         return cleaned
+
+
+class GenerateReferencePayload(BaseModel):
+    """Async Phase A/B image request; media is never approved by generation."""
+
+    kind: Literal["character", "scene", "shot_keyframe"]
+    name: str = Field(min_length=1, max_length=120)
+    prompt: str = Field(min_length=10, max_length=12_000)
+    negative_prompt: str = Field(default="", max_length=4_000)
+    character_id: str = Field(default="", max_length=120)
+    character_ids: list[str] = Field(default_factory=list, max_length=12)
+    scene_id: str = Field(default="", max_length=120)
+    shot_number: int | None = Field(default=None, ge=1, le=999)
+    revision: int = Field(default=1, ge=1, le=999)
+    seed: int | None = Field(default=None, ge=1)
+
+    @field_validator("name", "prompt", "negative_prompt", "character_id", "scene_id")
+    @classmethod
+    def strip_reference_text(cls, value: str) -> str:
+        return value.strip()
 
 
 UPDATE_SHOT_FIELDS = frozenset(UpdateShotPayload.model_fields)
@@ -1055,6 +1076,116 @@ async def render_project_stream(project_id: str, request: Request) -> StreamingR
             emit({"type": "done", "project": serialized_project(project)})
 
     return run_with_sse(request, work, project_id=project_id, stage="generation", job_kind="generation")
+
+
+@app.post("/api/projects/{project_id}/references/generate", status_code=202)
+async def generate_reference(project_id: str, request: Request):
+    """Submit one Phase A/B image task without blocking the browser request."""
+
+    try:
+        payload = GenerateReferencePayload.model_validate(await request.json())
+    except (ValidationError, ValueError) as error:
+        if isinstance(error, ValidationError):
+            return invalid_payload(error)
+        return JSONResponse({"error": "Request must be valid JSON."}, status_code=400)
+    if str(settings.image_generation_mode or "mock").lower() != "modelscope":
+        return JSONResponse(
+            {"error": "Image generation is disabled. Set IMAGE_GENERATION_MODE=modelscope after provider access is confirmed."},
+            status_code=400,
+        )
+    if payload.kind == "shot_keyframe" and payload.shot_number is None:
+        return JSONResponse({"error": "shot_keyframe requires shot_number."}, status_code=400)
+    try:
+        project = orchestrator.store.load(project_id)
+    except FileNotFoundError:
+        return project_not_found(project_id)
+    except ValueError as error:
+        return invalid_project_id(error)
+    if payload.shot_number is not None and not 1 <= payload.shot_number <= len(project.storyboard):
+        return JSONResponse(
+            {"error": f"Shot number must be between 1 and {len(project.storyboard)}."},
+            status_code=400,
+        )
+
+    idempotency_key = f"{project_id}:reference:{payload.kind}:{payload.name}:{project.updated_at}"
+    try:
+        started = job_ledger.start(
+            project_id,
+            kind="reference_generation",
+            stage="references",
+            shot_number=payload.shot_number,
+            idempotency_key=idempotency_key,
+            project_revision=project.updated_at,
+        )
+    except JobAlreadyRunning as error:
+        return JSONResponse({"error": str(error), "error_code": "JOB_ALREADY_RUNNING", "job": error.snapshot}, status_code=409)
+    if started.get("idempotent_replay"):
+        return JSONResponse({"job": started}, status_code=200)
+
+    def work() -> None:
+        try:
+            with project_lock(project_id):
+                def on_progress(result: Any) -> None:
+                    job_ledger.heartbeat(project_id, started["job_id"])
+                    job_ledger.append(
+                        project_id,
+                        started["job_id"],
+                        {
+                            "type": "media_progress",
+                            "stage": "references",
+                            "status": str(getattr(result, "status", "RUNNING")),
+                            "description": f"{payload.kind} reference task is {getattr(result, 'status', 'running').lower()}",
+                        },
+                    )
+
+                asset = generate_reference_image(
+                    settings,
+                    project_id,
+                    ReferenceImageRequest(
+                        kind=payload.kind,
+                        name=payload.name,
+                        prompt=payload.prompt,
+                        negative_prompt=payload.negative_prompt,
+                        character_id=payload.character_id,
+                        character_ids=tuple(payload.character_ids),
+                        scene_id=payload.scene_id,
+                        shot_number=payload.shot_number,
+                        revision=payload.revision,
+                        seed=payload.seed,
+                    ),
+                    on_progress=on_progress,
+                )
+                project = orchestrator.store.load(project_id)
+                if payload.kind == "shot_keyframe" and payload.shot_number is not None:
+                    shot = project.storyboard[payload.shot_number - 1]
+                    shot.media_generation = {
+                        **(shot.media_generation or {}),
+                        "shot_id": f"shot-{shot.number:02d}",
+                        "keyframe_path": asset.path,
+                        "image_path": asset.path,
+                        "generation_status": "KEYFRAME_READY_PENDING_REVIEW",
+                        "provider_task_id": asset.metadata.get("provider_task_id", ""),
+                    }
+                project.logs.append(
+                    f"Reference Bank: {payload.kind} '{payload.name}' generated and stored as pending visual review."
+                )
+                orchestrator.store.save(project)
+                job_ledger.append(
+                    project_id,
+                    started["job_id"],
+                    {"type": "reference_complete", "stage": "references", "status": "PENDING_REVIEW", "description": f"{payload.kind} reference persisted"},
+                )
+            job_ledger.finish(project_id, started["job_id"], status="succeeded")
+        except Exception as error:  # noqa: BLE001 - persisted job reports the safe failure
+            job_ledger.finish(
+                project_id,
+                started["job_id"],
+                status="failed",
+                error=error_info(error, stage="references"),
+            )
+
+    threading.Thread(target=work, name=f"reference-{project_id}", daemon=True).start()
+    return JSONResponse({"job": started}, status_code=202)
 
 
 @app.post("/api/projects/{project_id}/shots/{shot_number}/regenerate")

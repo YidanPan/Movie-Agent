@@ -42,6 +42,10 @@ class Settings:
     modelscope_max_tokens: int = 8192
     modelscope_vision_model: str | None = None
     vision_keyframes_per_shot: int = 3
+    image_generation_mode: str = "mock"
+    modelscope_image_model: str | None = None
+    media_poll_seconds: float = 5.0
+    media_max_polls: int = 120
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -75,4 +79,8 @@ class Settings:
             modelscope_max_tokens=max(1024, int(os.getenv("MODELSCOPE_MAX_TOKENS", "8192"))),
             modelscope_vision_model=os.getenv("MODELSCOPE_VISION_MODEL") or None,
             vision_keyframes_per_shot=min(5, max(1, int(os.getenv("VISION_KEYFRAMES_PER_SHOT", "3")))),
+            image_generation_mode=os.getenv("IMAGE_GENERATION_MODE", "mock").lower(),
+            modelscope_image_model=os.getenv("MODELSCOPE_IMAGE_MODEL") or None,
+            media_poll_seconds=max(0.5, float(os.getenv("MEDIA_POLL_SECONDS", "5"))),
+            media_max_polls=max(1, int(os.getenv("MEDIA_MAX_POLLS", "120"))),
         )
