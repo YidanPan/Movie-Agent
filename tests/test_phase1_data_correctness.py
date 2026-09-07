@@ -78,6 +78,15 @@ class PhaseOneDataCorrectnessTests(unittest.TestCase):
         )
         self.assertEqual(set(result), {"alex", "home"})
 
+    def test_state_delta_resolves_plural_active_placeholders(self) -> None:
+        result = _normalise_state_delta(
+            {"character_ids": {"emotion": "alert"}, "prop_ids": {"status": "open"}},
+            {"characters": {"alex": {}}, "props": {"memory_vault": {}}},
+            character_ids=["alex"],
+            prop_ids=["memory_vault"],
+        )
+        self.assertEqual(set(result), {"alex", "memory_vault"})
+
     def test_known_story_world_names_are_canonicalized_but_unknown_names_survive(self) -> None:
         result = canonicalize_story_world_references(
             [{"character_ids": ["Alex", "invented"], "scene_id": "home"}],

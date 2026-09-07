@@ -131,8 +131,13 @@ def _normalise_state_delta(
     delta = raw if isinstance(raw, dict) else {}
     active_ids = {
         "character": (character_ids or [""])[0] if len(character_ids or []) == 1 else "",
+        "character_id": (character_ids or [""])[0] if len(character_ids or []) == 1 else "",
+        "character_ids": (character_ids or [""])[0] if len(character_ids or []) == 1 else "",
         "scene": scene_id if scene_id else "",
+        "scene_id": scene_id if scene_id else "",
         "prop": (prop_ids or [""])[0] if len(prop_ids or []) == 1 else "",
+        "prop_id": (prop_ids or [""])[0] if len(prop_ids or []) == 1 else "",
+        "prop_ids": (prop_ids or [""])[0] if len(prop_ids or []) == 1 else "",
     }
     normalized: dict[str, Any] = {}
     for entity, changes in delta.items():
