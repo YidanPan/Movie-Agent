@@ -121,7 +121,68 @@ def _project_metrics(project: dict[str, Any], expected: dict[str, Any]) -> dict[
     }
 
 
-def evaluate_projects(projects_dir: Path, output_dir: Path, golden_dir: Path | None = None) -> dict[str, Any]:
+def _numeric(value: Any) -> float | None:
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
+def _scorecard(metrics: dict[str, Any]) -> dict[str, Any]:
+    """Return an explainable score, never treating unavailable media as zero."""
+
+    plan_checks = {
+        "Narrative Continuity": (metrics.get("Narrative Continuity"), "higher_is_better"),
+        "Storyboard Health": (metrics.get("Storyboard Health"), "higher_is_better"),
+        "Duration Error": (metrics.get("Duration Error"), "lower_is_better"),
+        "Transition Conflict Count": (metrics.get("Transition Conflict Count"), "lower_is_better"),
+        "Missing Visual Locks": (0 if not metrics.get("Missing Visual Locks") else len(metrics["Missing Visual Locks"]), "lower_is_better"),
+    }
+    scores: list[float] = []
+    for name, (raw, direction) in plan_checks.items():
+        value = _numeric(raw)
+        if value is None:
+            continue
+        if name == "Storyboard Health":
+            score = max(0.0, min(1.0, value / 100 if value > 1 else value))
+        elif name == "Duration Error":
+            score = max(0.0, 1.0 - value / 5.0)
+        elif direction == "lower_is_better":
+            score = 1.0 if value == 0 else max(0.0, 1.0 - value / 5.0)
+        else:
+            score = max(0.0, min(1.0, value))
+        scores.append(score)
+    return {
+        "plan_score": round(sum(scores) / len(scores), 3) if scores else None,
+        "plan_score_inputs": len(scores),
+        "media_score": None,
+        "media_score_status": "AWAITING_RENDER" if metrics.get("Availability") != "RENDERED" else "MEASURED",
+    }
+
+
+def _compare_baseline(report: dict[str, Any], baseline_path: Path | None) -> dict[str, Any] | None:
+    if not baseline_path or not baseline_path.is_file():
+        return None
+    baseline = _load_json(baseline_path)
+    previous = {
+        str(item.get("project_id")): (item.get("scorecard") or {}).get("plan_score")
+        for item in baseline.get("projects", [])
+        if isinstance(item, dict)
+    }
+    regressions = []
+    for item in report.get("projects", []):
+        current = (item.get("scorecard") or {}).get("plan_score")
+        old = previous.get(str(item.get("project_id")))
+        if isinstance(current, (int, float)) and isinstance(old, (int, float)) and current < old - 0.02:
+            regressions.append({"project_id": item.get("project_id"), "previous": old, "current": current})
+    return {"baseline": str(baseline_path), "regressions": regressions, "passed": not regressions}
+
+
+def evaluate_projects(
+    projects_dir: Path,
+    output_dir: Path,
+    golden_dir: Path | None = None,
+    *,
+    baseline_path: Path | None = None,
+    require_plan_evidence: bool = False,
+) -> dict[str, Any]:
     golden_root = golden_dir or Path(__file__).parent
     entries = []
     for golden_path in sorted(golden_root.glob("golden_project_*.json")):
@@ -137,13 +198,52 @@ def evaluate_projects(projects_dir: Path, output_dir: Path, golden_dir: Path | N
                 "metrics": _project_metrics(project, golden.get("expected") or {}),
             }
         )
-    report = {"suite": "golden-film-evaluation", "version": 2, "projects": entries}
+    for entry in entries:
+        metrics = entry["metrics"]
+        entry["metric_layers"] = {
+            "plan": {
+                key: metrics[key]
+                for key in (
+                    "Narrative Continuity", "Beat Coverage", "Storyboard Health",
+                    "Repair Count", "Low Relevance Count", "Redundant Count",
+                    "Transition Conflict Count", "Speech Density", "Silent Shot Ratio",
+                    "Unknown Entity References", "Missing Visual Locks", "Missing References",
+                    "Duration Error", "Retry Count", "Alignment Method",
+                )
+            },
+            "media": {
+                key: metrics[key]
+                for key in (
+                    "Character Identity Avg", "Character Identity Min", "Costume Avg",
+                    "Face Hair Avg", "Scene Geometry Avg", "Prop Avg", "Palette",
+                    "Lighting", "Camera Language", "Film Texture", "Subtitle Alignment Error",
+                    "Native Resolution", "Final Resolution", "LUFS", "True Peak",
+                    "Generation Time", "API Calls", "Estimated Cost", "Availability",
+                )
+            },
+        }
+        entry["scorecard"] = _scorecard(metrics)
+    report = {
+        "suite": "golden-film-evaluation",
+        "version": 3,
+        "evaluation_mode": "plan_plus_media_when_available",
+        "projects": entries,
+    }
+    baseline = _compare_baseline(report, baseline_path)
+    if baseline is not None:
+        report["baseline_comparison"] = baseline
+    if require_plan_evidence:
+        missing = [entry["project_id"] for entry in entries if entry["project_file"] is None or entry["scorecard"]["plan_score"] is None]
+        if missing:
+            raise RuntimeError(f"Golden plan evidence missing for: {', '.join(missing)}")
+        if baseline is not None and not baseline["passed"]:
+            raise RuntimeError(f"Golden plan regression detected: {baseline['regressions']}")
     output_dir.mkdir(parents=True, exist_ok=True)
     json_path = output_dir / "eval-report.json"
     json_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     lines = ["# Golden Film Evaluation", "", f"Projects: {len(entries)}", ""]
     for entry in entries:
-        lines.extend([f"## {entry['title']} ({entry['project_id']})", "", "| Metric | Value |", "|---|---:|"])
+        lines.extend([f"## {entry['title']} ({entry['project_id']})", "", f"Plan score: {entry['scorecard']['plan_score'] if entry['scorecard']['plan_score'] is not None else 'NOT AVAILABLE'}", "", "| Metric | Value |", "|---|---:|"])
         for key, value in entry["metrics"].items():
             lines.append(f"| {key} | {value if value is not None else 'NOT AVAILABLE'} |")
         lines.append("")
@@ -155,8 +255,15 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Evaluate the three fixed golden film projects.")
     parser.add_argument("--projects-dir", type=Path, default=Path("projects"))
     parser.add_argument("--outputs-dir", type=Path, default=Path("evals"))
+    parser.add_argument("--baseline", type=Path, default=None)
+    parser.add_argument("--require-plan-evidence", action="store_true")
     args = parser.parse_args()
-    evaluate_projects(args.projects_dir, args.outputs_dir)
+    evaluate_projects(
+        args.projects_dir,
+        args.outputs_dir,
+        baseline_path=args.baseline,
+        require_plan_evidence=args.require_plan_evidence,
+    )
 
 
 if __name__ == "__main__":

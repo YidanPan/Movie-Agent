@@ -20,6 +20,15 @@ from movie_agent.services.readiness import (
     production_blockers,
     production_readiness,
 )
+from movie_agent.services.production_contract import (
+    ACTION_SPECS,
+    ActionSpec,
+    ProductionAction,
+    ProductionState,
+    TransitionResult,
+    action_spec,
+    transition_for,
+)
 
 __all__ = [
     "edit_output_exists",
@@ -41,4 +50,11 @@ __all__ = [
     "action_readiness",
     "production_blockers",
     "production_readiness",
+    "ActionSpec",
+    "ACTION_SPECS",
+    "ProductionAction",
+    "ProductionState",
+    "TransitionResult",
+    "action_spec",
+    "transition_for",
 ]

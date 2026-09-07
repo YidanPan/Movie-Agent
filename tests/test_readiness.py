@@ -219,7 +219,7 @@ def test_serialized_project_computes_readiness_once(monkeypatch):
         payload = server.serialized_project(project)
         assert calls["count"] == 1
         assert payload["readiness"] == payload["diagnostics"]["readiness"]
-        assert payload["production_action_contract"]["schema_version"] == 2
+        assert payload["production_action_contract"]["schema_version"] == 3
         assert payload["production_action_contract"]["actions"]["RENDER_SHOT"]["scope"] == "shot"
         assert payload["production_action_contract"]["actions"]["RENDER_SHOT"]["mutates_project"] is True
 
@@ -308,7 +308,7 @@ def test_production_blocked_error_is_recoverable_when_resolution_exists():
 def test_backend_action_contract_has_schema_version():
     from movie_agent.services.readiness import ACTION_CONTRACT_SCHEMA_VERSION, PRODUCTION_ACTION_CONTRACT
 
-    assert PRODUCTION_ACTION_CONTRACT["schema_version"] == ACTION_CONTRACT_SCHEMA_VERSION == 2
+    assert PRODUCTION_ACTION_CONTRACT["schema_version"] == ACTION_CONTRACT_SCHEMA_VERSION == 3
     assert PRODUCTION_ACTION_CONTRACT["actions"]["RENDER_SHOT"]["scope"] == "shot"
     assert PRODUCTION_ACTION_CONTRACT["actions"]["REPLAN_AUDIO_TRACK"]["scope"] == "track"
     assert PRODUCTION_ACTION_CONTRACT["actions"]["RENDER_AUDIO_TRACK"]["mutates_project"] is True

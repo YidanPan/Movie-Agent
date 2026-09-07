@@ -14,6 +14,14 @@ from typing import Any
 from movie_agent.agents.visual_bible import validate_visual_bible_bindings
 from movie_agent.services.audio import TRACK_ORDER
 from movie_agent.services.media_quality import best_master_path
+from movie_agent.services.production_contract import (
+    ACTION_CONTRACT_SCHEMA_VERSION,
+    PRODUCTION_ACTIONS,
+    PRODUCTION_ACTION_CONTRACT,
+    canonical_action,
+    LEGACY_ACTION_ALIASES,
+    transition_for,
+)
 from movie_agent.services.story_world import validate_story_world_references
 from movie_agent.state import describe_status
 
@@ -27,43 +35,6 @@ ACTION_ORDER = (
     "GENERATE_FINAL_MASTER",
     "EXPORT",
 )
-ACTION_CONTRACT_SCHEMA_VERSION = 2
-LEGACY_ACTION_ALIASES = {
-    "REGENERATE_SHOT": "RENDER_SHOT",
-    "REGENERATE_AUDIO_TRACK": "REPLAN_AUDIO_TRACK",
-    "REPLAN_STORYBOARD": "REVIEW_STORYBOARD",
-    "REPLAN_STORY_WORLD": "REVIEW_STORY_WORLD",
-}
-PRODUCTION_ACTIONS = {
-    "START_RENDER": {"scope": "project", "kind": "execute", "label": "START RENDER", "requires_confirmation": False, "mutates_project": True},
-    "RENDER_SHOT": {"scope": "shot", "kind": "execute", "label": "RENDER SHOT", "requires_confirmation": False, "mutates_project": True},
-    "REPLAN_SHOT": {"scope": "shot", "kind": "plan", "label": "REPLAN SHOT", "requires_confirmation": False, "mutates_project": True},
-    "START_AI_EDIT": {"scope": "project", "kind": "execute", "label": "START AI EDIT", "requires_confirmation": False, "mutates_project": True},
-    "APPROVE_FINAL_CUT": {"scope": "project", "kind": "review", "label": "APPROVE FINAL CUT", "requires_confirmation": True, "mutates_project": True, "confirmation_mode": "inline"},
-    "GENERATE_FINAL_MASTER": {"scope": "project", "kind": "execute", "label": "GENERATE FINAL MASTER", "requires_confirmation": False, "mutates_project": True},
-    "EXPORT": {"scope": "project", "kind": "execute", "label": "EXPORT", "requires_confirmation": True, "mutates_project": False, "confirmation_mode": "sheet"},
-    "APPROVE_PREVIS": {"scope": "project", "kind": "review", "label": "APPROVE PREVIS", "requires_confirmation": True, "mutates_project": True, "confirmation_mode": "inline"},
-    "REVIEW_STORYBOARD": {"scope": "project", "kind": "review", "label": "REVIEW STORYBOARD", "requires_confirmation": False, "mutates_project": False},
-    "REVIEW_STORY_WORLD": {"scope": "project", "kind": "review", "label": "REVIEW STORY WORLD", "requires_confirmation": False, "mutates_project": False},
-    "REVIEW_VISUAL_BIBLE": {"scope": "project", "kind": "review", "label": "OPEN VISUAL BIBLE", "requires_confirmation": False, "mutates_project": False},
-    "OPEN_REFERENCE_BANK": {"scope": "project", "kind": "review", "label": "OPEN REFERENCES", "requires_confirmation": False, "mutates_project": False},
-    "REVIEW_SHOT": {"scope": "shot", "kind": "review", "label": "REVIEW SHOT", "requires_confirmation": False, "mutates_project": False},
-    "APPROVE_SHOT": {"scope": "shot", "kind": "review", "label": "APPROVE SHOT", "requires_confirmation": False, "mutates_project": True},
-    "REVIEW_AUDIO_TIMELINE": {"scope": "project", "kind": "review", "label": "OPEN AUDIO", "requires_confirmation": False, "mutates_project": False},
-    "OPEN_SOUND": {"scope": "project", "kind": "review", "label": "OPEN SOUND", "requires_confirmation": False, "mutates_project": False},
-    "OPEN_RENDER_DIAGNOSTICS": {"scope": "project", "kind": "review", "label": "OPEN RENDER", "requires_confirmation": False, "mutates_project": False},
-    "REVIEW_RENDER_DIAGNOSTICS": {"scope": "project", "kind": "review", "label": "OPEN RENDER", "requires_confirmation": False, "mutates_project": False},
-    "LOCK_DIALOGUE": {"scope": "project", "kind": "plan", "label": "LOCK DIALOGUE", "requires_confirmation": False, "mutates_project": True},
-    "VERIFY_FINAL_MASTER": {"scope": "project", "kind": "review", "label": "VERIFY MASTER", "requires_confirmation": False, "mutates_project": False},
-    "REVIEW_DELIVERY_PREFLIGHT": {"scope": "project", "kind": "review", "label": "REVIEW DELIVERY", "requires_confirmation": False, "mutates_project": False},
-    "REPLAN_AUDIO_TRACK": {"scope": "track", "kind": "plan", "label": "REPLAN TRACK", "requires_confirmation": False, "mutates_project": True},
-    "RENDER_AUDIO_TRACK": {"scope": "track", "kind": "execute", "label": "RENDER TRACK", "requires_confirmation": False, "mutates_project": True},
-    "REVIEW_AUDIO_TRACK": {"scope": "track", "kind": "review", "label": "REVIEW TRACK", "requires_confirmation": False, "mutates_project": False},
-}
-PRODUCTION_ACTION_CONTRACT = {
-    "schema_version": ACTION_CONTRACT_SCHEMA_VERSION,
-    "actions": PRODUCTION_ACTIONS,
-}
 DOMAIN_PRIORITY = ("PLAN", "WORLD", "PREVIS", "RENDERER", "REFERENCE", "VISUAL", "AUDIO", "EDIT", "DELIVERY")
 
 
@@ -192,11 +163,6 @@ class ProductionActionContext:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "action", canonical_action(self.action))
-
-
-def canonical_action(action: str) -> str:
-    requested = str(action or "").upper()
-    return LEGACY_ACTION_ALIASES.get(requested, requested)
 
 
 def _setting(settings: Any, name: str, default: Any = None) -> Any:
@@ -507,12 +473,15 @@ def production_readiness(project: Any, settings: Any = None, runtime_state: dict
     state = describe_status(getattr(project, "status", "planning_live"))
     actions = {
         action: _action_readiness_from_blockers(blockers, action)
-        for action in ACTION_ORDER
+        for action, metadata in PRODUCTION_ACTIONS.items()
+        if metadata.get("scope") == "project"
     }
     shot_actions = {
         str(int(getattr(shot, "number", 0) or 0)): {
             "RENDER_SHOT": _action_readiness_from_blockers(blockers, "RENDER_SHOT", shot_number=int(getattr(shot, "number", 0) or 0)),
             "REPLAN_SHOT": _action_readiness_from_blockers(blockers, "REPLAN_SHOT", shot_number=int(getattr(shot, "number", 0) or 0)),
+            "REVIEW_SHOT": _action_readiness_from_blockers(blockers, "REVIEW_SHOT", shot_number=int(getattr(shot, "number", 0) or 0)),
+            "APPROVE_SHOT": _action_readiness_from_blockers(blockers, "APPROVE_SHOT", shot_number=int(getattr(shot, "number", 0) or 0)),
         }
         for shot in storyboard
         if int(getattr(shot, "number", 0) or 0)
@@ -572,9 +541,13 @@ def action_blockers(project: Any, settings: Any, action: str, *, shot_number: in
 
     action = canonical_action(action)
     shot_number = _validate_shot_number(project, shot_number) if shot_number is not None else None
+    blockers = production_blockers(project, settings, runtime_state)
+    state_blocker = _action_state_blocker(project, action)
+    if state_blocker:
+        blockers.append(state_blocker)
     return [
         item
-        for item in production_blockers(project, settings, runtime_state)
+        for item in blockers
         if _blocker_matches_context(item, action, shot_number, track_key, blocking=True)
     ]
 
@@ -609,6 +582,19 @@ def _blocker_matches_context(
     return bool(applies) and action in {canonical_action(value) for value in applies}
 
 
+def _action_state_blocker(project: Any, action: str) -> ProductionBlocker | None:
+    transition = transition_for(getattr(project, "status", "planning_live"), action)
+    if transition.allowed:
+        return None
+    return _blocker(
+        "ACTION_STATE_INVALID",
+        "PLAN",
+        f"{transition.action} is not allowed from {transition.current_state.upper()}.",
+        blocks_actions=(transition.action,),
+        metadata={"current_state": transition.current_state, "action": transition.action},
+    )
+
+
 def _validate_shot_number(project: Any, shot_number: int | None) -> int | None:
     if shot_number is None:
         return None
@@ -636,6 +622,9 @@ def _validate_track_key(action: str, track_key: str | None) -> str | None:
 
 def action_blockers_for_context(project: Any, settings: Any, context: ProductionActionContext, runtime_state: dict[str, Any] | None = None) -> list[ProductionBlocker]:
     blockers = production_blockers(project, settings, runtime_state)
+    state_blocker = _action_state_blocker(project, context.action)
+    if state_blocker:
+        blockers.append(state_blocker)
     return [item for item in blockers if _blocker_matches_context(item, context.action, context.shot_number, context.track_key, blocking=True)]
 
 
@@ -647,6 +636,9 @@ def action_readiness(project: Any, settings: Any, action: str, *, shot_number: i
     if scope == "shot" and shot_number is None:
         raise ValueError(f"Action {action} requires a shot target.")
     blockers = production_blockers(project, settings, runtime_state)
+    state_blocker = _action_state_blocker(project, action)
+    if state_blocker:
+        blockers.append(state_blocker)
     return _action_readiness_from_blockers(blockers, action, shot_number=shot_number, track_key=track_key)
 
 

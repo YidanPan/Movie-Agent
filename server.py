@@ -11,6 +11,7 @@ complete three-act experience.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import mimetypes
 import os
@@ -372,6 +373,34 @@ def clean_project_working_cache(project_id: str) -> dict[str, Any]:
     return result
 
 
+def _job_fence(
+    request: Request | None,
+    project_id: str,
+    *,
+    kind: str,
+    shot_number: int | None = None,
+    track_key: str | None = None,
+) -> dict[str, str | None]:
+    """Build a redacted optimistic fence for a user-submitted operation."""
+
+    idempotency_key = request.headers.get("idempotency-key") if request is not None else None
+    try:
+        project = orchestrator.store.load(project_id)
+        revision = str(getattr(project, "updated_at", "") or "")
+    except (FileNotFoundError, ValueError, RuntimeError):
+        revision = ""
+    fingerprint = json.dumps(
+        {"project_revision": revision, "kind": kind, "shot_number": shot_number, "track_key": track_key},
+        ensure_ascii=False,
+        sort_keys=True,
+    ).encode("utf-8")
+    return {
+        "idempotency_key": idempotency_key,
+        "project_revision": revision,
+        "expected_input_hash": hashlib.sha256(fingerprint).hexdigest(),
+    }
+
+
 def run_with_sse(
     request: Request,
     work: Callable[[Callable[[dict], None]], None],
@@ -390,6 +419,7 @@ def run_with_sse(
     """
     job_id: str | None = None
     resolved_project_id = project_id
+    fence = _job_fence(request, project_id, kind=job_kind or stage, shot_number=shot_number, track_key=track_key) if project_id else {}
     if project_id:
         try:
             started = job_ledger.start(
@@ -398,6 +428,10 @@ def run_with_sse(
                 stage=stage,
                 shot_number=shot_number,
                 track_key=track_key,
+                operation_id=None,
+                idempotency_key=fence.get("idempotency_key"),
+                project_revision=fence.get("project_revision"),
+                expected_input_hash=fence.get("expected_input_hash"),
             )
         except JobAlreadyRunning as conflict:
             return JSONResponse(
@@ -409,6 +443,8 @@ def run_with_sse(
                 },
                 status_code=409,
             )
+        if started.get("idempotent_replay"):
+            return JSONResponse({"job": started, "idempotent_replay": True}, status_code=200)
         job_id = started["job_id"]
 
     queue: asyncio.Queue = asyncio.Queue()
@@ -433,8 +469,14 @@ def run_with_sse(
                     stage=stage,
                     shot_number=shot_number,
                     track_key=track_key,
+                    idempotency_key=fence.get("idempotency_key"),
+                    project_revision=fence.get("project_revision"),
+                    expected_input_hash=fence.get("expected_input_hash"),
                 )
-                job_id = started["job_id"]
+                if started.get("idempotent_replay"):
+                    event_payload = {"type": "job_replay", "job": started}
+                else:
+                    job_id = started["job_id"]
             except JobAlreadyRunning as conflict:
                 # A create stream can only reach this branch if a client
                 # submitted the same newly-created project twice.  Surface the
@@ -804,7 +846,7 @@ async def update_final_look(project_id: str, request: Request):
     return serialized_project(project)
 
 
-def _run_audio_track_action(project_id: str, track_key: str, action: str):
+def _run_audio_track_action(project_id: str, track_key: str, action: str, request: Request | None = None):
     started_job = None
     try:
         with project_lock(project_id):
@@ -816,7 +858,18 @@ def _run_audio_track_action(project_id: str, track_key: str, action: str):
                 track_key=track_key,
                 runtime_state=job_ledger.runtime_state(project_id),
             )
-            started_job = job_ledger.start(project_id, kind="audio_track", stage="audio", track_key=track_key)
+            fence = _job_fence(request, project_id, kind="audio_track", track_key=track_key)
+            started_job = job_ledger.start(
+                project_id,
+                kind="audio_track",
+                stage="audio",
+                track_key=track_key,
+                idempotency_key=fence["idempotency_key"],
+                project_revision=fence["project_revision"],
+                expected_input_hash=fence["expected_input_hash"],
+            )
+            if started_job.get("idempotent_replay"):
+                return JSONResponse({"job": started_job, "idempotent_replay": True}, status_code=200)
             if action == "REPLAN_AUDIO_TRACK":
                 project = orchestrator.replan_audio_track(project_id, track_key)
             else:
@@ -840,20 +893,20 @@ def _run_audio_track_action(project_id: str, track_key: str, action: str):
 
 
 @app.post("/api/projects/{project_id}/audio/tracks/{track_key}/replan")
-def replan_audio_track(project_id: str, track_key: str):
-    return _run_audio_track_action(project_id, track_key, "REPLAN_AUDIO_TRACK")
+def replan_audio_track(project_id: str, track_key: str, request: Request):
+    return _run_audio_track_action(project_id, track_key, "REPLAN_AUDIO_TRACK", request)
 
 
 @app.post("/api/projects/{project_id}/audio/tracks/{track_key}/render")
-def render_audio_track(project_id: str, track_key: str):
-    return _run_audio_track_action(project_id, track_key, "RENDER_AUDIO_TRACK")
+def render_audio_track(project_id: str, track_key: str, request: Request):
+    return _run_audio_track_action(project_id, track_key, "RENDER_AUDIO_TRACK", request)
 
 
 @app.post("/api/projects/{project_id}/audio/tracks/{track_key}/regenerate")
-def regenerate_audio_track(project_id: str, track_key: str):
+def regenerate_audio_track(project_id: str, track_key: str, request: Request):
     """Legacy route; its canonical operation is now REPLAN_AUDIO_TRACK."""
 
-    return _run_audio_track_action(project_id, track_key, "REPLAN_AUDIO_TRACK")
+    return _run_audio_track_action(project_id, track_key, "REPLAN_AUDIO_TRACK", request)
 
 
 @app.post("/api/projects/{project_id}/audio/tracks/voice/generate")
@@ -1038,7 +1091,7 @@ async def update_shot(project_id: str, shot_number: int, request: Request):
 
 
 @app.post("/api/projects/{project_id}/shots/{shot_number}/render")
-def render_single_shot(project_id: str, shot_number: int):
+def render_single_shot(project_id: str, shot_number: int, request: Request):
     if settings.video_generation_mode != "comfyui":
         return JSONResponse(
             {"error": "Currently in mock mode. Set VIDEO_GENERATION_MODE=comfyui in Spark's .env to enable shot generation."},
@@ -1055,7 +1108,18 @@ def render_single_shot(project_id: str, shot_number: int):
                 shot_number=shot_number,
                 runtime_state=job_ledger.runtime_state(project_id),
             )
-            started_job = job_ledger.start(project_id, kind="generation", stage="generation", shot_number=shot_number)
+            fence = _job_fence(request, project_id, kind="generation", shot_number=shot_number)
+            started_job = job_ledger.start(
+                project_id,
+                kind="generation",
+                stage="generation",
+                shot_number=shot_number,
+                idempotency_key=fence["idempotency_key"],
+                project_revision=fence["project_revision"],
+                expected_input_hash=fence["expected_input_hash"],
+            )
+            if started_job.get("idempotent_replay"):
+                return JSONResponse({"job": started_job, "idempotent_replay": True}, status_code=200)
             project = orchestrator.render_shot(project_id, shot_number)
             job_ledger.finish(project_id, started_job["job_id"], status="succeeded")
     except FileNotFoundError:
@@ -1078,7 +1142,7 @@ def render_single_shot(project_id: str, shot_number: int):
 
 
 @app.post("/api/projects/{project_id}/final-master/generate")
-def generate_final_master(project_id: str):
+def generate_final_master(project_id: str, request: Request):
     """Generate or recover a real Final Master from the approved edit."""
 
     started_job = None
@@ -1091,7 +1155,17 @@ def generate_final_master(project_id: str):
                 "GENERATE_FINAL_MASTER",
                 runtime_state=job_ledger.runtime_state(project_id),
             )
-            started_job = job_ledger.start(project_id, kind="final_master", stage="final_master")
+            fence = _job_fence(request, project_id, kind="final_master")
+            started_job = job_ledger.start(
+                project_id,
+                kind="final_master",
+                stage="final_master",
+                idempotency_key=fence["idempotency_key"],
+                project_revision=fence["project_revision"],
+                expected_input_hash=fence["expected_input_hash"],
+            )
+            if started_job.get("idempotent_replay"):
+                return JSONResponse({"job": started_job, "idempotent_replay": True}, status_code=200)
             project = orchestrator.generate_final_master(project_id)
             job_ledger.finish(project_id, started_job["job_id"], status="succeeded")
     except FileNotFoundError:
@@ -1366,6 +1440,7 @@ def screening_preview_video_head(project_id: str):
 async def export_video(project_id: str, request: Request):
     """Encode a user-selected delivery variant from the approved cut."""
 
+    started_job = None
     try:
         payload = ExportVideoPayload.model_validate(await request.json())
     except (ValidationError, ValueError) as error:
@@ -1419,14 +1494,33 @@ async def export_video(project_id: str, request: Request):
                     },
                     status_code=409,
                 )
+            fence = _job_fence(request, project_id, kind="export")
+            started_job = job_ledger.start(
+                project_id,
+                kind="export",
+                stage="export",
+                mutates_project=False,
+                idempotency_key=fence["idempotency_key"],
+                project_revision=fence["project_revision"],
+                expected_input_hash=fence["expected_input_hash"],
+            )
+            if started_job.get("idempotent_replay"):
+                return JSONResponse({"job": started_job, "idempotent_replay": True}, status_code=200)
             path = orchestrator.editor.export_variant(project, **payload.model_dump())
+            job_ledger.finish(project_id, started_job["job_id"], status="succeeded")
     except FileNotFoundError:
         return project_not_found(project_id)
+    except JobAlreadyRunning as error:
+        return JSONResponse({"error": str(error), "error_code": "JOB_ALREADY_RUNNING", "job": error.snapshot}, status_code=409)
     except ProductionBlockedError as error:
         return structured_error_response(error, status_code=409, stage="generation")
     except ValueError as error:
+        if started_job:
+            job_ledger.finish(project_id, started_job["job_id"], status="failed", error=error_info(error, stage="export"))
         return JSONResponse({"error": str(error)}, status_code=400)
     except RuntimeError as error:
+        if started_job:
+            job_ledger.finish(project_id, started_job["job_id"], status="failed", error=error_info(error, stage="export"))
         return structured_error_response(error, status_code=409, stage="export")
     media_types = {"mp4": "video/mp4", "mov": "video/quicktime", "webm": "video/webm"}
     return FileResponse(path, filename=path.name, media_type=media_types[payload.container])

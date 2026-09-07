@@ -69,7 +69,7 @@ GET /api/projects/<project_id>/delivery-preflight?resolution=1080p&aspect=16:9&s
 GET /api/projects/<project_id>/job?after=0&limit=40
 ```
 
-同一项目已有 `running` 任务时，重复提交会返回 `409 JOB_ALREADY_RUNNING` 以及当前任务摘要。服务重启后未正常收尾的任务会显示为 `orphaned`，页面将提示 `RESUME AVAILABLE`；重新提交时仍会经过项目锁和既有状态/QC检查。
+同一项目已有 `running` 任务时，重复提交会返回 `409 JOB_ALREADY_RUNNING` 以及当前任务摘要。每项任务还持久化 `operation_id`、幂等键、项目版本、输入指纹、心跳和 lease。服务重启或 lease 过期后，未正常收尾的任务会显示为 `recoverable_failed` / `RECOVERABLE_FAILED`，页面将提示 `RESUME AVAILABLE`；重新提交时仍会经过项目锁和既有状态/QC检查。部署必须保持 `--workers 1`，避免多个进程拥有互不知情的进程内执行锁。
 
 ## 5. Spark 视频模式
 

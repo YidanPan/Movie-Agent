@@ -64,6 +64,51 @@ def test_job_ledger_rejects_duplicate_active_submission_and_allows_retry_after_f
         assert second["job_id"] != first["job_id"]
 
 
+def test_job_ledger_idempotency_returns_same_operation_for_duplicate_key():
+    with TemporaryDirectory() as temporary_directory:
+        ledger = JobLedger(Path(temporary_directory) / "projects")
+        first = ledger.start(
+            "film-1234abcd",
+            kind="export",
+            stage="export",
+            mutates_project=False,
+            idempotency_key="export-001",
+            project_revision="rev-7",
+            expected_input_hash="hash-7",
+        )
+        replay = ledger.start(
+            "film-1234abcd",
+            kind="export",
+            stage="export",
+            mutates_project=False,
+            idempotency_key="export-001",
+            project_revision="rev-7",
+            expected_input_hash="hash-7",
+        )
+        assert replay["idempotent_replay"] is True
+        assert replay["job_id"] == first["job_id"]
+        assert replay["operation_id"] == first["operation_id"]
+        assert replay["project_revision"] == "rev-7"
+        assert replay["expected_input_hash"] == "hash-7"
+
+
+def test_job_ledger_lease_expiry_is_recoverable_and_not_active():
+    with TemporaryDirectory() as temporary_directory:
+        root = Path(temporary_directory) / "projects"
+        ledger = JobLedger(root)
+        job = ledger.start("film-1234abcd", kind="generation", stage="generation", lease_seconds=30)
+        path = root / "film-1234abcd" / "job.json"
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload["lease_expires_at"] = "2000-01-01T00:00:00Z"
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        restarted = JobLedger(root)
+        summary = restarted.summary("film-1234abcd")
+        assert summary["status"] == "recoverable_failed"
+        assert summary["recovery_state"] == "RECOVERABLE_FAILED"
+        assert restarted.runtime_state("film-1234abcd") == {"active_jobs": []}
+        assert job["lease_expires_at"] != summary["lease_expires_at"]
+
+
 def test_job_ledger_persists_target_scope_for_runtime_readiness():
     with TemporaryDirectory() as temporary_directory:
         ledger = JobLedger(Path(temporary_directory) / "projects")
@@ -82,7 +127,7 @@ def test_readiness_runtime_ignores_non_mutating_job():
         assert ledger.runtime_state("film-1234abcd") == {"active_jobs": []}
 
 
-def test_new_process_marks_a_stale_running_job_orphaned_and_keeps_resume_history():
+def test_new_process_marks_a_stale_running_job_recoverable_and_keeps_resume_history():
     with TemporaryDirectory() as temporary_directory:
         root = Path(temporary_directory)
         first = JobLedger(root / "projects")
@@ -91,7 +136,7 @@ def test_new_process_marks_a_stale_running_job_orphaned_and_keeps_resume_history
 
         restarted = JobLedger(root / "projects")
         snapshot = restarted.snapshot("film-1234abcd", after=0)
-        assert snapshot["job"]["status"] == "orphaned"
+        assert snapshot["job"]["status"] == "recoverable_failed"
         assert snapshot["job"]["recoverable"] is True
         assert snapshot["events"][0]["completed"] == 1
 

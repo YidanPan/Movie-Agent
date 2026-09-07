@@ -1360,6 +1360,7 @@ function productionActionHandlers() {
     START_AI_EDIT: () => startAiEdit(),
     APPROVE_FINAL_CUT: () => approveAiEdit(),
     GENERATE_FINAL_MASTER: () => generateFinalMaster(),
+    APPLY_FINAL_LOOK: () => MovieAgentModules.productionActions.scrollTo(els.finalLookPanel, REDUCED_MOTION),
     EXPORT: () => exportFinalCut(),
     VERIFY_FINAL_MASTER: () => verifyFinalMaster(),
     REVIEW_DELIVERY_PREFLIGHT: () => MovieAgentModules.productionActions.scrollTo(els.deliverPanel, REDUCED_MOTION),
