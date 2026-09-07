@@ -156,6 +156,8 @@ const els = {
   deliverFinal: $("#deliver-final"),
   finalNotGenerated: $("#final-not-generated"),
   finalPlayerState: $("#final-player-state"),
+  finalPlayerResolution: $("#final-player-resolution"),
+  finalPlayerShot: $("#final-player-shot"),
   deliverMetaDuration: $("#deliver-meta-duration"),
   deliverMetaResolution: $("#deliver-meta-resolution"),
   deliverMetaAspect: $("#deliver-meta-aspect"),
@@ -470,6 +472,7 @@ const state = {
   audioTimelineDuration: 0,
   diagnostics: null,
   exportPreflightRun: 0,
+  deliverInspectorTab: "picture",
   job: null,
   jobCursor: 0,
 };
@@ -484,6 +487,100 @@ let drawerContentRun = 0;
 let drawerHideTimer = null;
 let jobPollTimer = null;
 let jobPollRun = 0;
+let deliverScreeningLayoutReady = false;
+
+function initDeliverScreeningLayout() {
+  if (deliverScreeningLayoutReady || !els.deliverRoom || !els.deliverFinal) return;
+  const workspace = els.deliverFinal.querySelector(".final-cut-workspace");
+  const screening = workspace?.querySelector(".final-cut-screening");
+  const actions = document.querySelector("#deliver-actions");
+  if (!workspace || !screening || !actions) return;
+
+  const layout = document.createElement("div");
+  layout.className = "deliver-screening-layout";
+  const stage = document.createElement("main");
+  stage.className = "deliver-screening-stage";
+  stage.setAttribute("aria-label", "Final Film screening monitor");
+  const inspector = document.createElement("aside");
+  inspector.className = "deliver-inspector";
+  inspector.setAttribute("aria-label", "Final Cut inspector");
+  const tabNav = document.createElement("div");
+  tabNav.className = "deliver-inspector-tabs";
+  tabNav.setAttribute("role", "tablist");
+  tabNav.setAttribute("aria-label", "Final Cut inspector sections");
+  const panels = {};
+  MovieAgentModules.deliver.DELIVER_INSPECTOR_TABS.forEach(({ key, label, description }) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "deliver-inspector-tab";
+    button.dataset.deliverInspectorTab = key;
+    button.id = `deliver-tab-${key}`;
+    button.setAttribute("role", "tab");
+    button.setAttribute("aria-controls", `deliver-panel-${key}`);
+    button.title = description;
+    button.innerHTML = `<span class="deliver-inspector-tab-index mono">${String(MovieAgentModules.deliver.DELIVER_INSPECTOR_TABS.findIndex((item) => item.key === key) + 1).padStart(2, "0")}</span><b>${label}</b>`;
+    tabNav.appendChild(button);
+    const panel = document.createElement("section");
+    panel.className = "deliver-inspector-panel";
+    panel.dataset.deliverInspectorPanel = key;
+    panel.id = `deliver-panel-${key}`;
+    panel.setAttribute("role", "tabpanel");
+    panel.setAttribute("aria-labelledby", button.id);
+    panels[key] = panel;
+  });
+
+  const pictureActions = document.createElement("div");
+  pictureActions.className = "deliver-picture-actions";
+  pictureActions.append(els.btnAiEdit, els.btnApproveEdit, els.btnReedit, els.btnEditSubtitles, els.btnSoundSettings, els.btnMoreExport);
+  const moreMenu = els.moreExportMenu;
+  if (moreMenu) pictureActions.append(moreMenu);
+  const exportActions = document.createElement("div");
+  exportActions.className = "deliver-export-actions";
+  exportActions.innerHTML = '<span class="deliver-label mono">DELIVERY ACTION</span>';
+  exportActions.append(els.btnExportFinal);
+  const exportSpecs = document.createElement("div");
+  exportSpecs.className = "deliver-export-specs";
+  exportSpecs.innerHTML = `
+    <div><span class="deliver-label mono">MASTER</span><strong data-deliver-export-master>VERIFICATION REQUIRED</strong></div>
+    <div><span class="deliver-label mono">FORMAT</span><strong>H.264 / MP4</strong></div>
+    <div><span class="deliver-label mono">FRAME</span><strong data-deliver-export-frame>1080P · 16:9 · 24 FPS</strong></div>
+    <div><span class="deliver-label mono">SUBTITLES</span><strong data-deliver-export-subtitles>ENGLISH · BURNED IN</strong></div>`;
+
+  const roughStage = els.roughCutStage;
+  const audioConsole = els.audioDesignConsole;
+  stage.append(roughStage, screening);
+  panels.picture.append(els.deliverSummary, els.deliverWorkProgress, els.deliverShotTimeline.closest(".shot-timeline-section"), pictureActions, els.editStatus);
+  panels.sound.append(els.soundSummary, audioConsole);
+  panels.look.append(els.finalLookPanel);
+  panels.export.append(exportSpecs, els.techSummary, exportActions);
+  workspace.remove();
+  actions.remove();
+  layout.append(stage, inspector);
+  inspector.append(tabNav, ...Object.values(panels));
+  els.deliverFinal.innerHTML = "";
+  els.deliverFinal.append(layout);
+  deliverScreeningLayoutReady = true;
+  setDeliverInspectorTab(state.deliverInspectorTab);
+}
+
+function setDeliverInspectorTab(value) {
+  const tab = MovieAgentModules.deliver.deliverInspectorTab(value);
+  state.deliverInspectorTab = tab;
+  document.querySelectorAll("[data-deliver-inspector-tab]").forEach((button) => {
+    const selected = button.dataset.deliverInspectorTab === tab;
+    button.classList.toggle("is-active", selected);
+    button.setAttribute("aria-selected", String(selected));
+    button.tabIndex = selected ? 0 : -1;
+  });
+  document.querySelectorAll("[data-deliver-inspector-panel]").forEach((panel) => {
+    panel.hidden = panel.dataset.deliverInspectorPanel !== tab;
+  });
+  if (tab === "sound") {
+    els.soundSummaryBody?.classList.remove("hidden");
+    els.soundSummaryToggle?.setAttribute("aria-expanded", "true");
+  }
+  if (tab === "export") refreshExportPreflight();
+}
 
 /* ── 小工具 ────────────────────────────────────────────────── */
 
@@ -2986,6 +3083,7 @@ function updateFinalVideoMetadata() {
   if (els.deliverMetaDuration && Number.isFinite(video.duration)) els.deliverMetaDuration.textContent = compactDuration(video.duration);
   if (els.deliverMetaResolution && video.videoWidth && video.videoHeight) {
     els.deliverMetaResolution.textContent = `${video.videoWidth} × ${video.videoHeight}`;
+    if (els.finalPlayerResolution) els.finalPlayerResolution.textContent = `${video.videoWidth >= 1920 ? "1080P" : "SCREENING"} / 24FPS`;
     const ratio = video.videoWidth / video.videoHeight;
     if (els.deliverMetaAspect) els.deliverMetaAspect.textContent = Math.abs(ratio - 1) < 0.04 ? "1:1" : ratio < 0.8 ? "9:16" : "16:9";
   }
@@ -3083,6 +3181,7 @@ function syncShotTimelinePlayhead(currentTime) {
     }
   }
   if (!active) return;
+  if (els.finalPlayerShot) els.finalPlayerShot.textContent = `SHOT ${String(active.dataset.deliverShot || "01").padStart(2, "0")}`;
   const target = active.offsetLeft;
   const viewStart = box.scrollLeft;
   const viewEnd = viewStart + box.clientWidth;
@@ -3102,7 +3201,8 @@ async function renderScreening(project) {
   // prevents a previous project's player from flashing while a new HEAD check
   // is in flight.
   els.deliverSummary?.classList.remove("hidden");
-  els.screen?.classList.add("hidden");
+  els.screen?.classList.remove("hidden");
+  els.finalNotGenerated?.classList.remove("hidden");
   els.roughCutStage?.classList.add("hidden");
   els.finalVideo?.removeAttribute("src");
   els.finalVideo?.load();
@@ -3168,17 +3268,38 @@ async function renderScreening(project) {
   const roughPhase = ["editing", "rough"].includes(resolvedState.key);
   const progressPhase = ["editing", "rough", "ready"].includes(resolvedState.key);
   const showSummary = !state.hasFinalVideo && !roughPhase;
-  if (els.deliverSummary) els.deliverSummary.classList.toggle("hidden", !showSummary);
-  els.screen?.classList.toggle("hidden", !showFinal);
+  // The screening monitor is a fixed stage, even before media exists. Rough
+  // Cut simply takes over that same stage instead of replacing the page.
+  els.screen?.classList.toggle("hidden", roughPhase);
   els.roughCutStage?.classList.toggle("hidden", !roughPhase);
   els.deliverFinal?.classList.toggle("hidden", !project);
+  const exportMaster = document.querySelector("[data-deliver-export-master]");
+  const exportFrame = document.querySelector("[data-deliver-export-frame]");
+  const exportSubtitles = document.querySelector("[data-deliver-export-subtitles]");
+  const masterRecord = project?.video_quality?.final_master || project?.video_assets?.final_master || {};
+  const hasMaster = Boolean(masterRecord?.path || masterRecord?.url || masterRecord?.available || masterRecord?.status === "READY");
+  if (exportMaster) {
+    const verificationStatus = String(project?.delivery_verification?.status || "").toUpperCase();
+    exportMaster.textContent = verificationStatus === "VERIFIED"
+      ? "1080P MASTER · VERIFIED"
+      : hasMaster
+        ? "FINAL MASTER · VERIFICATION REQUIRED"
+        : "MASTER NOT GENERATED";
+  }
+  if (exportFrame) {
+    const resolution = masterRecord?.resolution_label || masterRecord?.quality || "1080P";
+    exportFrame.textContent = `${resolution} · 16:9 · 24 FPS`;
+  }
+  if (exportSubtitles) {
+    const mode = project?.subtitle_mode || project?.script?.subtitle_mode || "burned";
+    exportSubtitles.textContent = mode === "soft" ? "ENGLISH · SOFT" : mode === "none" ? "NONE" : "ENGLISH · BURNED IN";
+  }
   if (els.audioDesignConsole) els.audioDesignConsole.classList.toggle("hidden", !progressPhase);
   if (els.deliverAudioPanel) els.deliverAudioPanel.classList.toggle("hidden", !showFinal);
   if (els.subtitleModeControl) els.subtitleModeControl.classList.toggle("hidden", !progressPhase);
-  if (els.deliverFinal) els.deliverFinal.classList.toggle("hidden", !showFinal);
-  if (els.finalNotGenerated) els.finalNotGenerated.classList.add("hidden");
+  if (els.finalNotGenerated) els.finalNotGenerated.classList.toggle("hidden", showFinal || roughPhase);
   if (els.screen) els.screen.classList.toggle("has-video", state.hasFinalVideo);
-  if (els.finalPlayerState) els.finalPlayerState.textContent = state.hasFinalVideo ? "READY TO SCREEN" : "MEDIA MISSING";
+  if (els.finalPlayerState) els.finalPlayerState.textContent = state.hasFinalVideo ? "READY TO SCREEN" : roughPhase ? "ASSEMBLING FINAL CUT" : "FINAL CUT NOT GENERATED";
   renderTechSummary(project);
   renderSoundSummary(project);
   if (els.btnAiEdit) {
@@ -5351,6 +5472,7 @@ async function loadHealth() {
 
 function init() {
   MovieAgentModules.productionActions.registerProductionActionHandlers(productionActionHandlers());
+  initDeliverScreeningLayout();
   initTheme();
   if (LOW_PERFORMANCE) document.body.classList.add("low-performance");
   applyView(currentView());
@@ -5418,9 +5540,12 @@ function init() {
     els.soundSummaryToggle.setAttribute("aria-expanded", String(!isHidden));
   });
   els.btnSoundSettings?.addEventListener("click", () => {
-    els.soundSummaryBody?.classList.remove("hidden");
-    els.soundSummaryToggle?.setAttribute("aria-expanded", "true");
-    els.soundSummary?.scrollIntoView({ behavior: "smooth", block: "start" });
+    setDeliverInspectorTab("sound");
+    els.soundSummary?.scrollIntoView({ behavior: REDUCED_MOTION ? "auto" : "smooth", block: "nearest" });
+  });
+  document.addEventListener("click", (event) => {
+    const tab = event.target.closest("[data-deliver-inspector-tab]");
+    if (tab) setDeliverInspectorTab(tab.dataset.deliverInspectorTab);
   });
   document.querySelector("[data-audio-advanced-toggle]")?.addEventListener("click", (event) => {
     const button = event.currentTarget;
