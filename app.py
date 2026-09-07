@@ -12,9 +12,35 @@ from pathlib import Path
 if not os.getenv("GRADIO_SERVER_PORT"):
     os.environ.pop("GRADIO_SERVER_PORT", None)
 
-import gradio as gr
-
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+
+
+def _run_studio_server() -> None:
+    """Delegate the hosted entry point to the complete FastAPI frontend.
+
+    ModelScope's Gradio Studio launcher invokes ``python3 app.py``.  Keep that
+    platform contract, but make direct execution serve the native frontend in
+    ``server.py`` instead of starting the legacy Gradio fallback.  The
+    fallback remains importable for local compatibility and tests.
+    """
+
+    import uvicorn
+
+    from server import app as fastapi_app
+    from server import settings as server_settings
+
+    logging.getLogger(__name__).info(
+        "Starting FastAPI frontend from server.py on 0.0.0.0:%s",
+        server_settings.port,
+    )
+    uvicorn.run(fastapi_app, host="0.0.0.0", port=server_settings.port)
+
+
+if __name__ == "__main__":
+    _run_studio_server()
+    raise SystemExit
+
+import gradio as gr
 
 from movie_agent.config import Settings
 from movie_agent.orchestrator import MovieOrchestrator
@@ -654,10 +680,3 @@ with gr.Blocks(**_blocks_kwargs) as demo:
         outputs=export_video_file,
     )
     export.click(export_project, inputs=project_id, outputs=exports)
-
-
-if __name__ == "__main__":
-    _launch_kwargs = {"server_name": "0.0.0.0", "server_port": settings.port}
-    if _gradio_major >= 6:
-        _launch_kwargs["css"] = APP_CSS
-    demo.queue(default_concurrency_limit=1).launch(**_launch_kwargs)
