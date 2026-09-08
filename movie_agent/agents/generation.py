@@ -396,6 +396,10 @@ class GenerationAgent:
                 source_duration_seconds=shot.source_duration_seconds or shot.duration_seconds,
                 reference_digests=external_input_digests,
                 shot_revision=shot.revision,
+                target_resolution=target_resolution,
+                aspect_ratio="16:9",
+                negative_prompt=negative_prompt,
+                master_fps=int(getattr(self.settings, "project_master_fps", 24) or 24),
             )
             shot.generation_input_hash = neutral_fingerprint.fingerprint
             shot.qc_details["generation_input_fingerprint"] = neutral_fingerprint.payload()
