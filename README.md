@@ -88,7 +88,7 @@ GenerationAgent
     └── RemoteVideoProvider     # 预留的远程异步接口，未配置时 fail-closed
 ```
 
-`VIDEO_GENERATION_MODE=mock` 不产生 MP4；`comfyui` 才会调用本机 ComfyUI。远程 provider 需要显式配置 `REMOTE_VIDEO_API_BASE`、`REMOTE_VIDEO_MODEL` 和 `REMOTE_VIDEO_API_KEY`，未配置时不会静默回退到 mock 或调用任何付费服务。主部署是 Docker + FastAPI `server.py` + 单个 Uvicorn worker，Gradio `app.py` 仅作为兼容入口。
+`VIDEO_GENERATION_MODE=mock` 不产生 MP4；`comfyui` 才会调用本机 ComfyUI。远程 provider 当前接入官方阿里云 Model Studio Wan 2.7 T2V 异步合同，需要显式配置 `REMOTE_VIDEO_API_BASE`、`REMOTE_VIDEO_MODEL` 和 `REMOTE_VIDEO_API_KEY`；未配置时不会静默回退到 mock 或调用任何付费服务。当前远程适配器仅支持 T2V；本地参考图没有对象存储上传合同前会 fail closed，不会假装完成 I2V。主部署是 Docker + FastAPI `server.py` + 单个 Uvicorn worker，Gradio `app.py` 仅作为兼容入口。
 
 ## 视频质检与原创性审核
 

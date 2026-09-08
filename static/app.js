@@ -3486,6 +3486,11 @@ function updatePipelineForProject(project) {
   setPipeline(pipelineFromProject(project, state.hasFinalVideo));
 }
 
+function realVideoProviderReady() {
+  const mode = String(state.health?.video_mode || "mock").toLowerCase();
+  return mode !== "mock" && state.health?.checks?.video_provider?.ok === true;
+}
+
 function renderWorkspace(project, options = {}) {
   show(els.actWorkspace);
   renderProjectDiagnostics(project);
@@ -3499,10 +3504,10 @@ function renderWorkspace(project, options = {}) {
   renderScreening(project);
   renderDelivery(project);
   updatePipelineForProject(project);
-  const videoMode = state.health ? state.health.video_mode : "mock";
+  const videoProviderReady = realVideoProviderReady();
   const shots = project.storyboard || [];
   const allShotsReady = shots.length > 0 && shots.every((shot) => shotCapabilities(shot).canEnterCut);
-  if (videoMode === "comfyui") {
+  if (videoProviderReady) {
     const actionReady = productionActionReady(project, "START_RENDER");
     els.btnRender.disabled = state.rendering || allShotsReady || actionReady === false;
     els.renderNote.textContent = allShotsReady
@@ -3514,7 +3519,7 @@ function renderWorkspace(project, options = {}) {
     els.btnRender.disabled = true;
     els.renderNote.textContent = allShotsReady
       ? "mock 镜头已全部就绪：锁定台词本后可直接启动 AI Edit Rough Cut。"
-      : "当前为 mock 视频流程：启用真实视频 Provider 后，这里会变成逐镜生成与 FFmpeg 合片。";
+        : "当前为 mock 视频流程：启用并通过健康检查的真实视频 Provider 后，这里会变成逐镜生成与 FFmpeg 合片。";
   }
 }
 
@@ -4221,7 +4226,7 @@ function handleCreateEvent(event) {
     state.pendingProjectId = event.project_id;
     pushCrewRadio({ type: "status", agent: "system", status: "BOOT", message: "Project slate received · crew assembly online" });
     els.crewMeta.textContent = `LIVE · PROJECT ${String(event.project_id || "").replace(/^film-/, "").toUpperCase()}`;
-  els.modeNote.textContent = `文案引擎：${event.text_mode === "modelscope" ? "ModelScope AI" : "mock"} · 视频引擎：${event.video_mode === "comfyui" ? "真实视频 Provider" : "mock 流程"}`;
+    els.modeNote.textContent = `文案引擎：${event.text_mode === "modelscope" ? "ModelScope AI" : "mock"} · 视频引擎：${event.video_mode !== "mock" ? "真实视频 Provider" : "mock 流程"}`;
   } else if (event.type === "agent_start") {
     state.workingAgent = event.agent;
     rememberCrewEvent(event.agent, { status: "working", startedAt: Date.now() });
@@ -5453,7 +5458,7 @@ async function loadHealth() {
     state.health = await response.json();
     els.engineLamp?.classList.remove("is-pending", "is-error");
     const text = state.health.text_mode === "modelscope" ? "ModelScope AI 文案" : "mock 文案";
-    const video = state.health.video_mode === "comfyui" ? "真实视频 Provider" : "mock 视频流程";
+    const video = state.health.video_mode !== "mock" ? "真实视频 Provider" : "mock 视频流程";
     els.modeNote.textContent = `制作引擎就绪 · ${text} + ${video}`;
   } catch {
     els.engineLamp?.classList.remove("is-pending");

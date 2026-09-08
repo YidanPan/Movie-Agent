@@ -118,6 +118,8 @@ def runtime_checks() -> dict[str, dict[str, Any]]:
     video_mode = str(settings.video_generation_mode or "mock").lower()
     provider = str(settings.model_provider or "mock").lower()
     workflow = settings.workflows_dir / settings.comfy_workflow_template
+    video_provider: Any | None = None
+    declared_modes: list[str] = []
     try:
         video_provider = build_video_provider(settings)
         declared_modes = sorted(

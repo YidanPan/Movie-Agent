@@ -282,7 +282,19 @@ class GenerationAgent:
             shot.status = "generation_failed"
             shot.qc_status = "FAILED"
             raise wrapped from error
-        external_input_digests = self._reference_digests(reference_inputs)
+        # Fingerprint only files this provider will actually receive. A T2V
+        # provider must not claim that local references constrained the render
+        # when it has no public/object-storage upload contract.
+        accepts_local_references = bool(getattr(self.provider, "accepts_local_reference_images", True))
+        if is_comfyui:
+            submitted_reference_inputs = {"keyframe": list(keyframe_paths)} if reference_images else {}
+        elif accepts_local_references:
+            submitted_reference_inputs = {
+                key: list(paths) for key, paths in reference_inputs.items() if key != "reference_flags"
+            }
+        else:
+            submitted_reference_inputs = {}
+        external_input_digests = self._reference_digests(submitted_reference_inputs)
         negative_prompt = (
             "existing film or TV characters, titles, logos, brands, real-person likenesses, "
             "copyrighted designs, subtitles, watermarks, language other than English"
@@ -300,6 +312,7 @@ class GenerationAgent:
             "generation_status": "SUBMITTING",
             "retry_count": int(getattr(shot, "retry_count", 0) or 0),
             "qa_score": None,
+            "submitted_reference_roles": sorted(submitted_reference_inputs),
         }
         shot.qc_details = {
             **(shot.qc_details or {}),
@@ -398,7 +411,7 @@ class GenerationAgent:
                 reference_images=[
                     Path(path)
                     for key in ("character", "scene", "prop", "previous_frame", "palette", "cinematography", "keyframe")
-                    for path in reference_inputs.get(key, [])
+                    for path in submitted_reference_inputs.get(key, [])
                     if Path(path).is_file()
                 ],
                 output_dir=self.settings.outputs_dir / project_id / "shots" / "source",
@@ -407,6 +420,9 @@ class GenerationAgent:
                     "workflow_path": str(template_path),
                     "output_filename": f"shot-{shot.number:02d}.mp4",
                     "model": (self.settings.comfy_workflow_template if is_comfyui else provider_name) or provider_name,
+                    "negative_prompt": negative_prompt,
+                    "target_resolution": target_resolution,
+                    "aspect": "16:9",
                 },
             )
             prompt_id = provider_result.task_id

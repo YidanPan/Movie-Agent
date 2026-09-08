@@ -11,6 +11,8 @@ from movie_agent.models import Shot
 from movie_agent.services.comfyui import ComfyUIError
 from movie_agent.services.video_generation import (
     ComfyUIVideoProvider,
+    DashScopeVideoProvider,
+    HTTPResponse,
     MockVideoProvider,
     VideoGenerationError,
     VideoGenerationResult,
@@ -136,6 +138,96 @@ def test_remote_provider_exposes_fail_closed_async_lifecycle():
             provider.poll("task-1")
         with pytest.raises(VideoGenerationError, match="not configured"):
             provider.download({}, Path(directory), "shot.mp4")
+
+
+def test_dashscope_provider_uses_official_async_submit_poll_download_contract():
+    with TemporaryDirectory() as directory:
+        root = Path(directory)
+        settings = _settings(root, "remote")
+        settings = settings.__class__(
+            **{
+                **settings.__dict__,
+                "remote_video_api_base": "https://workspace.cn-beijing.maas.aliyuncs.com/api/v1",
+                "remote_video_model": "wan2.7-t2v",
+                "remote_video_api_key": "secret-only-in-test",
+                "remote_video_timeout_seconds": 10,
+                "remote_video_poll_seconds": 0.5,
+            }
+        )
+
+        def response(payload: dict, status_code: int = 200) -> HTTPResponse:
+            return HTTPResponse(status_code, {"content-type": "application/json"}, json.dumps(payload).encode())
+
+        class Transport:
+            def __init__(self):
+                self.calls = []
+                self.responses = [
+                    response({"output": {"task_id": "task-123", "task_status": "PENDING"}}),
+                    response({"output": {"task_id": "task-123", "task_status": "RUNNING"}}),
+                    response({"output": {"task_id": "task-123", "task_status": "SUCCEEDED", "video_url": "https://cdn.example/shot.mp4"}}),
+                    HTTPResponse(200, {"content-type": "video/mp4"}, b"validated-video"),
+                ]
+
+            def request(self, method, url, *, headers, body=None, timeout):
+                self.calls.append((method, url, headers, body, timeout))
+                return self.responses.pop(0)
+
+        transport = Transport()
+        provider = DashScopeVideoProvider(
+            settings,
+            transport=transport,
+            sleep_fn=lambda _: None,
+            media_validator=lambda path: {"valid": path.read_bytes() == b"validated-video"},
+        )
+        progress = []
+        result = provider.generate(
+            prompt="a single cinematic shot",
+            seed=7,
+            duration_seconds=5,
+            reference_images=[],
+            output_dir=root / "outputs",
+            metadata={"output_filename": "shot-01.mp4", "target_resolution": "720p", "aspect": "16:9", "negative_prompt": "blur"},
+            on_progress=progress.append,
+        )
+
+        assert result.provider == "dashscope"
+        assert result.task_id == "task-123"
+        assert result.video_path.read_bytes() == b"validated-video"
+        assert [item[0] for item in transport.calls] == ["POST", "GET", "GET", "GET"]
+        submit_body = json.loads(transport.calls[0][3].decode())
+        assert submit_body["model"] == "wan2.7-t2v"
+        assert submit_body["input"]["negative_prompt"] == "blur"
+        assert submit_body["parameters"] == {
+            "resolution": "720P",
+            "ratio": "16:9",
+            "prompt_extend": False,
+            "watermark": False,
+            "duration": 5,
+            "seed": 7,
+        }
+        assert "Authorization" in transport.calls[0][2]
+        assert "Authorization" not in transport.calls[-1][2]
+        assert [item["status"] for item in progress] == ["SUBMITTED", "RUNNING", "SUCCEEDED", "COMPLETED"]
+
+
+def test_dashscope_provider_rejects_local_references_instead_of_claiming_i2v():
+    with TemporaryDirectory() as directory:
+        root = Path(directory)
+        settings = _settings(root, "remote")
+        settings = settings.__class__(
+            **{
+                **settings.__dict__,
+                "remote_video_api_base": "https://workspace.cn-beijing.maas.aliyuncs.com/api/v1",
+                "remote_video_model": "wan2.7-t2v",
+                "remote_video_api_key": "secret-only-in-test",
+            }
+        )
+        provider = DashScopeVideoProvider(settings)
+        reference = root / "reference.webp"
+        reference.write_bytes(b"image")
+        with pytest.raises(VideoGenerationError) as error:
+            provider.submit(prompt="shot", reference_images=[reference])
+        assert error.value.error_code == "VIDEO_PROVIDER_REFERENCE_UNSUPPORTED"
 
 
 def test_reference_bank_same_name_keeps_immutable_bytes():
