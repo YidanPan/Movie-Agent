@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import subprocess
 import shutil
+import hashlib
+import json
 from pathlib import Path
 from typing import Any
 
@@ -70,6 +72,159 @@ class EditorAgent:
         output_dir = self.settings.outputs_dir / project.project_id
         output_dir.mkdir(parents=True, exist_ok=True)
         return output_dir
+
+    @staticmethod
+    def _shot_revision(shot: Any) -> int:
+        return max(1, int(getattr(shot, "revision", 1) or 1))
+
+    @classmethod
+    def _shot_generation_hash(cls, shot: Any, source_record: dict[str, Any] | None = None) -> str:
+        """Return the generation identity used by derivative cache records.
+
+        Older projects may not have a hash on the Shot itself, so a current
+        source record is a valid fallback.  An empty hash is deliberately not
+        treated as a wildcard: legacy cache records without identity metadata
+        must be regenerated instead of being silently reused.
+        """
+
+        shot_hash = str(getattr(shot, "generation_input_hash", "") or "").strip()
+        if shot_hash:
+            return shot_hash
+        if isinstance(source_record, dict):
+            return str(source_record.get("generation_input_hash") or "").strip()
+        return ""
+
+    @staticmethod
+    def _path_signature(path: Path) -> dict[str, int]:
+        try:
+            stat = path.stat()
+        except OSError:
+            return {}
+        return {"size": int(stat.st_size), "mtime_ns": int(stat.st_mtime_ns)}
+
+    @classmethod
+    def _derivative_fingerprint(
+        cls,
+        kind: str,
+        *,
+        source: Path,
+        shot: Any,
+        params: dict[str, Any],
+        source_record: dict[str, Any] | None = None,
+    ) -> str:
+        payload = {
+            "kind": str(kind),
+            "source_path": str(source.resolve()),
+            "source_signature": cls._path_signature(source),
+            "shot_revision": cls._shot_revision(shot),
+            "generation_input_hash": cls._shot_generation_hash(shot, source_record),
+            "params": params,
+        }
+        encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
+    @classmethod
+    def _normalization_context(
+        cls,
+        shot: Any,
+        *,
+        resolution: str,
+        target_fps: int | float,
+        source: Path,
+        source_record: dict[str, Any] | None = None,
+    ) -> tuple[str, dict[str, Any]]:
+        generation_hash = cls._shot_generation_hash(shot, source_record)
+        params = {
+            "resolution": str(resolution),
+            "target_fps": float(target_fps),
+            "mezzanine_policy": "prores_422_lt_or_h264_crf13",
+        }
+        fingerprint = cls._derivative_fingerprint(
+            "resolution_normalize",
+            source=source,
+            shot=shot,
+            params=params,
+            source_record=source_record,
+        )
+        return generation_hash, {"fingerprint": fingerprint, "params": params}
+
+    @classmethod
+    def _normalized_cache_is_valid(
+        cls,
+        shot: Any,
+        output: Path,
+        *,
+        resolution: str,
+        target_fps: int | float,
+        source: Path,
+        source_record: dict[str, Any] | None = None,
+    ) -> bool:
+        record = (getattr(shot, "media_assets", {}) or {}).get("final_master")
+        if not isinstance(record, dict) or not output.is_file() or not source.is_file():
+            return False
+        generation_hash, context = cls._normalization_context(
+            shot,
+            resolution=resolution,
+            target_fps=target_fps,
+            source=source,
+            source_record=source_record,
+        )
+        if not generation_hash:
+            return False
+        return (
+            not bool(record.get("stale"))
+            and str(record.get("tier") or "") == "final_master"
+            and int(record.get("revision", 0) or 0) == cls._shot_revision(shot)
+            and str(record.get("generation_input_hash") or "") == generation_hash
+            and str(record.get("derivative_input_fingerprint") or "") == context["fingerprint"]
+            and str(Path(str(record.get("path") or "")).resolve()) == str(output.resolve())
+            and str(Path(str(record.get("original_path") or "")).resolve()) == str(source.resolve())
+            and record.get("derivative_kind") == "resolution_normalize"
+        )
+
+    @classmethod
+    def _timing_cache_is_valid(
+        cls,
+        shot: Any,
+        output: Path,
+        *,
+        source: Path,
+        mode: str,
+        desired: int,
+        native: int,
+        source_record: dict[str, Any] | None = None,
+    ) -> bool:
+        record = (getattr(shot, "media_assets", {}) or {}).get("timing")
+        if not isinstance(record, dict) or not output.is_file() or not source.is_file():
+            return False
+        generation_hash = cls._shot_generation_hash(shot, source_record)
+        params = {
+            "mode": str(mode),
+            "desired_duration": int(desired),
+            "native_duration": int(native),
+            "mezzanine_policy": "prores_422_lt_or_h264_crf13",
+        }
+        fingerprint = cls._derivative_fingerprint(
+            "timing",
+            source=source,
+            shot=shot,
+            params=params,
+            source_record=source_record,
+        )
+        if not generation_hash:
+            return False
+        return (
+            not bool(record.get("stale"))
+            and str(record.get("tier") or "") == "timing_intermediate"
+            and int(record.get("revision", 0) or 0) == cls._shot_revision(shot)
+            and str(record.get("generation_input_hash") or "") == generation_hash
+            and str(record.get("derivative_input_fingerprint") or "") == fingerprint
+            and str(Path(str(record.get("path") or "")).resolve()) == str(output.resolve())
+            and str(Path(str(record.get("input_path") or "")).resolve()) == str(source.resolve())
+            and record.get("timing_mode") == str(mode)
+            and int(record.get("desired_duration", 0) or 0) == int(desired)
+            and int(record.get("native_duration", 0) or 0) == int(native)
+        )
 
     def _run_mezzanine(self, command_prefix: list[str], output: Path) -> str:
         """Run an edit-master encode, falling back only when ProRes is unavailable."""
@@ -215,15 +370,32 @@ class EditorAgent:
             if isinstance(source_record, dict):
                 native_resolution = source_record.get("native_resolution") or source_record.get("source_resolution")
             output = normalized_dir / f"shot-{shot.number:02d}-{resolution}-mezzanine.mov"
-            if not output.is_file():
+            target_fps = project.target_fps or 24
+            source_record_dict = source_record if isinstance(source_record, dict) else None
+            generation_hash, normalization_context = self._normalization_context(
+                shot,
+                resolution=resolution,
+                target_fps=target_fps,
+                source=source,
+                source_record=source_record_dict,
+            )
+            cache_valid = self._normalized_cache_is_valid(
+                shot,
+                output,
+                resolution=resolution,
+                target_fps=target_fps,
+                source=source,
+                source_record=source_record_dict,
+            )
+            if not cache_valid:
                 encode_profile = self._run_mezzanine(
                     [
                         "-i",
                         str(source),
                         "-vf",
-                        f"fps={int(project.target_fps or 24)},scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},setsar=1",
+                        f"fps={int(target_fps)},scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},setsar=1",
                         "-r",
-                        str(project.target_fps or 24),
+                        str(target_fps),
                         "-map",
                         "0:v:0",
                         "-map",
@@ -233,6 +405,26 @@ class EditorAgent:
                 )
             else:
                 encode_profile = "existing_mezzanine"
+            if cache_valid:
+                shot.media_assets["final_master"] = {
+                    **(shot.media_assets.get("final_master") or {}),
+                    "path": str(output),
+                    "original_path": str(source),
+                    "derivative_kind": "resolution_normalize",
+                    "derivative_input_fingerprint": normalization_context["fingerprint"],
+                    "generation_input_hash": generation_hash,
+                    "revision": self._shot_revision(shot),
+                    "stale": False,
+                }
+                shot.output_placeholder = str(output)
+                shot.source_resolution = (
+                    source_record_dict.get("native_resolution") if source_record_dict else None
+                ) or shot.media_assets["final_master"].get("native_resolution")
+                shot.source_fps = shot.media_assets["final_master"].get("source_fps")
+                shot.source_duration = shot.media_assets["final_master"].get("source_duration")
+                shot.stale = False
+                changed += 1
+                continue
             record = asset_record(
                 output,
                 tier="final_master",
@@ -240,8 +432,9 @@ class EditorAgent:
                 target_resolution=resolution,
                 source="resolution_normalize",
                 normalized=True,
-                revision=int(getattr(shot, "revision", 1) or 1),
+                revision=self._shot_revision(shot),
                 prompt_hash=str(getattr(shot, "prompt_hash", "") or ""),
+                generation_input_hash=generation_hash,
                 provider="ffmpeg",
                 model=str(self.settings.ffmpeg_bin or "ffmpeg"),
                 seed=getattr(shot, "seed", None) or getattr(shot, "generation_seed", None),
@@ -251,6 +444,11 @@ class EditorAgent:
                 enhanced=False,
             )
             record["original_path"] = str(source)
+            record["derivative_kind"] = "resolution_normalize"
+            record["derivative_input_fingerprint"] = normalization_context["fingerprint"]
+            record["input_revision"] = self._shot_revision(shot)
+            record["input_generation_input_hash"] = generation_hash
+            record["target_fps"] = float(target_fps)
             record["asset_role"] = "edit_mezzanine"
             record["encode_profile"] = encode_profile
             record["generation_loss"] = "fallback_h264_crf13" if encode_profile == "h264_crf13" else "mezzanine"
@@ -337,10 +535,28 @@ class EditorAgent:
             or (item.get("has_audio") and item.get("sample_rate") not in {None, 48000})
             for item in metadata
         )
-        if not needs_normalize and all(
-            isinstance((getattr(shot, "media_assets", {}) or {}).get("final_master"), dict)
+        def normalization_source(shot: Any) -> tuple[Path, dict[str, Any] | None]:
+            media_assets = getattr(shot, "media_assets", {}) or {}
+            source_record = media_assets.get("source") if isinstance(media_assets, dict) else None
+            if isinstance(source_record, dict) and source_record.get("path"):
+                return Path(str(source_record["path"])), source_record
+            final_record = media_assets.get("final_master") if isinstance(media_assets, dict) else None
+            if isinstance(final_record, dict) and final_record.get("original_path"):
+                return Path(str(final_record["original_path"])), source_record
+            return Path(str(getattr(shot, "output_placeholder", ""))), source_record
+
+        normalized_cache_valid = all(
+            self._normalized_cache_is_valid(
+                shot,
+                Path(str(((getattr(shot, "media_assets", {}) or {}).get("final_master") or {}).get("path") or "")),
+                resolution=str(project.target_resolution),
+                target_fps=project.target_fps or 24,
+                source=normalization_source(shot)[0],
+                source_record=normalization_source(shot)[1],
+            )
             for shot in project.storyboard
-        ):
+        )
+        if not needs_normalize and normalized_cache_valid:
             project.edit_plan = {
                 **(project.edit_plan or {}),
                 "resolution_normalize": {
@@ -395,7 +611,19 @@ class EditorAgent:
                 continue
             timing_dir.mkdir(parents=True, exist_ok=True)
             target = timing_dir / f"shot-{shot.number:02d}-{mode}-{desired}s-mezzanine.mov"
-            if target.is_file():
+            media_assets = getattr(shot, "media_assets", {}) or {}
+            source_record = media_assets.get("final_master") if isinstance(media_assets, dict) else None
+            if not isinstance(source_record, dict):
+                source_record = media_assets.get("source") if isinstance(media_assets, dict) else None
+            if self._timing_cache_is_valid(
+                shot,
+                target,
+                source=source,
+                mode=mode,
+                desired=desired,
+                native=native,
+                source_record=source_record if isinstance(source_record, dict) else None,
+            ):
                 paths.append(target)
                 continue
             filters: list[str] = []
@@ -409,6 +637,37 @@ class EditorAgent:
                 command_prefix.extend(["-vf", combine_video_filters(*filters) or "null"])
             command_prefix.extend(["-t", str(desired), "-map", "0:v:0", "-map", "0:a?"])
             self._run_mezzanine(command_prefix, target)
+            generation_hash = self._shot_generation_hash(
+                shot,
+                source_record if isinstance(source_record, dict) else None,
+            )
+            params = {
+                "mode": mode,
+                "desired_duration": desired,
+                "native_duration": native,
+                "mezzanine_policy": "prores_422_lt_or_h264_crf13",
+            }
+            shot.media_assets["timing"] = {
+                "path": str(target),
+                "tier": "timing_intermediate",
+                "derivative_kind": "timing",
+                "derivative_input_fingerprint": self._derivative_fingerprint(
+                    "timing",
+                    source=source,
+                    shot=shot,
+                    params=params,
+                    source_record=source_record if isinstance(source_record, dict) else None,
+                ),
+                "generation_input_hash": generation_hash,
+                "input_generation_input_hash": generation_hash,
+                "revision": self._shot_revision(shot),
+                "input_revision": self._shot_revision(shot),
+                "input_path": str(source),
+                "timing_mode": mode,
+                "desired_duration": desired,
+                "native_duration": native,
+                "stale": False,
+            }
             paths.append(target)
         return paths
 
