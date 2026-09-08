@@ -157,7 +157,7 @@ def test_production_bible_is_a_quiet_reading_workspace():
     assert 'data-manual-nav-tab="visual"' in INDEX
     assert 'production-bible.css?v=' in INDEX
     assert ".manual-reading-grid" in BIBLE
-    assert "--manual-content-width: 860px" in BIBLE
+    assert "--manual-content-width: min(100%, 980px)" in BIBLE
     assert "max-width: var(--manual-content-width)" in BIBLE
     assert "font-family: var(--sans)" in BIBLE
     assert "font-size: var(--manual-body-size)" in BIBLE

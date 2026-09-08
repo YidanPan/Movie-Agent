@@ -410,21 +410,26 @@
             </div>
           </header>
 
-          <section class="deliver-summary" id="deliver-summary" aria-label="项目摘要">
-            <div class="deliver-summary-main">
-              <span class="deliver-label mono type-system-meta">PROJECT SUMMARY / 项目摘要</span>
-              <h4 id="deliver-project-title">等待项目进入放映室</h4>
-              <p class="type-helper" id="deliver-project-copy">完成分镜生成后，这里会显示成片状态、镜头就绪度和交付控制。</p>
-              <div class="deliver-ready-line"><strong class="mono" id="deliver-shots-ready">0/0 SHOTS READY</strong><span id="deliver-ready-note">尚未收到镜头素材。</span></div>
-              <div class="deliver-quality-actions"><span class="type-helper" id="deliver-quality-note">Screening Room 会优先读取 720P / 1080P 预览。</span><button class="ghost type-control hidden" id="btn-normalize-resolution" type="button">RESOLUTION NORMALIZE</button><button class="ghost type-control" id="btn-clean-working-cache" type="button">CLEAN WORKING CACHE</button></div>
-            </div>
-            <div class="deliver-summary-specs" id="deliver-summary-specs" aria-label="项目摘要数据"></div>
-          </section>
+          <section class="deliver-phase deliver-phase--edit" aria-labelledby="deliver-edit-heading">
+            <header class="deliver-phase-heading">
+              <span class="deliver-phase-index mono">01 / EDIT</span>
+              <h4 id="deliver-edit-heading">EDIT STATUS</h4>
+            </header>
+            <section class="deliver-summary" id="deliver-summary" aria-label="项目摘要">
+              <div class="deliver-summary-main">
+                <span class="deliver-label mono type-system-meta">PROJECT TITLE / 项目摘要</span>
+                <h4 id="deliver-project-title">等待项目进入放映室</h4>
+                <p class="type-helper" id="deliver-project-copy">完成分镜生成后，这里会显示成片状态、镜头就绪度和交付控制。</p>
+                <div class="deliver-ready-line"><strong class="mono" id="deliver-shots-ready">0/0 SHOTS READY</strong><span id="deliver-ready-note">尚未收到镜头素材。</span></div>
+                <div class="deliver-quality-actions"><span class="type-helper" id="deliver-quality-note">Screening Room 会优先读取 720P / 1080P 预览。</span><button class="ghost type-control hidden" id="btn-normalize-resolution" type="button">RESOLUTION NORMALIZE</button><button class="ghost type-control" id="btn-clean-working-cache" type="button">CLEAN WORKING CACHE</button></div>
+              </div>
+              <div class="deliver-summary-specs" id="deliver-summary-specs" aria-label="项目摘要数据"></div>
+            </section>
 
-          <section class="deliver-work-progress hidden" id="deliver-work-progress" aria-label="AI 剪辑进度">
-            <header class="deliver-progress-head"><div><span class="deliver-label mono type-system-meta">AI EDIT / ASSEMBLY PIPELINE</span><h4 id="deliver-progress-title">粗剪正在组装</h4></div><strong class="type-status" id="deliver-progress-percent">0%</strong></header>
-            <div class="deliver-progress-track" aria-hidden="true"><i id="deliver-progress-bar"></i></div>
-            <div class="deliver-progress-grid" id="deliver-progress-grid">
+            <section class="deliver-work-progress hidden" id="deliver-work-progress" aria-label="AI 剪辑进度">
+              <header class="deliver-progress-head"><div><span class="deliver-label mono type-system-meta">7-STEP PROGRESS</span><h4 id="deliver-progress-title">粗剪正在组装</h4></div><strong class="type-status" id="deliver-progress-percent">0%</strong></header>
+              <div class="deliver-progress-track" aria-hidden="true"><i id="deliver-progress-bar"></i></div>
+              <div class="deliver-progress-grid" id="deliver-progress-grid">
               <div class="deliver-progress-step" data-deliver-progress="picture_cut"><span class="deliver-progress-icon type-system-meta">01</span><div><b>镜头合成</b><small class="type-system-meta">PICTURE CUT</small></div><i class="deliver-progress-state type-status">QUEUED</i></div>
               <div class="deliver-progress-step" data-deliver-progress="voice"><span class="deliver-progress-icon type-system-meta">02</span><div><b>旁白</b><small class="type-system-meta">VOICE</small></div><i class="deliver-progress-state type-status">QUEUED</i></div>
               <div class="deliver-progress-step" data-deliver-progress="music"><span class="deliver-progress-icon type-system-meta">03</span><div><b>配乐</b><small class="type-system-meta">MUSIC</small></div><i class="deliver-progress-state type-status">QUEUED</i></div>
@@ -432,8 +437,8 @@
               <div class="deliver-progress-step" data-deliver-progress="subtitles"><span class="deliver-progress-icon type-system-meta">05</span><div><b>字幕</b><small class="type-system-meta">SUBTITLES</small></div><i class="deliver-progress-state type-status">QUEUED</i></div>
               <div class="deliver-progress-step" data-deliver-progress="mix"><span class="deliver-progress-icon type-system-meta">06</span><div><b>最终混音</b><small class="type-system-meta">MIX / DUCKING</small></div><i class="deliver-progress-state type-status">QUEUED</i></div>
               <div class="deliver-progress-step" data-deliver-progress="final_encode"><span class="deliver-progress-icon type-system-meta">07</span><div><b>编码交付</b><small class="type-system-meta">FINAL ENCODE</small></div><i class="deliver-progress-state type-status">QUEUED</i></div>
-            </div>
-            <div class="deliver-rough-console" id="edit-console">
+              </div>
+              <div class="deliver-rough-console" id="edit-console">
               <div class="rough-cut-stage" id="rough-cut-stage">
                 <div class="rough-cut-placeholder"><span class="mono">ROUGH CUT / 16:9</span><strong>等待剪辑引擎启动</strong><small>Picture Cut、Voice、Music、SFX、Subtitles 与 Mix 会在这里汇合。</small></div>
                 <video id="rough-cut-video" controls playsinline preload="metadata" aria-label="Rough Cut 粗剪预览"></video>
@@ -466,10 +471,15 @@
                 <div class="edit-console-actions"><button class="ghost" id="btn-recut" type="button">重新规划粗剪</button></div>
               </div>
               <p class="edit-console-note mono" id="edit-console-note">AI Edit 会严格读取已锁定的台词本与字幕轨。</p>
-            </div>
+              </div>
+            </section>
           </section>
 
           <section class="deliver-final hidden" id="deliver-final" aria-label="最终成片">
+            <header class="deliver-phase-heading deliver-phase-heading--screen">
+              <span class="deliver-phase-index mono">02 / SCREEN</span>
+              <h4>FINAL CUT</h4>
+            </header>
             <div class="final-cut-workspace">
               <div class="final-cut-screening">
                 <div class="final-player-shell" id="screen" data-final-look="original">
@@ -483,7 +493,7 @@
                       <span class="final-compare-label final-compare-label--original mono">ORIGINAL</span>
                       <span class="final-compare-label final-compare-label--final mono">FINAL LOOK</span>
                     </div>
-                    <div class="final-not-generated" id="final-not-generated"><strong class="mono">FINAL CUT NOT GENERATED</strong><span>后端尚未提供可播放的最终视频文件。</span></div>
+                    <div class="final-not-generated" id="final-not-generated"><strong class="mono">SCREENING STANDBY</strong><span>WAITING FOR FINAL MASTER</span><small class="mono">24 FPS · 16:9 · PROJECT READY / NOT READY</small></div>
                   </div>
                   <section class="deliver-preview-quality" aria-label="预览质量">
                     <div class="deliver-preview-quality-head"><span class="deliver-label mono">QUALITY</span><span class="deliver-preview-quality-current mono" id="deliver-quality-mode">AUTO</span></div>
@@ -493,11 +503,14 @@
                       <button type="button" class="deliver-quality-mode" data-quality-mode="screening">SCREENING</button>
                       <button type="button" class="deliver-quality-mode" data-quality-mode="original">ORIGINAL</button>
                     </div>
-                    <div class="deliver-preview-quality-grid">
-                      <div><span class="deliver-label mono">SOURCE</span><strong id="deliver-quality-source">·</strong></div>
-                      <div><span class="deliver-label mono">SCREENING</span><strong id="deliver-quality-screening">·</strong></div>
-                      <div><span class="deliver-label mono">MASTER</span><strong id="deliver-quality-master">·</strong></div>
-                    </div>
+                    <details class="deliver-quality-details">
+                      <summary class="mono">TECHNICAL QUALITY DETAILS <span aria-hidden="true">⌄</span></summary>
+                      <div class="deliver-preview-quality-grid">
+                        <div><span class="deliver-label mono">SOURCE</span><strong id="deliver-quality-source">·</strong></div>
+                        <div><span class="deliver-label mono">SCREENING</span><strong id="deliver-quality-screening">·</strong></div>
+                        <div><span class="deliver-label mono">MASTER</span><strong id="deliver-quality-master">·</strong></div>
+                      </div>
+                    </details>
                     <p class="deliver-preview-quality-warning mono" id="deliver-quality-warning"></p>
                   </section>
                 </div>
@@ -576,6 +589,10 @@
             </section>
           </section>
 
+          <header class="deliver-phase-heading deliver-phase-heading--deliver">
+            <span class="deliver-phase-index mono">03 / DELIVER</span>
+            <h4>FINISH &amp; EXPORT</h4>
+          </header>
           <section class="deliver-actions" id="deliver-actions" aria-label="放映室操作">
             <div class="deliver-primary-actions">
               <button class="cta cta--deliver-edit" id="btn-ai-edit" type="button">AI 剪辑成片 <span class="cta-arrow" aria-hidden="true">→</span></button>

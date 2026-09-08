@@ -9,8 +9,48 @@ body[data-design="archive-console"] .screening-panel {
 
 body[data-design="archive-console"] .deliver-room {
   display: grid;
-  gap: 22px;
+  gap: 24px;
   min-width: 0;
+  align-content: start;
+}
+
+/* Screening Room is organized as three production moments. The labels are
+   structural signposts, while the existing panels remain the data owners. */
+body[data-design="archive-console"] .deliver-phase,
+body[data-design="archive-console"] .deliver-final {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
+body[data-design="archive-console"] .deliver-phase-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  min-width: 0;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+body[data-design="archive-console"] .deliver-phase-index {
+  flex: 0 0 auto;
+  color: var(--accent-token);
+  font-size: 11px;
+  letter-spacing: .08em;
+}
+
+body[data-design="archive-console"] .deliver-phase-heading h4 {
+  min-width: 0;
+  margin: 0;
+  color: var(--text-strong);
+  font: 650 15px/1.3 var(--sans);
+  letter-spacing: .04em;
+  overflow-wrap: break-word;
+}
+
+body[data-design="archive-console"] .deliver-phase--edit > .deliver-summary,
+body[data-design="archive-console"] .deliver-phase--edit > .deliver-work-progress {
+  margin-top: 0;
 }
 
 body[data-design="archive-console"] .deliver-stage-head {
@@ -319,6 +359,12 @@ body[data-design="archive-console"] .final-player-stage .final-not-generated > *
   overflow-wrap: break-word;
 }
 
+body[data-design="archive-console"] .final-player-stage .final-not-generated small {
+  color: var(--text-muted);
+  font: 11px/1.4 var(--mono);
+  letter-spacing: .05em;
+}
+
 body[data-design="archive-console"] .final-player-shell.has-video .final-not-generated { display: none; }
 
 body[data-design="archive-console"] .final-player-shell video {
@@ -363,6 +409,27 @@ body[data-design="archive-console"] .deliver-quality-modes {
   flex-wrap: wrap;
   gap: 5px;
 }
+
+body[data-design="archive-console"] .deliver-quality-details {
+  min-width: 0;
+  border-top: 1px solid var(--line-soft);
+}
+
+body[data-design="archive-console"] .deliver-quality-details > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 32px;
+  color: var(--text-muted);
+  cursor: pointer;
+  list-style: none;
+}
+
+body[data-design="archive-console"] .deliver-quality-details > summary::-webkit-details-marker { display: none; }
+body[data-design="archive-console"] .deliver-quality-details > summary span { color: var(--accent-token); }
+body[data-design="archive-console"] .deliver-quality-details[open] > summary span { transform: rotate(180deg); }
+body[data-design="archive-console"] .deliver-quality-details .deliver-preview-quality-grid { margin-top: 8px; }
 
 body[data-design="archive-console"] .deliver-quality-mode {
   min-height: 32px;
@@ -502,7 +569,7 @@ body[data-design="archive-console"] .final-cut-screening { min-width: 0; }
 
 body[data-design="archive-console"] .final-look-panel {
   display: grid;
-  gap: 15px;
+  gap: 16px;
   position: sticky;
   top: calc(var(--header-height, 70px) + 18px);
   align-self: start;
@@ -606,8 +673,16 @@ body[data-design="archive-console"] .final-look-preset small {
 body[data-design="archive-console"] .final-look-actions {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
-  gap: 8px;
+  gap: 12px;
   min-width: 0;
+}
+
+/* The older Deliver stylesheet added a second missing-media sentence with a
+   pseudo-element. The visible standby state now owns that message, so keep
+   the description single-sourced and prevent duplicate status text. */
+body[data-design="archive-console"] .final-look-panel.is-media-missing .final-look-description::after {
+  display: none;
+  content: none;
 }
 
 body[data-design="archive-console"] .final-look-actions > * {
@@ -685,6 +760,12 @@ body[data-design="archive-console"] .final-player-hud span:last-child { color: v
 
   body[data-design="archive-console"] .final-look-panel {
     padding: 15px;
+  }
+
+  body[data-design="archive-console"] .deliver-phase-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
   }
 
   body[data-design="archive-console"] .final-look-actions {

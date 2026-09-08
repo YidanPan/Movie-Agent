@@ -64,3 +64,34 @@ def test_production_bible_summary_stretches_but_asset_cards_use_natural_flow():
     assert "align-self: start;" in asset_rule
     assert "height: auto;" in asset_rule
     assert "height: 100%;" not in asset_rule
+
+
+def test_visible_layout_repair_uses_balanced_bible_width_and_drops_legacy_spec_height():
+    assert "--manual-content-width: min(100%, 980px);" in BIBLE
+    assert ".manual-panel .tab-body" in BIBLE
+    assert ".manual-panel .visual-spec" in BIBLE
+    spec_start = BIBLE.index(".manual-panel .visual-spec {")
+    spec_rule = BIBLE[spec_start:BIBLE.index("}", spec_start)]
+    assert "min-height: 0;" in spec_rule
+
+
+def test_crew_cards_clip_their_boundary_without_clipping_content_slots():
+    crew = (ROOT / "static" / "css" / "crew.css").read_text(encoding="utf-8")
+    card_start = crew.index(".crew-flow .crew-card {")
+    card_rule = crew[card_start:crew.index("}", card_start)]
+    assert "height: auto;" in card_rule
+    assert "overflow: clip;" in card_rule
+    for selector in (".crew-card-main", ".crew-summary", ".crew-artifact-preview"):
+        start = crew.index(selector)
+        rule = crew[start:crew.index("}", start)]
+        assert "overflow: visible;" not in rule
+    assert "text-overflow: ellipsis;" in crew
+
+
+def test_screening_room_has_edit_screen_deliver_phases_and_compact_quality_details():
+    assert 'class="deliver-phase deliver-phase--edit"' in INDEX
+    assert 'class="deliver-phase-heading deliver-phase-heading--screen"' in INDEX
+    assert 'class="deliver-phase-heading deliver-phase-heading--deliver"' in INDEX
+    assert 'class="deliver-quality-details"' in INDEX
+    assert ".deliver-phase-heading" in DELIVER
+    assert ".deliver-quality-details" in DELIVER

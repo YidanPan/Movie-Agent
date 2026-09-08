@@ -2,7 +2,7 @@
 
 body[data-design="archive-console"] .manual-panel {
   --manual-shell-width: min(100%, var(--content-max));
-  --manual-content-width: 860px;
+  --manual-content-width: min(100%, 980px);
   --manual-body-size: 15px;
   --manual-body-leading: 1.8;
   width: var(--manual-shell-width);
@@ -202,6 +202,21 @@ body[data-design="archive-console"] .manual-panel .shot-sheet {
   max-width: var(--manual-content-width);
 }
 
+/* The document column is the available reading surface. Only prose keeps a
+   readable measure; structured production sheets may use the whole column. */
+body[data-design="archive-console"] .manual-panel .tab-body {
+  width: 100%;
+  max-width: none;
+}
+
+body[data-design="archive-console"] .manual-panel .visual-board,
+body[data-design="archive-console"] .manual-panel .dialogue-book,
+body[data-design="archive-console"] .manual-panel .shot-sheet,
+body[data-design="archive-console"] .manual-panel .visual-summary-section,
+body[data-design="archive-console"] .manual-panel .visual-assets-section {
+  max-width: none;
+}
+
 body[data-design="archive-console"] .manual-panel .manual-type,
 body[data-design="archive-console"] .manual-panel .manual-intro p,
 body[data-design="archive-console"] .manual-panel .brief-row p,
@@ -331,7 +346,7 @@ body[data-design="archive-console"] .manual-panel .visual-board {
 }
 
 body[data-design="archive-console"] .manual-panel .visual-spec {
-  min-height: 190px;
+  min-height: 0;
   padding: 22px 0 26px;
   border-bottom: 1px solid var(--line-soft);
 }
@@ -394,7 +409,15 @@ body[data-design="archive-console"] .manual-panel .visual-section-head > .type-s
   white-space: nowrap;
 }
 
-body[data-design="archive-console"] .manual-panel .visual-summary-grid,
+body[data-design="archive-console"] .manual-panel .visual-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: stretch;
+  gap: 18px 28px;
+  width: 100%;
+  margin-top: 17px;
+}
+
 body[data-design="archive-console"] .manual-panel .visual-assets-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
