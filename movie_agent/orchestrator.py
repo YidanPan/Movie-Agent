@@ -34,15 +34,13 @@ from movie_agent.services.media_quality import best_master_path, probe_media, ex
 from movie_agent.services.voice import ContinuousVoiceService, mark_voice_alignment_stale
 from movie_agent.services.state_ledger import rebuild_state_ledger_from_shot, build_state_ledger, validate_state_delta_or_raise
 from movie_agent.services.change_impact import RENDERER_INPUT_FIELDS, SHOT_EDITABLE_FIELDS, TIMING_FIELDS, resolve_change_impact
-from movie_agent.state import shot_ready
 from movie_agent.services.final_look import ensure_final_look, normalise_final_look, reset_final_look
-from movie_agent.services.errors import clear_failure, error_info, record_failure
+from movie_agent.services.errors import clear_failure
 from movie_agent.services.revisions import (
     ensure_project_revision_metadata,
     ensure_shot_metadata,
     hash_shot_prompt,
     reconcile_generation_fingerprints,
-    invalidate_downstream,
     mark_shot_stale,
 )
 from movie_agent.services.subtitles import (
@@ -53,16 +51,14 @@ from movie_agent.services.subtitles import (
 )
 from movie_agent.services.readiness import ensure_action_ready
 from movie_agent.pipeline.planning import PlanningPipeline
-from movie_agent.pipeline.rendering import RenderPipeline, shot_render_context
+from movie_agent.pipeline.rendering import (
+    RenderPipeline,
+    invalidate_edit_outputs as render_invalidate_edit_outputs,
+    require_dialogue_locked as render_require_dialogue_locked,
+    shots_ready as render_shots_ready,
+)
 from movie_agent.pipeline.editing import EditPipeline
 from movie_agent.pipeline.editing import edit_output_exists
-
-
-def _failure_stage(error: BaseException) -> str:
-    """Map a pipeline exception to the production department that owns it."""
-
-    text = str(error).lower()
-    return "quality" if any(token in text for token in ("quality", "consistency", "copyright", "drift")) else "generation"
 
 
 def _render_ready_status(settings: Settings) -> str:
@@ -101,7 +97,13 @@ class MovieOrchestrator:
             self.continuity_gate,
             self.semantic_copyright_reviewer,
         )
-        self.render_pipeline = RenderPipeline(self.generation_agent, self.reviewer)
+        self.render_pipeline = RenderPipeline(
+            self.generation_agent,
+            self.reviewer,
+            settings=self.settings,
+            continuity_gate=self.continuity_gate,
+            persist=self.store.save,
+        )
         self.edit_pipeline = EditPipeline(self.editor, self.voice_service)
 
     def create_project(
@@ -526,168 +528,13 @@ class MovieOrchestrator:
         project_id: str,
         progress_callback: Callable[[int, int, str], None] | None = None,
     ) -> MovieProject:
-        if self.settings.video_generation_mode == "mock":
-            raise ValueError("Current mode is mock. Select an explicitly configured video provider before rendering.")
         project = self.store.load(project_id)
-        if project.status == "previs_review_required":
-            raise ValueError("PREVIS_REVIEW_REQUIRED: approve the storyboard before rendering.")
-        clear_failure(project)
-        self._require_dialogue_locked(project)
-        ensure_continuity_lock(project)
-        reconcile_generation_fingerprints(
-            project,
-            workflow_identity=self.settings.comfy_workflow_template or "verified-comfyui-workflow",
-            workflow_path=self.settings.workflows_dir / self.settings.comfy_workflow_template,
-        )
-        ensure_action_ready(project, self.settings, "START_RENDER")
-        self.continuity_gate.review(
-            visual_bible=project.visual_bible,
-            storyboard=project.storyboard,
-            continuity_lock=project.continuity_lock,
-        )
-        unsupported_modes = sorted(
-            {shot.generation_mode for shot in project.storyboard if shot.generation_mode != "T2V"}
-        )
-        if unsupported_modes:
-            modes = ", ".join(unsupported_modes)
-            raise ValueError(
-                f"The selected video provider only supports T2V; project still has {modes} shots. "
-                "Please re-plan those shots before submitting for real generation."
-            )
-        project.status = _rendering_status(self.settings)
-        self._invalidate_edit_outputs(project, reason="render_started", source="shot_media")
-        project.logs.append(
-            f"Generation Agent: Submitting per-shot tasks through the {self.settings.video_generation_mode} provider."
-        )
-        self.store.save(project)
-        total_shots = len(project.storyboard)
-        for index, _shot in enumerate(project.storyboard, start=1):
-            render_context = shot_render_context(project, index)
-            shot = render_context["shot"]
-            if shot_ready(shot) and Path(shot.output_placeholder).is_file():
-                project.logs.append(f"Generation Agent: Shot {shot.number} already complete; skipping on resume.")
-                if progress_callback:
-                    progress_callback(index, total_shots, f"Shot {shot.number} already complete; skipping")
-                continue
-            last_error: Exception | None = None
-            previous_shot = render_context["previous_shot"]
-            for attempt in range(1, self.settings.comfy_max_retries + 1):
-                try:
-                    project.logs.append(
-                        self.render_pipeline.render_shot(
-                            project,
-                            shot,
-                            previous_shot=previous_shot,
-                        )
-                    )
-                    self.store.save(project)
-                    if progress_callback:
-                        progress_callback(index, total_shots, f"Shot {shot.number} generated and passed full QC")
-                    last_error = None
-                    break
-                except Exception as error:
-                    last_error = error
-                    # GenerationAgent records provider failures itself.  The
-                    # orchestrator also records quality-gate failures, while
-                    # retaining the same attempt counter when both layers
-                    # observe one provider exception.
-                    failure_stage = _failure_stage(error)
-                    record_failure(
-                        shot,
-                        error,
-                        stage=failure_stage,
-                        increment_retry=not bool(getattr(shot, "error_code", "")),
-                    )
-                    record_failure(project, error, stage=failure_stage)
-                    failure_message = error_info(error, stage=failure_stage)["error_message"]
-                    project.logs.append(
-                        f"Generation Agent: Shot {shot.number} attempt {attempt}/{self.settings.comfy_max_retries} failed: {failure_message}"
-                    )
-                    self.store.save(project)
-            if last_error is not None:
-                project.status = "render_failed"
-                project.logs.append("Generation Agent: You can click the real generate button again to resume from incomplete shots.")
-                self.store.save(project)
-                safe_message = error_info(last_error, stage="generation")["error_message"]
-                raise RuntimeError(f"Shot {shot.number} failed after multiple attempts: {safe_message}") from last_error
-            clear_failure(project)
-
-        if self._shots_ready(project):
-            project.status = "ready_for_ai_edit"
-            project.logs.append(f"Generation Agent: {len(project.storyboard)}/{len(project.storyboard)} SHOTS READY; stage advanced to DELIVER.")
-            project.logs.append("Editor Agent: Awaiting user to start AI Edit; Rough Cut first, then approve final cut.")
-        else:
-            project.status = "awaiting_visual_review"
-            project.logs.append("QC Agent: Media integrity passed, but one or more shots require explicit MANUAL VISUAL REVIEW before SHOTS READY.")
-        self.store.save(project)
-        if progress_callback:
-            progress_callback(
-                total_shots,
-                total_shots,
-                f"{total_shots}/{total_shots} SHOTS READY · Awaiting AI Edit",
-            )
-        return project
+        return self.render_pipeline.render_project(project, progress_callback=progress_callback)
 
     def render_shot(self, project_id: str, shot_number: int) -> MovieProject:
         """Regenerate one shot from the Inspector without assembling the full film."""
-        if self.settings.video_generation_mode == "mock":
-            raise ValueError("Current mode is mock. Select an explicitly configured video provider before generating shots.")
         project = self.store.load(project_id)
-        clear_failure(project)
-        if not 1 <= shot_number <= len(project.storyboard):
-            raise ValueError(f"Shot number must be between 1 and {len(project.storyboard)}.")
-        reconcile_generation_fingerprints(
-            project,
-            workflow_identity=self.settings.comfy_workflow_template or "verified-comfyui-workflow",
-            workflow_path=self.settings.workflows_dir / self.settings.comfy_workflow_template,
-        )
-        ensure_action_ready(project, self.settings, "RENDER_SHOT", shot_number=shot_number)
-        render_context = shot_render_context(project, shot_number)
-        shot = render_context["shot"]
-        ensure_continuity_lock(project)
-        if shot.generation_mode != "T2V":
-            raise ValueError(
-                f"Shot {shot.number} is marked as {shot.generation_mode}, but the selected video provider only supports T2V."
-            )
-
-        if not shot.stale:
-            mark_shot_stale(shot, f"shot_{shot_number}_render_requested")
-        shot.status = "replanned"
-        project.status = _rendering_status(self.settings)
-        self._invalidate_edit_outputs(project, reason=f"shot_{shot_number}_render_started", source="shot_media")
-        project.logs.append(f"Generation Agent: Inspector submitted shot {shot_number} for single-shot regeneration.")
-        self.store.save(project)
-        previous_shot = render_context["previous_shot"]
-        try:
-            project.logs.append(
-                self.render_pipeline.render_shot(
-                    project,
-                    shot,
-                    previous_shot=previous_shot,
-                )
-            )
-        except Exception as error:
-            failure_stage = _failure_stage(error)
-            record_failure(
-                shot,
-                error,
-                stage=failure_stage,
-                increment_retry=not bool(getattr(shot, "error_code", "")),
-            )
-            record_failure(project, error, stage=failure_stage)
-            project.status = "render_failed"
-            safe_message = error_info(error, stage=failure_stage)["error_message"]
-            project.logs.append(f"Generation Agent: Shot {shot_number} single-shot generation failed: {safe_message}")
-            self.store.save(project)
-            raise
-
-        project.status = "ready_for_ai_edit" if self._shots_ready(project) else "awaiting_visual_review"
-        if project.status == "awaiting_visual_review":
-            project.logs.append(f"QC Agent: Shot {shot_number} integrity passed; MANUAL VISUAL REVIEW is required before it can enter SHOTS READY.")
-        else:
-            project.logs.append(f"QC Agent: Shot {shot_number} passed single-shot inspection; ready to continue assembling the full film.")
-        self.store.save(project)
-        return project
+        return self.render_pipeline.render_single_shot(project, shot_number)
 
     def approve_previs(self, project_id: str) -> MovieProject:
         """Explicitly approve a repaired storyboard and resume planning."""
@@ -743,15 +590,13 @@ class MovieOrchestrator:
 
     @staticmethod
     def _require_dialogue_locked(project: MovieProject) -> None:
-        if not bool((project.script or {}).get("dialogue_locked")):
-            raise ValueError("Please review and lock the dialogue book / subtitle track in the writing stage first.")
+        render_require_dialogue_locked(project)
 
     @staticmethod
     def _shots_ready(project: MovieProject) -> bool:
         """Return true only for currently approved, non-stale shot revisions."""
 
-        shots = list(getattr(project, "storyboard", []) or [])
-        return bool(shots) and all(shot_ready(shot) for shot in shots)
+        return render_shots_ready(project)
 
     @staticmethod
     def _invalidate_edit_outputs(
@@ -763,9 +608,7 @@ class MovieOrchestrator:
     ) -> dict[str, Any]:
         """Mark downstream derivatives stale without deleting prior media."""
 
-        event = invalidate_downstream(project, source, reason, shot=shot)
-        reset_final_look(project)
-        return event
+        return render_invalidate_edit_outputs(project, reason=reason, source=source, shot=shot)
 
     def update_dialogue(
         self,
