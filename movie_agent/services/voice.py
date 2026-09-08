@@ -14,12 +14,12 @@ import re
 import subprocess
 import tempfile
 import wave
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Protocol
 
 from movie_agent.config import Settings
-from movie_agent.services.alignment import PROPORTIONAL, WORD_LEVEL
+from movie_agent.services.alignment import PROPORTIONAL, WORD_LEVEL, WordBoundary
 from movie_agent.services.story_world import canonical_entity_id, world_entities
 from movie_agent.services.subtitles import align_script_to_audio, script_subtitle_track
 from movie_agent.services.voice_timeline import compose_voice_timeline
@@ -316,7 +316,8 @@ class ContinuousVoiceService:
             return result
         output_path = self.settings.outputs_dir / project.project_id / "audio" / "voice.wav"
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        word_boundaries: list[dict[str, Any]] = []
+        word_boundaries: list[Any] = []
+        forced_alignment: list[Any] = []
         dialogue_entries = _dialogue_entries(project)
         speaker_ids = list(dict.fromkeys(str(item["speaker_id"]) for item in dialogue_entries)) or ["NARRATOR"]
         voice_cast = ensure_voice_cast(project)
@@ -350,7 +351,7 @@ class ContinuousVoiceService:
             if native is None and callable(getattr(active_provider, "get_word_boundaries", None)):
                 native = active_provider.get_word_boundaries(text, rendered)
             if native:
-                word_boundaries = [item for item in native if isinstance(item, (dict, list, tuple))]
+                word_boundaries = [item for item in native if isinstance(item, (WordBoundary, dict, list, tuple))]
                 result = VoiceSynthesisResult(
                     result.status,
                     result.media_path,
@@ -359,6 +360,21 @@ class ContinuousVoiceService:
                     WORD_LEVEL,
                     word_boundaries=word_boundaries,
                 )
+            if not word_boundaries and len(speaker_ids) == 1:
+                forced_aligner = getattr(active_provider, "get_forced_alignment", None)
+                if not callable(forced_aligner):
+                    forced_aligner = getattr(active_provider, "forced_align", None)
+                if callable(forced_aligner):
+                    try:
+                        forced = forced_aligner(text, rendered)
+                    except (OSError, RuntimeError, TypeError, ValueError):
+                        forced = None
+                    if forced:
+                        forced_alignment = [
+                            item for item in forced if isinstance(item, (WordBoundary, dict, list, tuple))
+                        ]
+                        if forced_alignment:
+                            result = replace(result, word_boundaries=forced_alignment)
         except (OSError, RuntimeError, TypeError, ValueError, subprocess.SubprocessError) as exc:
             output_path.unlink(missing_ok=True)
             result = VoiceSynthesisResult(
@@ -374,14 +390,20 @@ class ContinuousVoiceService:
             project.script = align_script_to_audio(
                 getattr(project, "script", {}) or {},
                 result.duration_seconds,
-                word_boundaries=result.word_boundaries,
+                word_boundaries=word_boundaries,
+                forced_alignment=forced_alignment,
             )
+            resolved_alignment = str(
+                (project.script.get("voice_alignment") or {}).get("method")
+                or result.alignment_method
+            )
+            result = replace(result, alignment_method=resolved_alignment)
             timeline = compose_voice_timeline(
                 project,
                 Path(result.media_path),
                 result.duration_seconds,
                 ffmpeg_bin=self.settings.ffmpeg_bin,
-                word_boundaries=result.word_boundaries,
+                word_boundaries=word_boundaries or forced_alignment,
             )
             timeline_cues = timeline.get("cues") or []
             project.script["dialogue_book"] = timeline_cues

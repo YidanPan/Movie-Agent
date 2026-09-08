@@ -22,6 +22,18 @@ class _WaveVoiceProvider:
         return output_path
 
 
+class _ForcedWaveVoiceProvider(_WaveVoiceProvider):
+    def get_forced_alignment(self, text: str, rendered_path: Path):
+        del rendered_path
+        words = text.split()
+        duration = 3.0
+        slot = duration / max(1, len(words))
+        return [
+            {"word": word, "start_time": index * slot, "end_time": (index + 1) * slot}
+            for index, word in enumerate(words)
+        ]
+
+
 class ContinuousVoiceTests(unittest.TestCase):
     def test_alignment_uses_measured_media_duration_and_preserves_cue_count(self) -> None:
         script = {
@@ -79,6 +91,21 @@ class ContinuousVoiceTests(unittest.TestCase):
         self.assertEqual(aligned["voice_alignment"]["method"], WORD_LEVEL)
         self.assertEqual(aligned["voice_alignment"]["words"][0]["word"], "The")
         self.assertEqual(aligned["subtitle_track"][0]["start_seconds"], 0.0)
+
+    def test_service_uses_forced_alignment_and_persists_resolved_method(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            settings = Settings(
+                "http://127.0.0.1:8188", 900, root / "workflows", 9071, root / "projects", True,
+                outputs_dir=root / "outputs", tts_provider="none",
+            )
+            orchestrator = MovieOrchestrator(settings)
+            project = orchestrator.create_project("A night watchman follows a signal beyond the moon.", 48, "film sci-fi")
+            project = orchestrator.lock_dialogue(project.project_id)
+            result = ContinuousVoiceService(settings, provider=_ForcedWaveVoiceProvider()).synthesize(project)
+            self.assertEqual(result.alignment_method, WORD_LEVEL)
+            self.assertEqual(project.audio_tracks["voice"]["alignment_method"], WORD_LEVEL)
+            self.assertEqual(project.script["voice_alignment"]["source"], "forced_alignment")
 
     def test_alignment_falls_back_in_order(self) -> None:
         script = {
