@@ -91,7 +91,9 @@ def test_readability_pass_covers_production_surfaces_and_structured_values():
     assert ".visual-spec-copy" in CSS
     assert ".crew-radio .radio-msg" in CSS
     assert ".deliver-ready-line strong" in CSS
-    assert "width: min(1180px, calc(100vw - 64px))" in CSS
+    layout = (ROOT / "static" / "css" / "layout.css").read_text(encoding="utf-8")
+    assert "--content-max: 1240px" in layout
+    assert "width: min(100%, var(--content-max))" in layout
     assert "#26211b" in CSS.lower()
     assert "#5d4930" in CSS.lower()
 
@@ -155,7 +157,7 @@ def test_production_bible_is_a_quiet_reading_workspace():
     assert 'data-manual-nav-tab="visual"' in INDEX
     assert 'production-bible.css?v=' in INDEX
     assert ".manual-reading-grid" in BIBLE
-    assert "--manual-content-width: 860px" in BIBLE
+    assert "--manual-content-width: var(--reading-max)" in BIBLE
     assert "max-width: var(--manual-content-width)" in BIBLE
     assert "font-family: var(--sans)" in BIBLE
     assert "font-size: var(--manual-body-size)" in BIBLE
@@ -317,8 +319,9 @@ def test_final_cut_workspace_is_clipped_two_column_inspector_and_progressive():
     assert 'class="final-look-step final-look-disclosure"' in INDEX
     assert 'id="final-look-fine-tune"' in INDEX
     assert 'id="final-look-fine-tune" open' not in INDEX
-    assert "grid-template-columns: minmax(0, 1.7fr) minmax(300px, 1fr);" in CSS
-    assert "gap: clamp(24px, 2.2vw, 32px);" in CSS
+    deliver = (ROOT / "static" / "css" / "deliver.css").read_text(encoding="utf-8")
+    assert "grid-template-columns: minmax(0, 1.8fr) minmax(320px, 1fr);" in deliver
+    assert "gap: clamp(20px, 2.4vw, 32px);" in deliver
     assert ".final-preview {" in CSS
     assert "aspect-ratio: 16 / 9;" in CSS
     assert "contain: paint;" in CSS
@@ -335,7 +338,7 @@ def test_light_screening_room_keeps_content_sharp_and_monitor_readable():
     assert "backdrop-filter: none" in CSS
     assert "text-shadow: none" in CSS
     assert "FINAL CUT NOT GENERATED" in INDEX
-    assert "media-quality-20260904" in INDEX
+    assert 'data-quality-mode="auto"' in INDEX
 
 
 def test_video_quality_tiers_keep_screening_preview_separate_from_final_master():

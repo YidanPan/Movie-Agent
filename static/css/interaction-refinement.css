@@ -113,11 +113,6 @@ body[data-design="archive-console"] .landing-spotlight .spotlight-dust { opacity
 .production-stage-index { display: none; }
 
 /* Shot cards: icon + reason + compact technical metadata. */
-.shot-card {
-  flex-basis: 260px;
-  min-height: 324px;
-}
-
 .shot-card .shot-head,
 .shot-card .film-stamp,
 .shot-card .shot-mode,
@@ -324,7 +319,6 @@ body[data-design="archive-console"] :is(.theme-toggle, .sound-toggle, .ghost, .i
 }
 
 @media (max-width: 700px) {
-  .shot-card { flex-basis: 206px; min-height: 310px; }
   .shot-narrative { padding-inline: 10px; }
   .inspector-review-checks { grid-template-columns: 1fr; }
 }
@@ -400,8 +394,8 @@ body[data-design="archive-console"] .audio-track,
 body[data-design="archive-console"] .audio-mixer,
 body[data-design="archive-console"] .audio-track-inspector { box-shadow: none; backdrop-filter: none; }
 
-/* Deliver: the film owns the left side; the Finish inspector stays a calm 35–38% column. */
-body[data-design="archive-console"] .deliver-final .final-cut-workspace { grid-template-columns: minmax(0, 1.7fr) minmax(300px, 1fr); gap: clamp(24px, 2.2vw, 32px); }
+/* Deliver layout belongs to deliver.css; this layer only keeps the media
+   surface sharp and the finish controls visually quiet. */
 body[data-design="archive-console"] .deliver-final .final-player-shell { box-shadow: none; }
 body[data-design="archive-console"] .deliver-final .final-preview,
 body[data-design="archive-console"] .deliver-final .final-preview video,
@@ -439,14 +433,6 @@ body[data-design="archive-console"] .deliver-preview-quality-warning { min-heigh
 .theme-transition-wash { position: fixed; inset: 0; z-index: 100; pointer-events: none; background: radial-gradient(ellipse at 82% 14%, rgba(236, 216, 173, 0.15), transparent 52%); opacity: 0; transition: opacity var(--theme-ms-ambient) var(--theme-ease); }
 .theme-transition-wash.is-active { opacity: 1; }
 html.theme-transitioning body * { filter: none !important; }
-
-@media (max-width: 900px) {
-  body[data-design="archive-console"] .manual-reading-grid { grid-template-columns: 1fr; gap: 12px; }
-  body[data-design="archive-console"] .manual-navigation { position: static; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding-top: 12px; }
-  body[data-design="archive-console"] .manual-navigation-label,
-  body[data-design="archive-console"] .manual-navigation-note { grid-column: 1 / -1; }
-  body[data-design="archive-console"] .manual-navigation-note { display: none; }
-}
 
 @media (prefers-reduced-motion: reduce) {
   .theme-transition-wash { transition: none; }

@@ -1,9 +1,13 @@
 /* Production Bible — one quiet binder language for every document tab. */
 
 body[data-design="archive-console"] .manual-panel {
-  --manual-content-width: 860px;
+  --manual-shell-width: min(100%, var(--content-max));
+  --manual-content-width: var(--reading-max);
   --manual-body-size: 15px;
   --manual-body-leading: 1.8;
+  width: var(--manual-shell-width);
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 body[data-design="archive-console"] .manual-panel,
@@ -84,6 +88,7 @@ body[data-design="archive-console"] .manual-panel .manual-navigation-item.is-act
 
 body[data-design="archive-console"] .manual-panel .manual-document {
   min-width: 0;
+  width: 100%;
 }
 
 body[data-design="archive-console"] .manual-panel .manual-project-line {

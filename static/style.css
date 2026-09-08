@@ -321,7 +321,9 @@ body {
 
 .grain {
   position: fixed;
-  inset: -100%;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   z-index: 90;
   pointer-events: none;
   opacity: 0.05;
@@ -948,69 +950,7 @@ main {
 .crew-flow-legend i[data-state="done"] { background: var(--ok); }
 .crew-flow-legend i[data-state="waiting"] { background: var(--meta); }
 
-.crew-flow {
-  display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
-  column-gap: 10px;
-  align-items: stretch;
-  min-width: 1120px;
-  overflow: visible;
-}
-
-.crew-flow-node {
-  position: relative;
-  display: flex;
-  min-width: 0;
-  padding-right: 22px;
-}
-
-.crew-flow-node:last-child { padding-right: 0; }
-
-.crew-flow-link {
-  position: absolute;
-  top: 50%;
-  right: 0;
-  width: 21px;
-  height: 1px;
-  border-top: 1px dashed var(--line);
-  transform: translateY(-50%);
-}
-
-.crew-flow-link::after {
-  content: "";
-  position: absolute;
-  top: -3px;
-  right: 0;
-  width: 5px;
-  height: 5px;
-  border-top: 1px solid currentColor;
-  border-right: 1px solid currentColor;
-  color: var(--line);
-  transform: rotate(45deg);
-}
-
-.crew-flow-link b {
-  position: absolute;
-  top: 50%;
-  left: 0;
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--amber);
-  box-shadow: 0 0 7px rgba(215, 166, 74, 0.68);
-  opacity: 0;
-  transform: translate(-50%, -50%);
-}
-
-.crew-flow-link[data-state="done"] { border-top-style: solid; border-top-color: rgba(133, 185, 140, 0.6); color: rgba(133, 185, 140, 0.72); }
-.crew-flow-link[data-state="active"] { border-top-style: solid; border-top-color: rgba(215, 166, 74, 0.8); color: rgba(215, 166, 74, 0.92); }
-.crew-flow-link[data-state="active"] b { opacity: 1; animation: signal-flow 1.8s ease-in-out infinite; }
-
 .crew-live-note { display: block; margin-top: 8px; color: var(--amber); font-size: 0.57rem; letter-spacing: 0.08em; }
-
-@media (max-width: 1180px) {
-  .crew-flow { overflow-x: auto; padding-bottom: 8px; scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
-}
 
 /* ── 剧组对讲机 ────────────────────────────────────────────── */
 
@@ -1931,56 +1871,39 @@ main {
   text-shadow: none;
 }
 
-.manual-panel .manual-intro,
-.manual-panel .brief-sheet,
-.manual-panel .screenplay-reader,
-.manual-panel .visual-board,
-.manual-panel .visual-palette,
-.manual-panel .shot-sheet,
-.manual-panel .tab-body dl {
-  width: min(100%, 960px);
-}
-
 .manual-panel .manual-intro p {
-  max-width: 900px;
   font-size: 0.98rem;
   line-height: 1.85;
 }
 
 .manual-panel .brief-row p {
-  max-width: 900px;
   font-size: 1rem;
   line-height: 1.82;
 }
 
 .manual-panel .screenplay-body {
-  max-width: 930px;
   padding: 13px 0 5px;
 }
 
 .manual-panel .screenplay-body p {
-  max-width: 930px;
   padding: 13px 0;
   font-size: 1rem;
   line-height: 1.86;
 }
 
 .manual-panel .screenplay-narration {
-  max-width: 900px;
   padding: 18px 22px;
   background: rgba(215, 166, 74, 0.055);
   box-shadow: none;
 }
 
 .manual-panel .screenplay-narration p {
-  max-width: 830px;
   font-size: 1rem;
   font-style: normal;
   line-height: 1.9;
 }
 
 .manual-panel .dialogue-book {
-  max-width: 960px;
   background: var(--surface-2);
   border-color: rgba(215, 166, 74, 0.2);
   box-shadow: none;
@@ -2301,7 +2224,6 @@ main {
 .deliver-music-brief-stats .music-brief-stat strong { font-size: .58rem; }
 
 .deliver-final { display: grid; gap: 18px; }
-.final-cut-workspace { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(300px, .95fr); align-items: start; gap: 18px; }
 .final-cut-screening { display: grid; gap: 14px; min-width: 0; }
 .final-player-shell { position: relative; aspect-ratio: 16 / 9; overflow: hidden; background: var(--theme-media); border: 1px solid var(--line); }
 .final-player-topline { position: absolute; inset: 0 0 auto; z-index: 5; display: flex; justify-content: space-between; padding: 12px 14px; background: linear-gradient(180deg, rgba(3, 3, 2, 0.86), transparent); color: var(--dim); font-size: 0.57rem; letter-spacing: 0.14em; pointer-events: none; }
@@ -3491,10 +3413,6 @@ body[data-design="archive-console"] {
   --ambient: rgba(194, 138, 62, 0.075);
 }
 
-body[data-design="archive-console"] main {
-  max-width: 1320px;
-}
-
 body[data-design="archive-console"] .act:not(.hero) { padding-block: 0; }
 /* The opening act has its own top breathing room; the chapter gap below it
    is the single separator before Crew Assembly begins. */
@@ -3702,21 +3620,6 @@ body[data-design="archive-console"] .manual-panel {
 body[data-design="archive-console"] .manual-panel .manual-summary {
   background: linear-gradient(90deg, rgba(236, 227, 206, 0.032), transparent 74%);
   border-color: var(--hairline-soft);
-}
-
-body[data-design="archive-console"] .manual-panel .tab-body,
-body[data-design="archive-console"] .manual-panel .manual-intro,
-body[data-design="archive-console"] .manual-panel .brief-sheet,
-body[data-design="archive-console"] .manual-panel .screenplay-reader,
-body[data-design="archive-console"] .manual-panel .visual-board,
-body[data-design="archive-console"] .manual-panel .shot-sheet {
-  max-width: 960px;
-}
-
-body[data-design="archive-console"] .manual-panel .screenplay-body,
-body[data-design="archive-console"] .manual-panel .screenplay-narration,
-body[data-design="archive-console"] .manual-panel .dialogue-book {
-  max-width: 920px;
 }
 
 body[data-design="archive-console"] .manual-panel .screenplay-body p,
@@ -4351,7 +4254,6 @@ body.low-performance[data-design="archive-console"] .landing-reveal-grain { disp
 @media (max-width: 960px) {
   .pipeline { display: none; }
   .landing-features { grid-template-columns: 1fr; }
-  .final-cut-workspace { grid-template-columns: 1fr; }
   .final-look-panel { position: relative; top: auto; }
   body[data-design="archive-console"] .landing-reveal { right: -8%; width: min(68vw, 700px); opacity: 0.74; }
 }
@@ -4369,15 +4271,6 @@ body.low-performance[data-design="archive-console"] .landing-reveal-grain { disp
 @media (max-width: 700px) {
   .crew-flow-head { align-items: flex-start; flex-direction: column; gap: 8px; }
   .crew-flow-progress { margin-left: 0; }
-  .crew-flow { grid-template-columns: 1fr; min-width: 0; overflow: visible; padding-bottom: 0; }
-  .crew-flow-node { padding: 0 0 28px; }
-  .crew-flow-node:last-child { padding-bottom: 0; }
-  .crew-flow-link { top: auto; right: auto; bottom: 6px; left: 20px; width: 1px; height: 22px; border-top: 0; border-left: 1px dashed var(--line); transform: none; }
-  .crew-flow-link::after { top: auto; right: auto; bottom: -1px; left: -3px; border-top: 0; border-right: 1px solid currentColor; border-bottom: 1px solid currentColor; transform: rotate(45deg); }
-  .crew-flow-link b { top: auto; left: 0; bottom: 0; transform: translate(-50%, 50%); }
-  .crew-flow-link[data-state="done"] { border-left-style: solid; border-left-color: rgba(133, 185, 140, 0.6); }
-  .crew-flow-link[data-state="active"] { border-left-style: solid; border-left-color: rgba(215, 166, 74, 0.8); }
-  .crew-flow-link[data-state="active"] b { animation: bridge-flow 1.8s ease-in-out infinite; }
   .rec-clock span:last-child { display: none; }
   .hero { min-height: 0; padding-top: 34px; padding-bottom: 54px; }
   .hero-title { max-width: 100%; font-size: clamp(2.6rem, 13vw, 4.2rem); }
@@ -5267,14 +5160,6 @@ body[data-design="archive-console"] .manual-panel * {
   text-shadow: none;
 }
 
-body[data-design="archive-console"] .manual-panel .screenplay-body,
-body[data-design="archive-console"] .manual-panel .screenplay-narration,
-body[data-design="archive-console"] .manual-panel .dialogue-book,
-body[data-design="archive-console"] .manual-panel .visual-board,
-body[data-design="archive-console"] .manual-panel .shot-sheet {
-  max-width: 920px;
-}
-
 body[data-design="archive-console"] .manual-panel .screenplay-body p,
 body[data-design="archive-console"] .manual-panel .screenplay-narration p,
 body[data-design="archive-console"] .manual-panel .tab-body .story p,
@@ -5550,7 +5435,6 @@ html[data-theme="light"] body[data-design="archive-console"] .aurora {
    compact dashboard defaults above.
    ───────────────────────────────────────────────────────────── */
 body[data-design="archive-console"] {
-  --audit-copy-width: min(920px, 100%);
   --audit-border: var(--border-soft-token);
 }
 
@@ -5671,9 +5555,6 @@ body[data-design="archive-console"] .crew-radio .radio-msg p {
 
 /* Production Bible: an editorial document shell, centered and free of fog. */
 body[data-design="archive-console"] .workspace > .manual-panel {
-  width: min(1180px, calc(100vw - 64px));
-  max-width: 100%;
-  margin-inline: auto;
   background: var(--surface-1);
   border: 1px solid var(--audit-border);
   border-radius: var(--radius-surface);
@@ -5809,11 +5690,6 @@ body[data-design="archive-console"] .manual-panel .activity-empty {
   opacity: 1;
 }
 
-body[data-design="archive-console"] .manual-panel .manual-intro p,
-body[data-design="archive-console"] .manual-panel .dialogue-book-head p {
-  max-width: 760px;
-}
-
 body[data-design="archive-console"] .manual-panel .brief-row {
   grid-template-columns: 190px 130px minmax(0, 1fr);
   gap: 18px;
@@ -5827,15 +5703,7 @@ body[data-design="archive-console"] .manual-panel .brief-key {
   font-weight: 500;
 }
 
-body[data-design="archive-console"] .manual-panel .screenplay-reader,
-body[data-design="archive-console"] .manual-panel .brief-sheet,
-body[data-design="archive-console"] .manual-panel .visual-board,
-body[data-design="archive-console"] .manual-panel .shot-sheet {
-  max-width: var(--audit-copy-width);
-}
-
 body[data-design="archive-console"] .manual-panel .screenplay-body {
-  max-width: 920px;
   padding: 12px 0 6px;
 }
 
@@ -5854,7 +5722,6 @@ body[data-design="archive-console"] .manual-panel .screenplay-line-no {
 }
 
 body[data-design="archive-console"] .manual-panel .screenplay-narration {
-  max-width: 920px;
   margin-top: 26px;
   padding: 18px 22px;
   background: color-mix(in srgb, var(--accent-token) 6%, transparent);
@@ -5863,14 +5730,12 @@ body[data-design="archive-console"] .manual-panel .screenplay-narration {
 }
 
 body[data-design="archive-console"] .manual-panel .screenplay-narration p {
-  max-width: 820px;
   margin-top: 10px;
   font-style: normal;
   line-height: 1.8;
 }
 
 body[data-design="archive-console"] .manual-panel .dialogue-book {
-  max-width: 920px;
   margin-top: 32px;
   padding: 22px;
   background: color-mix(in srgb, var(--surface-2) 72%, transparent);
@@ -5914,10 +5779,6 @@ body[data-design="archive-console"] .manual-panel .visual-palette {
   width: calc(100% - clamp(28px, 3vw, 48px));
   margin-left: clamp(20px, 2.2vw, 32px);
   margin-right: clamp(8px, 1.2vw, 16px);
-}
-
-body[data-design="archive-console"] .manual-panel .visual-intro {
-  max-width: 760px;
 }
 
 body[data-design="archive-console"] .manual-panel .visual-board {
@@ -6080,7 +5941,6 @@ body[data-design="archive-console"] .manual-panel .shot-detail-head h3 {
 
 body[data-design="archive-console"] .manual-panel .shot-detail-head p,
 body[data-design="archive-console"] .manual-panel .shot-detail-grid p {
-  max-width: 920px;
   font-size: 15px;
   line-height: 1.65;
 }
@@ -6557,10 +6417,6 @@ html[data-theme="light"] body[data-design="archive-console"] .inspector-prompt-r
 }
 
 @media (max-width: 720px) {
-  body[data-design="archive-console"] .workspace > .manual-panel {
-    width: calc(100vw - 32px);
-  }
-
   body[data-design="archive-console"] .manual-panel .visual-intro,
   body[data-design="archive-console"] .manual-panel .visual-board,
   body[data-design="archive-console"] .manual-panel .visual-palette {
@@ -7753,14 +7609,6 @@ html[data-theme="light"] body[data-design="archive-console"] .audio-track.is-sel
    preview owns every comparison layer and clips it at its 16:9 boundary;
    nothing in the media stack can participate in the grid outside that box.
    ───────────────────────────────────────────────────────────── */
-body[data-design="archive-console"] .final-cut-workspace {
-  display: grid;
-  grid-template-columns: minmax(0, 1.7fr) minmax(300px, 1fr);
-  align-items: start;
-  gap: clamp(24px, 2.2vw, 32px);
-  width: 100%;
-}
-
 body[data-design="archive-console"] .final-cut-screening,
 body[data-design="archive-console"] .final-player-shell,
 body[data-design="archive-console"] .final-preview {
@@ -7843,14 +7691,6 @@ html[data-theme="light"] body[data-design="archive-console"] .final-look-panel .
 html[data-theme="light"] body[data-design="archive-console"] .final-look-panel .final-look-note {
   color: var(--text-body);
   opacity: 1;
-}
-
-@media (max-width: 960px) {
-  body[data-design="archive-console"] .final-cut-workspace {
-    grid-template-columns: 1fr;
-    gap: 24px;
-  }
-  body[data-design="archive-console"] .final-look-panel { position: relative; top: auto; }
 }
 
 /* ─────────────────────────────────────────────────────────────

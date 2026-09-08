@@ -1,6 +1,36 @@
 /* Deliver / Final Cut extraction seam. */
 :where(.p2-deliver) { isolation: isolate; }
 
+/* Deliver owns the viewer/inspector split. */
+body[data-design="archive-console"] .final-cut-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1.8fr) minmax(320px, 1fr);
+  align-items: start;
+  gap: clamp(20px, 2.4vw, 32px);
+  width: 100%;
+  min-width: 0;
+}
+
+body[data-design="archive-console"] .final-cut-screening,
+body[data-design="archive-console"] .final-player-shell,
+body[data-design="archive-console"] .final-preview,
+body[data-design="archive-console"] .final-look-panel {
+  width: 100%;
+  min-width: 0;
+}
+
+@media (max-width: 1099px) {
+  body[data-design="archive-console"] .final-cut-workspace {
+    grid-template-columns: minmax(0, 1fr) minmax(280px, .78fr);
+    gap: 20px;
+  }
+}
+
+@media (max-width: 899px) {
+  body[data-design="archive-console"] .final-cut-workspace { grid-template-columns: 1fr; }
+  body[data-design="archive-console"] .final-look-panel { position: relative; top: auto; }
+}
+
 /* Final Cut / Screening Room: the film is the stage, the controls are the
    quiet inspector.  This layer owns the new Deliver layout without growing
    the legacy global stylesheet. */

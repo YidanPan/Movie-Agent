@@ -1,6 +1,65 @@
 /* Crew Assembly / Production Route authoritative card system. */
 :where(.p2-crew) { isolation: isolate; }
 
+/* The route is a real grid, not a fixed-width strip. */
+body[data-design="archive-console"] .crew-flow {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 16px 10px;
+  align-items: stretch;
+  min-width: 0;
+  overflow: visible;
+}
+
+body[data-design="archive-console"] .crew-flow-node {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  padding-right: 0;
+}
+
+body[data-design="archive-console"] .crew-flow-node:last-child { padding-right: 0; }
+
+body[data-design="archive-console"] .crew-flow-link {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  width: 21px;
+  height: 1px;
+  border-top: 1px dashed var(--line);
+  transform: translateY(-50%);
+}
+
+body[data-design="archive-console"] .crew-flow-link::after {
+  content: "";
+  position: absolute;
+  top: -3px;
+  right: 0;
+  width: 5px;
+  height: 5px;
+  border-top: 1px solid currentColor;
+  border-right: 1px solid currentColor;
+  color: var(--line);
+  transform: rotate(45deg);
+}
+
+body[data-design="archive-console"] .crew-flow-link b {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--amber);
+  box-shadow: 0 0 7px rgba(215, 166, 74, 0.68);
+  opacity: 0;
+  transform: translate(-50%, -50%);
+}
+
+body[data-design="archive-console"] .crew-flow-link[data-state="done"] { border-top-style: solid; border-top-color: rgba(133, 185, 140, 0.6); color: rgba(133, 185, 140, 0.72); }
+body[data-design="archive-console"] .crew-flow-link[data-state="active"] { border-top-style: solid; border-top-color: rgba(215, 166, 74, 0.8); color: rgba(215, 166, 74, 0.92); }
+body[data-design="archive-console"] .crew-flow-link[data-state="active"] b { opacity: 1; animation: signal-flow 1.8s ease-in-out infinite; }
+
 body[data-design="archive-console"] .crew-flow .crew-card {
   position: relative;
   display: flex;
@@ -237,7 +296,7 @@ body[data-design="archive-console"] .crew-flow .crew-card .crew-artifact-preview
   flex: 0 0 auto;
   gap: 7px;
   min-width: 0;
-  max-height: 102px;
+  max-height: 128px;
   padding: 9px;
   overflow: visible;
   border: 1px solid var(--line-soft);
@@ -250,10 +309,9 @@ body[data-design="archive-console"] .crew-flow .crew-card .crew-artifact-preview
 }
 
 body[data-design="archive-console"] .crew-flow .artifact-preview-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 5px;
   min-width: 0;
 }
 
@@ -263,7 +321,7 @@ body[data-design="archive-console"] .crew-flow .artifact-title {
   font: 650 11px/1.35 var(--mono);
   letter-spacing: .06em;
   overflow-wrap: normal;
-  white-space: nowrap;
+  white-space: normal;
   writing-mode: horizontal-tb;
 }
 
@@ -280,6 +338,7 @@ body[data-design="archive-console"] .crew-flow .artifact-content {
 }
 
 body[data-design="archive-console"] .crew-flow .artifact-action {
+  justify-self: start;
   min-height: 28px;
   padding: 5px 7px;
   color: var(--text-muted);
@@ -376,4 +435,51 @@ body[data-design="archive-console"] .crew-flow .crew-card.failed .crew-state-ico
     min-height: 0;
     height: auto;
   }
+}
+
+@media (max-width: 1279px) {
+  body[data-design="archive-console"] .crew-flow { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  body[data-design="archive-console"] .crew-flow-link { display: none; }
+}
+
+@media (max-width: 899px) {
+  body[data-design="archive-console"] .crew .act-head { position: static; }
+  body[data-design="archive-console"] .crew-flow { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 599px) {
+  body[data-design="archive-console"] .crew-flow { grid-template-columns: 1fr; }
+  body[data-design="archive-console"] .crew-flow-node { padding: 0 0 28px; }
+  body[data-design="archive-console"] .crew-flow-node:last-child { padding-bottom: 0; }
+  body[data-design="archive-console"] .crew-flow-link {
+    display: block;
+    top: auto;
+    right: auto;
+    bottom: 6px;
+    left: 20px;
+    width: 1px;
+    height: 22px;
+    border-top: 0;
+    border-left: 1px dashed var(--line);
+    transform: none;
+  }
+  body[data-design="archive-console"] .crew-flow-link::after {
+    top: auto;
+    right: auto;
+    bottom: -1px;
+    left: -3px;
+    border-top: 0;
+    border-right: 1px solid currentColor;
+    border-bottom: 1px solid currentColor;
+    transform: rotate(45deg);
+  }
+  body[data-design="archive-console"] .crew-flow-link b {
+    top: auto;
+    left: 0;
+    bottom: 0;
+    transform: translate(-50%, 50%);
+  }
+  body[data-design="archive-console"] .crew-flow-link[data-state="done"] { border-left-style: solid; border-left-color: rgba(133, 185, 140, 0.6); }
+  body[data-design="archive-console"] .crew-flow-link[data-state="active"] { border-left-style: solid; border-left-color: rgba(215, 166, 74, 0.8); }
+  body[data-design="archive-console"] .crew-flow-link[data-state="active"] b { animation: bridge-flow 1.8s ease-in-out infinite; }
 }

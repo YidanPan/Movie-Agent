@@ -1,3 +1,28 @@
 /* Storyboard / film-strip extraction seam. */
 :where(.p2-storyboard) { isolation: isolate; }
 
+body[data-design="archive-console"] .filmstrip-viewport {
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  scrollbar-width: thin;
+}
+
+body[data-design="archive-console"] .filmstrip {
+  display: flex;
+  width: max-content;
+  min-width: 100%;
+  gap: 14px;
+}
+
+body[data-design="archive-console"] .shot-card {
+  flex: 0 0 clamp(250px, 26vw, 300px);
+  min-width: 250px;
+  min-height: 324px;
+}
+
+@media (max-width: 720px) {
+  body[data-design="archive-console"] .shot-card { flex-basis: 250px; }
+}
+
