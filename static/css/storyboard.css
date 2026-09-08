@@ -25,7 +25,232 @@ body[data-design="archive-console"] .shot-card {
   min-height: 324px;
 }
 
+/* Storyboard card content stays readable while technical state remains
+   compact. These rules belong to the film-strip/shot surface, not the
+   interaction refinement layer. */
+body[data-design="archive-console"] .shot-card .shot-head,
+body[data-design="archive-console"] .shot-card .film-stamp,
+body[data-design="archive-console"] .shot-card .shot-mode,
+body[data-design="archive-console"] .shot-card .shot-technical-meta,
+body[data-design="archive-console"] .timeline-segment .timeline-mode,
+body[data-design="archive-console"] .timeline-head {
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+body[data-design="archive-console"] .shot-card .shot-framing {
+  font-size: 18px;
+  line-height: 1.25;
+}
+
+body[data-design="archive-console"] .shot-media-state {
+  position: absolute;
+  right: 10px;
+  bottom: 8px;
+  z-index: 2;
+  padding: 3px 6px;
+  color: var(--text-body);
+  background: color-mix(in srgb, var(--surface-1) 78%, transparent);
+  border: 1px solid var(--line-soft);
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+body[data-design="archive-console"] .shot-narrative {
+  display: grid;
+  gap: 4px;
+  min-height: 68px;
+  padding: 10px 13px 8px;
+  border-top: 1px solid var(--line-soft);
+  border-bottom: 1px solid var(--line-soft);
+}
+
+body[data-design="archive-console"] .shot-beat,
+body[data-design="archive-console"] .shot-transition {
+  color: var(--accent-token);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+body[data-design="archive-console"] .shot-world {
+  min-width: 0;
+  color: var(--text-body);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.35;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
+body[data-design="archive-console"] .inspector-review-checks {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 16px;
+  margin: 14px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--line-soft);
+}
+
+body[data-design="archive-console"] .inspector-review-checks > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+body[data-design="archive-console"] .inspector-review-checks dt,
+body[data-design="archive-console"] .inspector-review-checks dd {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+body[data-design="archive-console"] .inspector-review-checks dd {
+  color: var(--text-body);
+  text-align: right;
+}
+
+body[data-design="archive-console"] .shot-foot {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px 10px;
+  align-items: center;
+}
+
+body[data-design="archive-console"] .shot-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--dim);
+}
+
+body[data-design="archive-console"] .shot-status-symbol {
+  display: inline-grid;
+  place-items: center;
+  width: 1.1em;
+  height: 1.1em;
+  color: currentColor;
+  font-size: 0.9rem;
+  line-height: 1;
+}
+
+body[data-design="archive-console"] .shot-status[data-state="complete"] { color: var(--ok); }
+body[data-design="archive-console"] .shot-status[data-state="active"] { color: var(--amber); }
+body[data-design="archive-console"] .shot-status[data-state="review"] { color: var(--amber); }
+body[data-design="archive-console"] .shot-status[data-state="failed"] { color: var(--err); }
+body[data-design="archive-console"] .shot-status[data-state="stale"] { color: var(--amber); }
+
+body[data-design="archive-console"] .shot-technical-meta {
+  grid-column: 1 / -1;
+  color: var(--meta);
+  font-size: 12px;
+  letter-spacing: 0.11em;
+  white-space: nowrap;
+}
+
+body[data-design="archive-console"] .shot-duration-rail {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 12px;
+  margin-top: 9px;
+  border-top: 1px solid var(--line-soft);
+  background: linear-gradient(90deg, var(--amber) 0 var(--shot-duration-share, 50%), transparent var(--shot-duration-share, 50%) 100%);
+  background-size: 100% 2px;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+body[data-design="archive-console"] .shot-duration-rail::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 5px;
+  width: var(--shot-duration-share, 50%);
+  height: 2px;
+  background: var(--amber);
+  opacity: 0.74;
+}
+
+body[data-design="archive-console"] .shot-duration-handle {
+  position: absolute;
+  right: -2px;
+  top: -10px;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: ew-resize;
+  opacity: 0.86;
+}
+
+body[data-design="archive-console"] .shot-duration-handle::before {
+  content: "";
+  position: absolute;
+  top: 9px;
+  right: 12px;
+  width: 7px;
+  height: 14px;
+  border-right: 1px solid var(--amber);
+  border-bottom: 1px solid var(--amber);
+}
+
+body[data-design="archive-console"] .shot-duration-handle:hover,
+body[data-design="archive-console"] .shot-duration-handle:focus-visible {
+  opacity: 1;
+  background: var(--amber-glow);
+  outline: 2px solid var(--accent-token);
+  outline-offset: 2px;
+}
+
+body[data-design="archive-console"] .timeline-segment {
+  position: relative;
+  min-width: 52px;
+}
+
+body[data-design="archive-console"] .timeline-segment .timeline-mode {
+  display: block;
+  margin-top: 2px;
+  color: currentColor;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  opacity: 0.72;
+}
+
+body[data-design="archive-console"] .timeline-resize-handle {
+  top: -10px;
+  right: -12px;
+  bottom: -10px;
+  width: 32px;
+  border-right-width: 1px;
+}
+
 @media (max-width: 720px) {
   body[data-design="archive-console"] .shot-card { flex-basis: 250px; }
+  body[data-design="archive-console"] .shot-narrative { padding-inline: 10px; }
+  body[data-design="archive-console"] .inspector-review-checks { grid-template-columns: 1fr; }
+}
+
+@media (pointer: coarse) {
+  body[data-design="archive-console"] .shot-duration-handle {
+    top: -16px;
+    right: -18px;
+    width: 44px;
+    height: 44px;
+  }
+
+  body[data-design="archive-console"] .shot-duration-handle::before {
+    top: 14px;
+    right: 17px;
+  }
+
+  body[data-design="archive-console"] .timeline-resize-handle {
+    top: -16px;
+    right: -18px;
+    bottom: -16px;
+    width: 44px;
+  }
 }
 

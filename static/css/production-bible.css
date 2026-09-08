@@ -2,7 +2,7 @@
 
 body[data-design="archive-console"] .manual-panel {
   --manual-shell-width: min(100%, var(--content-max));
-  --manual-content-width: var(--reading-max);
+  --manual-content-width: 860px;
   --manual-body-size: 15px;
   --manual-body-leading: 1.8;
   width: var(--manual-shell-width);
@@ -398,7 +398,7 @@ body[data-design="archive-console"] .manual-panel .visual-summary-grid,
 body[data-design="archive-console"] .manual-panel .visual-assets-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  align-items: start;
+  align-items: stretch;
   gap: 18px 28px;
   width: 100%;
   margin-top: 17px;
@@ -407,10 +407,11 @@ body[data-design="archive-console"] .manual-panel .visual-assets-grid {
 body[data-design="archive-console"] .manual-panel .visual-summary-card,
 body[data-design="archive-console"] .manual-panel .visual-asset-card {
   display: grid;
-  align-self: start;
+  grid-template-rows: auto 1fr auto;
+  align-self: stretch;
   gap: 10px;
   min-width: 0;
-  height: auto;
+  height: 100%;
   padding: 15px 0 17px;
   border-bottom: 1px solid var(--line-soft);
   background: transparent;

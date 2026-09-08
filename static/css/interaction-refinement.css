@@ -112,196 +112,8 @@ body[data-design="archive-console"] .landing-spotlight .spotlight-dust { opacity
 .production-route-flow { opacity: 0.58; }
 .production-stage-index { display: none; }
 
-/* Shot cards: icon + reason + compact technical metadata. */
-.shot-card .shot-head,
-.shot-card .film-stamp,
-.shot-card .shot-mode,
-.shot-card .shot-technical-meta,
-.timeline-segment .timeline-mode,
-.timeline-head {
-  font-size: 12px;
-  line-height: 1.35;
-}
-
-.shot-card .shot-framing {
-  font-size: 18px;
-  line-height: 1.25;
-}
-
-.shot-media-state {
-  position: absolute;
-  right: 10px;
-  bottom: 8px;
-  z-index: 2;
-  padding: 3px 6px;
-  color: var(--text-body);
-  background: color-mix(in srgb, var(--surface-1) 78%, transparent);
-  border: 1px solid var(--line-soft);
-  font-size: 12px;
-}
-
-.shot-narrative {
-  display: grid;
-  gap: 4px;
-  min-height: 68px;
-  padding: 10px 13px 8px;
-  border-top: 1px solid var(--line-soft);
-  border-bottom: 1px solid var(--line-soft);
-}
-
-.shot-beat,
-.shot-transition {
-  color: var(--accent-token);
-  font-size: 12px;
-  line-height: 1.35;
-}
-
-.shot-world {
-  min-width: 0;
-  color: var(--text-body);
-  font-size: 14px;
-  font-weight: 500;
-  line-height: 1.35;
-  overflow-wrap: normal;
-  word-break: normal;
-}
-
-.inspector-review-checks {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px 16px;
-  margin: 14px 0 0;
-  padding-top: 12px;
-  border-top: 1px solid var(--line-soft);
-}
-
-.inspector-review-checks > div {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  min-width: 0;
-}
-
-.inspector-review-checks dt,
-.inspector-review-checks dd {
-  margin: 0;
-  font-size: 12px;
-  line-height: 1.4;
-}
-
-.inspector-review-checks dd { color: var(--text-body); text-align: right; }
-
-.shot-foot {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 6px 10px;
-  align-items: center;
-}
-
-.shot-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  color: var(--dim);
-}
-
-.shot-status-symbol {
-  display: inline-grid;
-  place-items: center;
-  width: 1.1em;
-  height: 1.1em;
-  color: currentColor;
-  font-size: 0.9rem;
-  line-height: 1;
-}
-
-.shot-status[data-state="complete"] { color: var(--ok); }
-.shot-status[data-state="active"] { color: var(--amber); }
-.shot-status[data-state="review"] { color: var(--amber); }
-.shot-status[data-state="failed"] { color: var(--err); }
-.shot-status[data-state="stale"] { color: var(--amber); }
-
-.shot-technical-meta {
-  grid-column: 1 / -1;
-  color: var(--meta);
-  font-size: 0.54rem;
-  letter-spacing: 0.11em;
-  white-space: nowrap;
-}
-
-.shot-duration-rail {
-  position: relative;
-  display: flex;
-  align-items: center;
-  height: 12px;
-  margin-top: 9px;
-  border-top: 1px solid var(--line-soft);
-  background: linear-gradient(90deg, var(--amber) 0 var(--shot-duration-share, 50%), transparent var(--shot-duration-share, 50%) 100%);
-  background-size: 100% 2px;
-  background-position: center;
-  background-repeat: no-repeat;
-}
-
-.shot-duration-rail::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 5px;
-  width: var(--shot-duration-share, 50%);
-  height: 2px;
-  background: var(--amber);
-  opacity: 0.74;
-}
-
-.shot-duration-handle {
-  position: absolute;
-  right: -2px;
-  top: -10px;
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  cursor: ew-resize;
-  opacity: 0.86;
-}
-
-.shot-duration-handle::before {
-  content: "";
-  position: absolute;
-  top: 9px;
-  right: 12px;
-  width: 7px;
-  height: 14px;
-  border-right: 1px solid var(--amber);
-  border-bottom: 1px solid var(--amber);
-}
-
-.shot-duration-handle:hover,
-.shot-duration-handle:focus-visible { opacity: 1; background: var(--amber-glow); outline: 2px solid var(--accent-token); outline-offset: 2px; }
-
-.timeline-segment {
-  position: relative;
-  min-width: 52px;
-}
-
-.timeline-segment .timeline-mode {
-  display: block;
-  margin-top: 2px;
-  color: currentColor;
-  font-size: 12px;
-  letter-spacing: 0.08em;
-  opacity: 0.72;
-}
-
-body[data-design="archive-console"] .timeline-resize-handle {
-  top: -10px;
-  right: -12px;
-  bottom: -10px;
-  width: 32px;
-  border-right-width: 1px;
-}
+/* Shot-card geometry belongs to storyboard.css. This layer keeps only state
+   appearance and interaction feedback for that surface. */
 
 body[data-design="archive-console"] :is(.theme-toggle, .sound-toggle, .ghost, .inspector-expand, .inspector-nav-btn, .drawer-close) {
   min-height: 32px;
@@ -316,11 +128,6 @@ body[data-design="archive-console"] :is(.theme-toggle, .sound-toggle, .ghost, .i
   body[data-design="archive-console"] .drawer-close,
   body[data-design="archive-console"] .inspector-expand,
   body[data-design="archive-console"] .inspector-nav-btn { min-height: 44px; }
-}
-
-@media (max-width: 700px) {
-  .shot-narrative { padding-inline: 10px; }
-  .inspector-review-checks { grid-template-columns: 1fr; }
 }
 
 /* Blur belongs to atmosphere. Information surfaces remain crisp. */
@@ -347,14 +154,6 @@ body[data-design="archive-console"] .workspace .panel::after {
   filter: none !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
-}
-
-@supports (animation-timeline: view()) {
-  body[data-design="archive-console"] .workspace .panel {
-    animation: workspace-scroll-reveal linear both;
-    animation-timeline: view();
-    animation-range: entry 0% cover 20%;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -401,33 +200,7 @@ body[data-design="archive-console"] .deliver-final .final-preview,
 body[data-design="archive-console"] .deliver-final .final-preview video,
 body[data-design="archive-console"] .deliver-final .final-compare-after video { object-fit: contain; transform: none !important; filter: none !important; }
 body[data-design="archive-console"] .deliver-final .final-look-panel { box-shadow: none; }
-body[data-design="archive-console"] .deliver-final .final-look-preset-grid { gap: 5px; }
 body[data-design="archive-console"] .deliver-final .final-look-preset { box-shadow: none; }
-body[data-design="archive-console"] .deliver-final .final-look-disclosure { margin-top: 2px; }
-body[data-design="archive-console"] .deliver-final .tech-summary,
-body[data-design="archive-console"] .deliver-final .shot-timeline-section,
-body[data-design="archive-console"] .deliver-final .sound-summary { margin-top: 18px; padding-top: 16px; }
-body[data-design="archive-console"] .deliver-final .deliver-actions { justify-content: flex-start; }
-body[data-design="archive-console"] .deliver-final .cta--deliver-export { min-width: min(360px, 100%); letter-spacing: 0.11em; }
-
-/* Quality is metadata, never an image treatment. */
-body[data-design="archive-console"] .deliver-preview-quality {
-  display: grid;
-  gap: 10px;
-  padding: 13px 14px 14px;
-  border-top: 1px solid var(--hairline-soft);
-  background: var(--panel);
-}
-body[data-design="archive-console"] .deliver-preview-quality-head { display: flex; justify-content: space-between; gap: 12px; }
-body[data-design="archive-console"] .deliver-preview-quality-current { color: var(--accent-token); font-size: 0.55rem; letter-spacing: 0.1em; }
-body[data-design="archive-console"] .deliver-quality-modes { display: flex; flex-wrap: wrap; gap: 5px; }
-body[data-design="archive-console"] .deliver-quality-mode { padding: 5px 8px; color: var(--text-muted); background: transparent; border: 1px solid var(--hairline-soft); font: 0.5rem var(--mono); letter-spacing: 0.08em; cursor: pointer; }
-body[data-design="archive-console"] .deliver-quality-mode:hover,
-body[data-design="archive-console"] .deliver-quality-mode.is-selected { color: var(--text-strong); border-color: var(--accent-token); }
-body[data-design="archive-console"] .deliver-preview-quality-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
-body[data-design="archive-console"] .deliver-preview-quality-grid > div { display: grid; gap: 5px; min-width: 0; }
-body[data-design="archive-console"] .deliver-preview-quality-grid strong { overflow: hidden; color: var(--text-body); font: 500 0.62rem var(--mono); text-overflow: ellipsis; white-space: nowrap; }
-body[data-design="archive-console"] .deliver-preview-quality-warning { min-height: 1em; margin: 0; color: var(--err); font-size: 0.49rem; letter-spacing: 0.08em; }
 
 /* Theme toggle: exposure change, not a page transition. */
 .theme-transition-wash { position: fixed; inset: 0; z-index: 100; pointer-events: none; background: radial-gradient(ellipse at 82% 14%, rgba(236, 216, 173, 0.15), transparent 52%); opacity: 0; transition: opacity var(--theme-ms-ambient) var(--theme-ease); }

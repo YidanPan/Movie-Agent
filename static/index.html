@@ -472,14 +472,17 @@
             <div class="final-cut-workspace">
               <div class="final-cut-screening">
                 <div class="final-player-shell" id="screen" data-final-look="original">
-                  <div class="final-player-topline mono"><span><i class="rec-dot" aria-hidden="true"></i> FINAL CUT</span><span id="final-player-state">READY TO SCREEN</span></div>
-                  <div class="final-player-hud mono" aria-hidden="true"><span id="final-player-resolution">1080P / 24FPS</span><span id="final-player-shot">SHOT 01</span></div>
-                  <div class="final-preview final-compare" id="final-compare" aria-label="Final Look 前后对比">
-                    <video id="final-video" controls playsinline preload="metadata" aria-label="最终成片视频"></video>
-                    <div class="final-compare-after" id="final-compare-after" aria-hidden="true"><video id="final-video-after" muted playsinline preload="metadata" tabindex="-1"></video><div class="final-look-overlay" id="final-look-overlay" aria-hidden="true"></div></div>
-                    <button class="final-compare-divider" id="final-compare-divider" type="button" role="slider" aria-label="拖动 Final Look 前后对比分割线" aria-valuemin="0" aria-valuemax="100" aria-valuenow="50"><span aria-hidden="true"></span></button>
-                    <span class="final-compare-label final-compare-label--original mono">ORIGINAL</span>
-                    <span class="final-compare-label final-compare-label--final mono">FINAL LOOK</span>
+                  <div class="final-player-stage">
+                    <div class="final-player-topline mono"><span><i class="rec-dot" aria-hidden="true"></i> FINAL CUT</span><span id="final-player-state">READY TO SCREEN</span></div>
+                    <div class="final-player-hud mono" aria-hidden="true"><span id="final-player-resolution">1080P / 24FPS</span><span id="final-player-shot">SHOT 01</span></div>
+                    <div class="final-preview final-compare" id="final-compare" aria-label="Final Look 前后对比">
+                      <video id="final-video" controls playsinline preload="metadata" aria-label="最终成片视频"></video>
+                      <div class="final-compare-after" id="final-compare-after" aria-hidden="true"><video id="final-video-after" muted playsinline preload="metadata" tabindex="-1"></video><div class="final-look-overlay" id="final-look-overlay" aria-hidden="true"></div></div>
+                      <button class="final-compare-divider" id="final-compare-divider" type="button" role="slider" aria-label="拖动 Final Look 前后对比分割线" aria-valuemin="0" aria-valuemax="100" aria-valuenow="50"><span aria-hidden="true"></span></button>
+                      <span class="final-compare-label final-compare-label--original mono">ORIGINAL</span>
+                      <span class="final-compare-label final-compare-label--final mono">FINAL LOOK</span>
+                    </div>
+                    <div class="final-not-generated" id="final-not-generated"><strong class="mono">FINAL CUT NOT GENERATED</strong><span>后端尚未提供可播放的最终视频文件。</span></div>
                   </div>
                   <section class="deliver-preview-quality" aria-label="预览质量">
                     <div class="deliver-preview-quality-head"><span class="deliver-label mono">QUALITY</span><span class="deliver-preview-quality-current mono" id="deliver-quality-mode">AUTO</span></div>
@@ -496,7 +499,6 @@
                     </div>
                     <p class="deliver-preview-quality-warning mono" id="deliver-quality-warning"></p>
                   </section>
-                  <div class="final-not-generated" id="final-not-generated"><strong class="mono">FINAL CUT NOT GENERATED</strong><span>后端尚未提供可播放的最终视频文件。</span></div>
                 </div>
               </div>
               <aside class="final-look-panel" id="final-look-panel" aria-label="最终润色控制台">

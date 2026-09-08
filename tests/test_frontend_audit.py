@@ -157,7 +157,7 @@ def test_production_bible_is_a_quiet_reading_workspace():
     assert 'data-manual-nav-tab="visual"' in INDEX
     assert 'production-bible.css?v=' in INDEX
     assert ".manual-reading-grid" in BIBLE
-    assert "--manual-content-width: var(--reading-max)" in BIBLE
+    assert "--manual-content-width: 860px" in BIBLE
     assert "max-width: var(--manual-content-width)" in BIBLE
     assert "font-family: var(--sans)" in BIBLE
     assert "font-size: var(--manual-body-size)" in BIBLE
@@ -318,16 +318,20 @@ def test_production_desk_monitor_is_embedded_hardware_with_collapsed_activity():
 
 
 def test_final_cut_workspace_owns_responsive_two_column_layout():
+    assert 'class="final-player-stage"' in INDEX
     assert 'class="final-preview final-compare"' in INDEX
+    assert 'class="deliver-preview-quality"' in INDEX
     assert 'class="final-look-step final-look-disclosure"' in INDEX
     assert 'id="final-look-fine-tune"' in INDEX
     assert 'id="final-look-fine-tune" open' not in INDEX
     deliver = (ROOT / "static" / "css" / "deliver.css").read_text(encoding="utf-8")
-    assert "grid-template-columns: minmax(0, 1fr) minmax(340px, 380px);" in deliver
+    assert "grid-template-columns: minmax(0, 1fr) minmax(320px, 360px);" in deliver
     assert "@media (max-width: 1099px)" in deliver
     assert "grid-template-columns: 1fr;" in deliver
     assert ".final-preview {" in deliver
+    assert ".final-player-stage {" in deliver
     assert "aspect-ratio: 16 / 9;" in deliver
+    assert "aspect-ratio: auto;" in deliver
     assert "contain: paint;" in deliver
     assert "writing-mode: horizontal-tb;" in deliver
     assert "deliver-screening-layout" not in APP
@@ -352,7 +356,8 @@ def test_text_collision_contract_keeps_readable_copy_in_flow():
     assert "flex: 0 1 auto;" in layout
     assert "grid-template-columns: minmax(0, 1fr);" in deliver
     assert "max-width: 100%;" in deliver
-    assert "aspect-ratio: auto;" not in CSS
+    assert "position: absolute;" in deliver
+    assert "inset: 0;" in deliver
 
 
 def test_production_bible_nested_values_use_vertical_detail_rows():

@@ -1,6 +1,465 @@
 /* Deliver / Final Cut extraction seam. */
 :where(.p2-deliver) { isolation: isolate; }
 
+/* Deliver owns the screening surface. The panel itself must remain in normal
+   flow so sticky controls, focus rings, and popovers are never clipped. */
+body[data-design="archive-console"] .screening-panel {
+  overflow: visible;
+}
+
+body[data-design="archive-console"] .deliver-room {
+  display: grid;
+  gap: 22px;
+  min-width: 0;
+}
+
+body[data-design="archive-console"] .deliver-stage-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 18px 24px;
+  padding: 6px 0 20px;
+  border-bottom: 1px solid var(--line);
+}
+
+body[data-design="archive-console"] .deliver-stage-head > :first-child {
+  flex: 1 1 360px;
+  min-width: 0;
+}
+
+body[data-design="archive-console"] .deliver-stage-status {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+body[data-design="archive-console"] .deliver-stage-head h3,
+body[data-design="archive-console"] .deliver-stage-head p,
+body[data-design="archive-console"] .deliver-stage-status > * {
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: break-word;
+}
+
+body[data-design="archive-console"] .deliver-stage-head h3 {
+  line-height: 1.3;
+}
+
+/* The progress steps use two explicit rows. A state label can no longer be
+   squeezed between a number and a title at tablet widths. */
+body[data-design="archive-console"] .deliver-progress-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 16px;
+}
+
+body[data-design="archive-console"] .deliver-progress-step {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-areas:
+    "icon body"
+    ". state";
+  align-items: start;
+  gap: 6px 9px;
+  min-width: 0;
+  line-height: 1.35;
+}
+
+body[data-design="archive-console"] .deliver-progress-step > .deliver-progress-icon { grid-area: icon; }
+body[data-design="archive-console"] .deliver-progress-step > div { grid-area: body; min-width: 0; }
+body[data-design="archive-console"] .deliver-progress-step > .deliver-progress-state {
+  grid-area: state;
+  justify-self: start;
+  min-width: 0;
+  line-height: 1.35;
+  white-space: normal;
+  overflow-wrap: break-word;
+}
+
+body[data-design="archive-console"] .deliver-progress-step b,
+body[data-design="archive-console"] .deliver-progress-step small {
+  line-height: 1.35;
+  white-space: normal;
+  overflow-wrap: break-word;
+}
+
+body[data-design="archive-console"] .deliver-progress-step b { font-size: 14px; }
+body[data-design="archive-console"] .deliver-progress-step small { font-size: 12px; }
+
+/* The 16:9 contract belongs to the stage. Quality metadata is a normal-flow
+   sibling, so it remains visible below the player instead of entering the
+   player raster box. */
+body[data-design="archive-console"] .final-player-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  aspect-ratio: auto;
+  overflow: visible;
+  box-sizing: border-box;
+  background: transparent;
+}
+
+body[data-design="archive-console"] .final-player-stage {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  background: var(--theme-media);
+  border: 1px solid var(--line);
+  box-sizing: border-box;
+}
+
+body[data-design="archive-console"] .final-player-stage .final-player-topline,
+body[data-design="archive-console"] .final-player-stage .final-player-hud,
+body[data-design="archive-console"] .final-player-stage .final-not-generated {
+  position: absolute;
+}
+
+body[data-design="archive-console"] .final-player-stage .final-player-topline {
+  inset: 0 0 auto;
+  z-index: 5;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  padding: 12px 14px;
+  background: linear-gradient(180deg, rgba(3, 3, 2, 0.86), transparent);
+  pointer-events: none;
+}
+
+body[data-design="archive-console"] .final-player-stage .final-player-topline > * {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body[data-design="archive-console"] .final-player-stage .final-player-hud {
+  right: 14px;
+  bottom: 12px;
+  left: 14px;
+  z-index: 5;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  pointer-events: none;
+}
+
+body[data-design="archive-console"] .final-player-stage .final-player-hud > * {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body[data-design="archive-console"] .final-preview {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  max-width: none;
+  aspect-ratio: auto;
+  overflow: hidden;
+  isolation: isolate;
+  contain: paint;
+}
+
+body[data-design="archive-console"] .final-preview > video,
+body[data-design="archive-console"] .final-preview .final-compare-after {
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+}
+
+body[data-design="archive-console"] .final-preview > video {
+  position: absolute;
+  inset: 0;
+  object-fit: contain;
+}
+
+body[data-design="archive-console"] .final-preview .final-compare-divider { height: 100%; }
+
+body[data-design="archive-console"] .final-compare {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  overflow: hidden;
+  background: var(--theme-media);
+}
+
+body[data-design="archive-console"] .final-player-shell:not(.has-video) .final-compare { display: none; }
+body[data-design="archive-console"] .final-compare > #final-video { z-index: 1; display: block; }
+
+body[data-design="archive-console"] .final-compare-after {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  overflow: hidden;
+  clip-path: inset(0 0 0 var(--grade-split, 50%));
+  pointer-events: none;
+}
+
+body[data-design="archive-console"] .final-compare-after video {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: var(--theme-media);
+}
+
+body[data-design="archive-console"] .final-compare-after .final-look-overlay { z-index: 3; }
+
+body[data-design="archive-console"] .final-compare-divider {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  z-index: 7;
+  width: 34px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  cursor: ew-resize;
+  transform: translateX(-50%);
+}
+
+body[data-design="archive-console"] .final-compare-divider::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  background: var(--amber-light);
+  box-shadow: 0 0 10px rgba(220, 175, 99, 0.58);
+}
+
+body[data-design="archive-console"] .final-compare-divider span {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 22px;
+  height: 54px;
+  border: 1px solid var(--amber-light);
+  background: rgba(21, 17, 11, 0.78);
+  transform: translate(-50%, -50%);
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.32);
+}
+
+body[data-design="archive-console"] .final-compare-divider span::before,
+body[data-design="archive-console"] .final-compare-divider span::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  width: 5px;
+  height: 5px;
+  border-top: 1px solid var(--amber-light);
+  border-right: 1px solid var(--amber-light);
+}
+
+body[data-design="archive-console"] .final-compare-divider span::before { left: 4px; transform: translateY(-50%) rotate(-135deg); }
+body[data-design="archive-console"] .final-compare-divider span::after { right: 4px; transform: translateY(-50%) rotate(45deg); }
+
+body[data-design="archive-console"] .final-compare-divider:hover span,
+body[data-design="archive-console"] .final-compare-divider:focus-visible span,
+body[data-design="archive-console"] .final-compare-divider.is-dragging span {
+  background: var(--amber);
+  border-color: var(--amber-light);
+  outline: none;
+}
+
+body[data-design="archive-console"] .final-compare-label {
+  position: absolute;
+  top: 42px;
+  z-index: 6;
+  padding: 5px 7px;
+  color: var(--parchment);
+  font: 0.52rem var(--mono);
+  letter-spacing: 0.14em;
+  background: rgba(10, 8, 6, 0.7);
+  border: 1px solid var(--hairline);
+  pointer-events: none;
+}
+
+body[data-design="archive-console"] .final-compare-label--original { left: 14px; }
+body[data-design="archive-console"] .final-compare-label--final { right: 14px; color: var(--amber-light); }
+
+body[data-design="archive-console"] .final-player-stage .final-not-generated {
+  inset: 0;
+  z-index: 4;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 10px;
+  padding: 24px;
+  text-align: center;
+  background: radial-gradient(ellipse at center, rgba(215, 166, 74, 0.08), transparent 62%);
+}
+
+body[data-design="archive-console"] .final-player-stage .final-not-generated > * {
+  max-width: 100%;
+  overflow-wrap: break-word;
+}
+
+body[data-design="archive-console"] .final-player-shell.has-video .final-not-generated { display: none; }
+
+body[data-design="archive-console"] .final-player-shell video {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: none;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: var(--theme-media);
+}
+
+body[data-design="archive-console"] .final-player-shell.has-video video { display: block; }
+
+body[data-design="archive-console"] .deliver-preview-quality {
+  display: grid;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  padding: 13px 14px 14px;
+  border: 1px solid var(--line);
+  border-top: 0;
+  background: var(--surface-2);
+  box-sizing: border-box;
+}
+
+body[data-design="archive-console"] .deliver-preview-quality-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+body[data-design="archive-console"] .deliver-preview-quality-head > * {
+  min-width: 0;
+  max-width: 100%;
+}
+
+body[data-design="archive-console"] .deliver-quality-modes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+body[data-design="archive-console"] .deliver-quality-mode {
+  min-height: 32px;
+  padding: 5px 8px;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid var(--hairline-soft);
+  font: 12px/1.3 var(--mono);
+  letter-spacing: .08em;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+body[data-design="archive-console"] .deliver-quality-mode:hover,
+body[data-design="archive-console"] .deliver-quality-mode.is-selected {
+  color: var(--text-strong);
+  border-color: var(--accent-token);
+}
+
+body[data-design="archive-console"] .deliver-preview-quality-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+body[data-design="archive-console"] .deliver-preview-quality-grid > div {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+body[data-design="archive-console"] .deliver-preview-quality-grid strong {
+  min-width: 0;
+  color: var(--text-body);
+  font: 500 14px/1.35 var(--mono);
+  overflow-wrap: break-word;
+}
+
+body[data-design="archive-console"] .deliver-preview-quality-warning {
+  min-height: 1.35em;
+  margin: 0;
+  color: var(--err);
+  font-size: 12px;
+  line-height: 1.35;
+  overflow-wrap: break-word;
+}
+
+body[data-design="archive-console"] .deliver-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(260px, 0.75fr);
+  gap: 24px;
+  min-width: 0;
+  padding: 22px;
+  background: linear-gradient(135deg, rgba(215, 166, 74, 0.065), rgba(10, 9, 7, 0.2));
+  border: 1px solid var(--line);
+  box-sizing: border-box;
+}
+
+body[data-design="archive-console"] .deliver-summary-main,
+body[data-design="archive-console"] .deliver-summary-specs {
+  min-width: 0;
+}
+
+body[data-design="archive-console"] .deliver-summary-specs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: center;
+  gap: 1px;
+  background: var(--line);
+  border: 1px solid var(--line);
+}
+
+body[data-design="archive-console"] .deliver-summary-specs > div {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  padding: 13px 14px;
+  background: var(--panel);
+}
+
+body[data-design="archive-console"] .deliver-summary-specs strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body[data-design="archive-console"] .deliver-final .tech-summary,
+body[data-design="archive-console"] .deliver-final .shot-timeline-section,
+body[data-design="archive-console"] .deliver-final .sound-summary {
+  margin-top: 18px;
+  padding-top: 16px;
+}
+
+body[data-design="archive-console"] .deliver-final .deliver-actions { justify-content: flex-start; }
+body[data-design="archive-console"] .deliver-final .cta--deliver-export { min-width: min(360px, 100%); }
+
 /* A grid child must be allowed to shrink with the screening panel. Without
    this zero min-content contract, padded look controls can widen the entire
    Deliver column on a narrow viewport before the responsive rule applies. */
@@ -20,7 +479,7 @@ body[data-design="archive-console"] .deliver-room {
    one predictable grid; JavaScript must not move them into a second grid. */
 body[data-design="archive-console"] .final-cut-workspace {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(340px, 380px);
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 360px);
   align-items: start;
   gap: 28px;
   width: 100%;
@@ -41,44 +500,14 @@ body[data-design="archive-console"] .final-look-panel {
 
 body[data-design="archive-console"] .final-cut-screening { min-width: 0; }
 
-body[data-design="archive-console"] .final-player-shell {
-  position: relative;
-  aspect-ratio: 16 / 9;
-  overflow: hidden;
-}
-
-body[data-design="archive-console"] .final-preview {
-  position: relative;
-  width: 100%;
-  height: 100%;
-  aspect-ratio: 16 / 9;
-  overflow: hidden;
-  isolation: isolate;
-  contain: paint;
-}
-
-body[data-design="archive-console"] .final-preview > video,
-body[data-design="archive-console"] .final-preview .final-compare-after {
-  width: 100%;
-  height: 100%;
-  max-width: 100%;
-}
-
-body[data-design="archive-console"] .final-preview .final-compare-divider {
-  height: 100%;
-}
-
-body[data-design="archive-console"] .final-preview > video {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-}
-
 body[data-design="archive-console"] .final-look-panel {
+  display: grid;
+  gap: 15px;
   position: sticky;
-  top: 18px;
+  top: calc(var(--header-height, 70px) + 18px);
   align-self: start;
   writing-mode: horizontal-tb;
+  padding: 19px;
   overflow-wrap: break-word;
   word-break: normal;
   box-shadow: none;
@@ -91,18 +520,102 @@ body[data-design="archive-console"] .final-look-panel * {
 }
 
 body[data-design="archive-console"] .final-look-disclosure-head {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  align-items: center;
+  min-height: 48px;
+  margin: 0;
+  padding: 12px 0;
+  cursor: pointer;
+  list-style: none;
   writing-mode: horizontal-tb;
 }
 
-body[data-design="archive-console"] .final-player-hud {
-  position: absolute;
-  right: 14px;
-  bottom: 12px;
-  left: 14px;
-  z-index: 5;
+body[data-design="archive-console"] .final-look-disclosure-head::-webkit-details-marker { display: none; }
+body[data-design="archive-console"] .final-look-disclosure-head .activity-chevron {
+  display: inline-block;
+  color: var(--text-muted);
+  font-size: 14px;
+  transform: rotate(0deg);
+  transition: transform .22s ease, color .22s ease;
+}
+body[data-design="archive-console"] .final-look-disclosure[open] .final-look-disclosure-head .activity-chevron {
+  color: var(--accent-token);
+  transform: rotate(180deg);
+}
+body[data-design="archive-console"] .final-look-disclosure {
+  gap: 0;
+  border-top: 1px solid var(--line-soft);
+}
+body[data-design="archive-console"] .final-look-disclosure .final-look-controls {
+  padding: 2px 0 16px 30px;
+}
+
+body[data-design="archive-console"] .final-look-actions .ghost {
+  min-height: 38px;
+  color: var(--text-body);
+}
+
+body[data-design="archive-console"] .final-look-head,
+body[data-design="archive-console"] .final-look-presets-head {
   display: flex;
+  align-items: baseline;
   justify-content: space-between;
   gap: 12px;
+  min-width: 0;
+}
+
+body[data-design="archive-console"] .final-look-head > *,
+body[data-design="archive-console"] .final-look-presets-head > * {
+  min-width: 0;
+  max-width: 100%;
+}
+
+body[data-design="archive-console"] .final-look-preset-grid {
+  display: grid;
+  /* The inspector is capped at 360px; one readable column beats clipped
+     bilingual preset names in a two-column miniature grid. */
+  grid-template-columns: 1fr;
+  gap: 5px;
+}
+
+body[data-design="archive-console"] .final-look-preset {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+body[data-design="archive-console"] .final-look-preset > span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+body[data-design="archive-console"] .final-look-preset b,
+body[data-design="archive-console"] .final-look-preset small {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.35;
+}
+
+body[data-design="archive-console"] .final-look-actions {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  min-width: 0;
+}
+
+body[data-design="archive-console"] .final-look-actions > * {
+  min-width: 0;
+  max-width: 100%;
+}
+
+body[data-design="archive-console"] .final-player-hud {
   color: var(--faint);
   font-size: .52rem;
   letter-spacing: .13em;
@@ -110,11 +623,6 @@ body[data-design="archive-console"] .final-player-hud {
 }
 
 body[data-design="archive-console"] .final-player-hud span:last-child { color: var(--amber); }
-
-body[data-design="archive-console"] .deliver-preview-quality {
-  width: 100%;
-  min-width: 0;
-}
 
 @media (max-width: 1099px) {
   body[data-design="archive-console"] .final-cut-workspace {
@@ -126,14 +634,69 @@ body[data-design="archive-console"] .deliver-preview-quality {
     position: relative;
     top: auto;
   }
+
+  body[data-design="archive-console"] .deliver-progress-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  body[data-design="archive-console"] .deliver-summary {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 899px) {
+  body[data-design="archive-console"] .deliver-stage-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  body[data-design="archive-console"] .deliver-stage-status {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 699px) {
+  body[data-design="archive-console"] .deliver-progress-grid {
+    grid-template-columns: 1fr;
+  }
+
+  body[data-design="archive-console"] .deliver-preview-quality-grid {
+    grid-template-columns: 1fr;
+  }
+
+  body[data-design="archive-console"] .final-compare-label {
+    top: 34px;
+    font-size: 0.45rem;
+  }
 }
 
 @media (max-width: 520px) {
-  body[data-design="archive-console"] .final-player-hud {
+  body[data-design="archive-console"] .final-player-stage .final-player-hud {
     right: 9px;
     bottom: 8px;
     left: 9px;
-    font-size: .45rem;
+    font-size: 12px;
+  }
+
+  body[data-design="archive-console"] .deliver-summary,
+  body[data-design="archive-console"] .deliver-work-progress {
+    padding: 17px;
+  }
+
+  body[data-design="archive-console"] .final-look-panel {
+    padding: 15px;
+  }
+
+  body[data-design="archive-console"] .final-look-actions {
+    grid-template-columns: 1fr;
+  }
+
+  body[data-design="archive-console"] .final-look-actions button {
+    width: 100%;
+  }
+
+  body[data-design="archive-console"] .final-look-preset-grid {
+    grid-template-columns: 1fr;
   }
 }
 
