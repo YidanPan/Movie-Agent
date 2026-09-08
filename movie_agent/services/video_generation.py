@@ -9,6 +9,7 @@ performed until a caller explicitly invokes a provider.
 from __future__ import annotations
 
 import json
+import hashlib
 import shutil
 import time
 from dataclasses import dataclass, field
@@ -103,6 +104,12 @@ class NormalizedVideoRequest:
         if self.negative_prompt:
             input_payload["negative_prompt"] = self.negative_prompt
         return {"model": self.model, "input": input_payload, "parameters": parameters}
+
+    @property
+    def fingerprint(self) -> str:
+        return hashlib.sha256(
+            json.dumps(self.payload(), ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
 
 
 class HTTPTransport(Protocol):
@@ -390,6 +397,7 @@ class DashScopeVideoProvider:
         self.transport = transport or UrllibHTTPTransport()
         self.sleep_fn = sleep_fn
         self.media_validator = media_validator or self._default_media_validator
+        self.last_normalized_request: NormalizedVideoRequest | None = None
 
     def is_available(self) -> bool:
         """Check only local configuration; never probe or spend credits."""
@@ -625,6 +633,7 @@ class DashScopeVideoProvider:
             reference_images=reference_images,
             metadata=metadata,
         )
+        self.last_normalized_request = normalized
         response = self._request_json(
             "POST",
             self._synthesis_path,
@@ -808,7 +817,7 @@ class DashScopeVideoProvider:
                     retry_after = float(error.headers.get("retry-after", "0") or 0)
                 except (TypeError, ValueError):
                     retry_after = 0.0
-                delay = max(retry_after, self.poll_seconds * min(2 ** attempt, 8))
+                delay = min(60.0, max(retry_after, self.poll_seconds * min(2 ** attempt, 8)))
                 self.sleep_fn(delay)
                 attempt += 1
 
