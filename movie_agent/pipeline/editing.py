@@ -7,12 +7,15 @@ safe seam for a future background edit worker.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from movie_agent.services.audio import apply_audio_track_params, ensure_audio_design
 from movie_agent.services.audio import EDIT_AUDIO_STAGES, mark_audio_stage
 from movie_agent.services.errors import clear_failure
+from movie_agent.services.final_look import normalise_final_look, reset_final_look
 from movie_agent.services.readiness import ensure_action_ready
+from movie_agent.services.subtitles import normalise_subtitle_mode
 from movie_agent.pipeline.rendering import invalidate_edit_outputs, require_dialogue_locked, shots_ready
 
 
@@ -53,11 +56,13 @@ class EditPipeline:
         *,
         settings: Any | None = None,
         persist: Any | None = None,
+        using_creative_llm: bool = False,
     ) -> None:
         self.editor = editor
         self.voice_service = voice_service
         self.settings = settings
         self.persist = persist
+        self.using_creative_llm = using_creative_llm
 
     def _save(self, project: Any) -> None:
         if self.persist is not None:
@@ -193,6 +198,129 @@ class EditPipeline:
         project.mix_state["status"] = "ROUGH CUT READY"
         project.status = "rough_cut_ready"
         project.logs.append("Editor Agent: Rough Cut complete. Preview sound design, re-edit, or approve final cut.")
+        self._save(project)
+        return project
+
+    def approve_edit(self, project: Any, subtitle_mode: str | None = None) -> Any:
+        """Approve the current edit revision without rendering a master."""
+
+        if self.settings is None:
+            raise RuntimeError("EditPipeline requires settings for Final Cut approval.")
+        ensure_action_ready(project, self.settings, "APPROVE_FINAL_CUT")
+        require_dialogue_locked(project)
+        if project.status not in {"rough_cut_ready", "editing_rough_cut"}:
+            raise ValueError("Please complete the Rough Cut before approving the final cut.")
+        if not shots_ready(project):
+            raise ValueError("All current shot revisions must be approved before the final cut can be approved.")
+        if subtitle_mode:
+            project.subtitle_mode = normalise_subtitle_mode(subtitle_mode)
+        project.status = "final_cut_approved"
+        ensure_audio_design(project)
+        reset_final_look(project)
+        project.edit_plan = {
+            **(project.edit_plan or {}),
+            "status": "final_cut_approved",
+            "approved": True,
+            "approved_subtitle_mode": project.subtitle_mode,
+        }
+        project.mix_state["active_stage"] = None
+        project.mix_state["status"] = "FINAL CUT APPROVED · MASTER PENDING"
+        project.logs.append(f"Editor Agent: Final Cut approved; ready to generate a Final Master with {project.subtitle_mode} subtitles.")
+        self._save(project)
+        return project
+
+    def generate_final_master(self, project: Any) -> Any:
+        """Generate or recover the Final Master from an approved edit."""
+
+        if self.settings is None:
+            raise RuntimeError("EditPipeline requires settings for Final Master generation.")
+        ensure_action_ready(project, self.settings, "GENERATE_FINAL_MASTER")
+        require_dialogue_locked(project)
+        approved = bool((project.edit_plan or {}).get("approved"))
+        if not approved and project.status != "final_cut_approved" and not str(project.status).startswith("completed"):
+            raise ValueError("Approve the current Final Cut before generating the Final Master.")
+        if not shots_ready(project):
+            raise ValueError("All current shot revisions must be approved before generating the Final Master.")
+        project.status = "editing_final"
+        project.mix_state["active_stage"] = "final_encode"
+        project.mix_state["status"] = "FINAL MASTER GENERATION"
+        self._save(project)
+        try:
+            if self.settings.video_generation_mode != "mock":
+                project.logs.append(self.editor.assemble(project, project.subtitle_mode))
+                project.status = "completed"
+            else:
+                project.logs.append(self.editor.assemble_mock(project))
+                project.status = "completed_text_ai_video_mock" if self.using_creative_llm else "completed_mock"
+            project.logs.append(f"Project complete: Final Master generated from approved cut ({project.subtitle_mode}).")
+            project.mix_state["status"] = "FINAL MASTER READY"
+            project.mix_state["active_stage"] = None
+            self._save(project)
+        except Exception:
+            project.status = "final_cut_approved"
+            project.mix_state["status"] = "FINAL MASTER GENERATION FAILED"
+            project.mix_state["active_stage"] = None
+            self._save(project)
+            raise
+        return project
+
+    def set_final_look(
+        self,
+        project: Any,
+        *,
+        preset: str = "original",
+        intensity: float = 0.72,
+        grain: float = 0.0,
+        vignette: float = 0.0,
+        highlight_soften: float = 0.0,
+        scope: str = "whole_film",
+        apply: bool = True,
+    ) -> Any:
+        """Save a Final Look and optionally render it onto the current cut."""
+
+        if not str(project.status).startswith("completed"):
+            raise ValueError("Please complete the final cut before entering Final Look finishing.")
+        previous = normalise_final_look(project.final_look or {})
+        requested = normalise_final_look(
+            {
+                **previous,
+                "preset": preset,
+                "intensity": intensity,
+                "grain": grain,
+                "vignette": vignette,
+                "highlight_soften": highlight_soften,
+                "scope": scope,
+                "applied": bool(apply),
+            }
+        )
+        changed = any(
+            previous.get(key) != requested.get(key)
+            for key in ("preset", "intensity", "grain", "vignette", "highlight_soften", "scope", "applied")
+        )
+        if changed:
+            requested["revision"] = int(previous.get("revision", 1) or 1) + 1
+        project.final_look = normalise_final_look(requested)
+        if not apply:
+            project.final_look["status"] = "PREVIEW ONLY · NOT APPLIED"
+
+        if apply:
+            current_path = Path(project.final_output_placeholder or "")
+            base_path = Path(str(project.final_look.get("base_media_path") or ""))
+            if not base_path.is_file() and current_path.is_file():
+                base_path = current_path
+                project.final_look["base_media_path"] = str(base_path)
+            rendered = self.editor.apply_final_look(project, project.final_look, base_path)
+            if rendered is not None and rendered.is_file():
+                project.final_output_placeholder = str(rendered)
+                project.final_look["media_path"] = str(rendered)
+                project.final_look["status"] = normalise_final_look(project.final_look)["status"]
+            elif not current_path.is_file():
+                project.final_look["status"] = f"{project.final_look['english']} · EXPORT FILTER READY"
+            project.logs.append(
+                f"Final Look: Applied {project.final_look['english']} (intensity {project.final_look['intensity']}, scope {project.final_look['scope']})."
+            )
+        else:
+            project.logs.append("Final Look: Browser preview draft updated; not yet applied to delivery file.")
         self._save(project)
         return project
 
