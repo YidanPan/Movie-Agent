@@ -45,6 +45,38 @@ def _state_text(value: dict[str, Any] | None) -> str:
     return "\n".join(lines) or "none"
 
 
+REMOTE_RESUME_STATUSES = frozenset({"SUBMITTED", "PENDING", "RUNNING", "RESUMING"})
+
+
+def _remote_task_matches_request(
+    media_generation: dict[str, Any],
+    *,
+    revision: int,
+    request_hash: str,
+    provider: str,
+    model: str,
+) -> bool:
+    """Allow resume only when the durable task identity matches this render."""
+
+    try:
+        task_revision = int(media_generation.get("provider_task_revision"))
+    except (TypeError, ValueError):
+        return False
+    task_status = str(
+        media_generation.get("provider_task_status")
+        or media_generation.get("generation_status")
+        or ""
+    ).upper()
+    return bool(
+        str(media_generation.get("provider_task_id") or "").strip()
+        and task_status in REMOTE_RESUME_STATUSES
+        and task_revision == int(revision)
+        and str(media_generation.get("provider_task_request_hash") or "") == str(request_hash or "")
+        and str(media_generation.get("provider_task_provider") or "").strip().lower() == str(provider or "").strip().lower()
+        and str(media_generation.get("provider_task_model") or "").strip() == str(model or "").strip()
+    )
+
+
 def build_continuity_prompt(
     shot: Shot,
     visual_bible: dict[str, Any],
@@ -207,8 +239,6 @@ class GenerationAgent:
             return f"Generation Agent: Shot {shot.number} already has an approved result; skipping duplicate generation."
         is_comfyui = provider_name == "comfyui"
         existing_media_generation = dict(shot.media_generation or {})
-        existing_task_id = str(existing_media_generation.get("provider_task_id") or "").strip()
-        existing_task_status = str(existing_media_generation.get("generation_status") or "").upper()
         template_path = self.settings.workflows_dir / self.settings.comfy_workflow_template
         if is_comfyui and not template_path.is_file():
             error = VideoGenerationError(
@@ -427,10 +457,15 @@ class GenerationAgent:
             task_id = str(event.get("task_id") or "").strip()
             if task_id:
                 shot.media_generation["provider_task_id"] = task_id
+                if not shot.media_generation.get("provider_task_submitted_at") and status in {
+                    "SUBMITTED", "RUNNING", "RESUMING"
+                }:
+                    shot.media_generation["provider_task_submitted_at"] = utc_now()
             if status:
                 shot.media_generation["generation_status"] = status
+                shot.media_generation["provider_task_status"] = status
             if status == "SUBMITTED" and not shot.media_generation.get("submitted_at"):
-                shot.media_generation["submitted_at"] = utc_now()
+                shot.media_generation["submitted_at"] = shot.media_generation.get("provider_task_submitted_at") or utc_now()
             shot.media_generation["last_progress_at"] = utc_now()
             if event.get("poll") is not None:
                 shot.media_generation["poll"] = event.get("poll")
@@ -465,6 +500,45 @@ class GenerationAgent:
             "generation_input_hash": shot.generation_input_hash,
             "master_fps": int(getattr(self.settings, "project_master_fps", 24) or 24),
         }
+        expected_task_model = str(
+            getattr(self.provider, "model", "")
+            or (self.settings.comfy_workflow_template if is_comfyui else provider_name)
+            or provider_name
+        ).strip()
+        current_task_identity = {
+            "provider_task_revision": int(shot.revision or 1),
+            "provider_task_request_hash": str(shot.generation_input_hash or ""),
+            "provider_task_provider": provider_name,
+            "provider_task_model": expected_task_model,
+        }
+        can_resume_existing_task = _remote_task_matches_request(
+            existing_media_generation,
+            revision=current_task_identity["provider_task_revision"],
+            request_hash=current_task_identity["provider_task_request_hash"],
+            provider=current_task_identity["provider_task_provider"],
+            model=current_task_identity["provider_task_model"],
+        )
+        if can_resume_existing_task:
+            existing_task_id = str(existing_media_generation.get("provider_task_id") or "").strip()
+            existing_task_status = str(
+                existing_media_generation.get("provider_task_status")
+                or existing_media_generation.get("generation_status")
+                or ""
+            ).upper()
+        else:
+            # A task from another revision/provider/model is never reusable.
+            # Clear only the in-flight identity; the new request remains fully
+            # auditable in the shot record.
+            existing_task_id = ""
+            existing_task_status = ""
+            shot.media_generation.update(
+                {
+                    "provider_task_id": "",
+                    "provider_task_status": "SUBMITTING",
+                    "provider_task_submitted_at": "",
+                    **current_task_identity,
+                }
+            )
         try:
             # Keep the long-standing test/deployment injection point valid
             # while the ComfyUI details live behind the provider adapter.
@@ -500,8 +574,15 @@ class GenerationAgent:
                 provider_result = self.provider.generate(**provider_kwargs)
             prompt_id = provider_result.task_id
             provider_model = str(getattr(provider_result, "model", "") or "").strip()
-            shot.media_generation["provider_task_id"] = prompt_id
-            shot.media_generation["generation_status"] = "RUNNING"
+            shot.media_generation.update(
+                {
+                    "provider_task_id": prompt_id,
+                    "provider_task_status": "RUNNING",
+                    "provider_task_submitted_at": shot.media_generation.get("provider_task_submitted_at") or utc_now(),
+                    **current_task_identity,
+                    "generation_status": "RUNNING",
+                }
+            )
             shot.model = provider_model or shot.model or (self.settings.comfy_workflow_template if is_comfyui else provider_name)
             destination = Path(provider_result.video_path)
             source = Path(str(provider_result.metadata.get("source_path") or destination))
@@ -514,6 +595,8 @@ class GenerationAgent:
                 "VIDEO_PROVIDER_HTTP_ERROR",
             }
             shot.media_generation["generation_status"] = "RUNNING" if in_flight_task else "FAILED"
+            shot.media_generation["provider_task_status"] = "RUNNING" if in_flight_task else "FAILED"
+            shot.media_generation.update(current_task_identity)
             shot.media_generation["error"] = str(error)[:300]
             record_failure(
                 shot,
@@ -537,6 +620,8 @@ class GenerationAgent:
             "image_path": shot.media_generation.get("keyframe_path", ""),
             "video_path": str(destination),
             "generation_status": "COMPLETED",
+            "provider_task_status": "COMPLETED",
+            **current_task_identity,
         })
         # The model output is the immutable source.  It must not be labelled a
         # Final Master until normalization/edit approval has produced one.

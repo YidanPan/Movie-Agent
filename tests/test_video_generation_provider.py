@@ -291,6 +291,29 @@ class _FakeVideoProvider:
         )
 
 
+class _ResumableFakeProvider(_FakeVideoProvider):
+    model = "fake-model"
+
+    def __init__(self, output: Path):
+        super().__init__(output)
+        self.calls: list[str] = []
+
+    def generate(self, **kwargs):
+        self.calls.append("generate")
+        return super().generate(**kwargs)
+
+    def resume_task(self, task_id, **kwargs):
+        self.calls.append(f"resume:{task_id}")
+        return VideoGenerationResult(
+            provider=self.name,
+            task_id=task_id,
+            status="COMPLETED",
+            video_path=self.output,
+            model=self.model,
+            metadata={"source_path": str(self.output)},
+        )
+
+
 def _reference_shot(path: str, *, revision: int = 1) -> Shot:
     return Shot(
         1, 6, "medium", "image", "action", "sound", "T2V", "delta", "shot.mp4",
@@ -403,6 +426,106 @@ def test_fake_provider_persists_provider_neutral_metadata_without_manifest():
         assert record["renderer_contract_status"] == "PROVIDER_REPORTED"
         assert record["renderer_verification_status"] == "PROVIDER_REPORTED"
         assert isinstance(record["external_input_digests"], dict)
+
+
+def test_remote_task_identity_is_persisted_for_exact_request():
+    with TemporaryDirectory() as directory:
+        root = Path(directory)
+        output = root / "video.mp4"
+        output.write_bytes(b"real-video")
+        provider = _ResumableFakeProvider(output)
+        agent = GenerationAgent(_settings(root), provider=provider)
+        shot = _reference_shot("")
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr("movie_agent.agents.generation.asset_record", lambda *args, **kwargs: kwargs)
+            agent.generate(
+                "film-a1b2c3d4", shot,
+                visual_bible={"scene_lock": "home", "character_lock": "hero", "cinematography_lock": "camera"},
+            )
+        task = shot.media_generation
+        assert task["provider_task_id"] == "fake-task-1"
+        assert task["provider_task_status"] == "COMPLETED"
+        assert task["provider_task_revision"] == shot.revision
+        assert task["provider_task_request_hash"] == shot.generation_input_hash
+        assert task["provider_task_provider"] == provider.name
+        assert task["provider_task_model"] == provider.model
+        assert task["provider_task_submitted_at"]
+
+
+def test_remote_task_is_resumed_only_for_the_same_revision_and_request():
+    with TemporaryDirectory() as directory:
+        root = Path(directory)
+        output = root / "video.mp4"
+        output.write_bytes(b"real-video")
+        provider = _ResumableFakeProvider(output)
+        agent = GenerationAgent(_settings(root), provider=provider)
+        shot = _reference_shot("")
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr("movie_agent.agents.generation.asset_record", lambda *args, **kwargs: kwargs)
+            agent.generate(
+                "film-a1b2c3d4", shot,
+                visual_bible={"scene_lock": "home", "character_lock": "hero", "cinematography_lock": "camera"},
+            )
+            shot.status = "generating"
+            shot.media_generation["generation_status"] = "RUNNING"
+            shot.media_generation["provider_task_status"] = "RUNNING"
+            agent.generate(
+                "film-a1b2c3d4", shot,
+                visual_bible={"scene_lock": "home", "character_lock": "hero", "cinematography_lock": "camera"},
+            )
+        assert provider.calls == ["generate", "resume:fake-task-1"]
+
+
+def test_remote_task_from_another_revision_is_not_resumed():
+    with TemporaryDirectory() as directory:
+        root = Path(directory)
+        output = root / "video.mp4"
+        output.write_bytes(b"real-video")
+        provider = _ResumableFakeProvider(output)
+        agent = GenerationAgent(_settings(root), provider=provider)
+        shot = _reference_shot("")
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr("movie_agent.agents.generation.asset_record", lambda *args, **kwargs: kwargs)
+            agent.generate(
+                "film-a1b2c3d4", shot,
+                visual_bible={"scene_lock": "home", "character_lock": "hero", "cinematography_lock": "camera"},
+            )
+            shot.status = "generating"
+            shot.media_generation["generation_status"] = "RUNNING"
+            shot.media_generation["provider_task_status"] = "RUNNING"
+            shot.revision += 1
+            agent.generate(
+                "film-a1b2c3d4", shot,
+                visual_bible={"scene_lock": "home", "character_lock": "hero", "cinematography_lock": "camera"},
+            )
+        assert provider.calls == ["generate", "generate"]
+        assert shot.media_generation["provider_task_revision"] == shot.revision
+        assert shot.media_generation["provider_task_request_hash"] == shot.generation_input_hash
+
+
+def test_remote_task_with_changed_request_hash_is_not_resumed():
+    with TemporaryDirectory() as directory:
+        root = Path(directory)
+        output = root / "video.mp4"
+        output.write_bytes(b"real-video")
+        provider = _ResumableFakeProvider(output)
+        agent = GenerationAgent(_settings(root), provider=provider)
+        shot = _reference_shot("")
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr("movie_agent.agents.generation.asset_record", lambda *args, **kwargs: kwargs)
+            agent.generate(
+                "film-a1b2c3d4", shot,
+                visual_bible={"scene_lock": "home", "character_lock": "hero", "cinematography_lock": "camera"},
+            )
+            shot.status = "generating"
+            shot.media_generation["generation_status"] = "RUNNING"
+            shot.media_generation["provider_task_status"] = "RUNNING"
+            shot.prompt = "different shot delta"
+            agent.generate(
+                "film-a1b2c3d4", shot,
+                visual_bible={"scene_lock": "home", "character_lock": "hero", "cinematography_lock": "camera"},
+            )
+        assert provider.calls == ["generate", "generate"]
 
 
 def test_provider_capability_rejects_unsupported_generation_mode():
