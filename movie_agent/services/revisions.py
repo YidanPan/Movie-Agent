@@ -279,6 +279,13 @@ def reconcile_generation_fingerprints(
                 source_duration_seconds=getattr(shot, "source_duration_seconds", 0) or getattr(shot, "duration_seconds", 0),
                 reference_digests=(source_record or {}).get("external_input_digests") if isinstance(source_record, dict) else {},
                 shot_revision=getattr(shot, "revision", 1),
+                target_resolution=str(getattr(project, "target_resolution", "") or ""),
+                aspect_ratio="16:9",
+                negative_prompt=(
+                    "existing film or TV characters, titles, logos, brands, real-person likenesses, "
+                    "copyrighted designs, subtitles, watermarks, language other than English"
+                ),
+                master_fps=int(getattr(project, "target_fps", 24) or 24),
             )
         else:
             try:

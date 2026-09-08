@@ -221,7 +221,7 @@ class EditorAgent:
                         "-i",
                         str(source),
                         "-vf",
-                        f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},setsar=1",
+                        f"fps={int(project.target_fps or 24)},scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},setsar=1",
                         "-r",
                         str(project.target_fps or 24),
                         "-map",

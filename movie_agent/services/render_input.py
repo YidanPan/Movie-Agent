@@ -154,6 +154,14 @@ class GenerationInputFingerprint:
     workflow_template_digest: str = ""
     submitted_workflow_digest: str = ""
     renderer_manifest_version: str = ""
+    # Provider-neutral request facts kept in the same authority as the
+    # prompt/seed/reference contract.  Empty defaults preserve compatibility
+    # with historical project JSON while new renders record the full request.
+    target_resolution: str = ""
+    aspect_ratio: str = ""
+    negative_prompt_digest: str = ""
+    master_fps: int = 24
+    request_contract_version: str = "1"
 
     def payload(self) -> dict[str, Any]:
         return {
@@ -168,6 +176,11 @@ class GenerationInputFingerprint:
             "workflow_template_digest": self.workflow_template_digest,
             "submitted_workflow_digest": self.submitted_workflow_digest,
             "renderer_manifest_version": self.renderer_manifest_version,
+            "target_resolution": self.target_resolution,
+            "aspect_ratio": self.aspect_ratio,
+            "negative_prompt_digest": self.negative_prompt_digest,
+            "master_fps": self.master_fps,
+            "request_contract_version": self.request_contract_version,
         }
 
     @property
@@ -188,6 +201,11 @@ def build_generation_input_fingerprint(
     workflow_template_digest: str = "",
     submitted_workflow_digest: str = "",
     renderer_manifest_version: str = "",
+    target_resolution: str = "",
+    aspect_ratio: str = "",
+    negative_prompt: str = "",
+    master_fps: int = 24,
+    request_contract_version: str = "1",
 ) -> GenerationInputFingerprint:
     return GenerationInputFingerprint(
         provider=str(provider or "").lower(),
@@ -201,6 +219,11 @@ def build_generation_input_fingerprint(
         workflow_template_digest=str(workflow_template_digest or ""),
         submitted_workflow_digest=str(submitted_workflow_digest or ""),
         renderer_manifest_version=str(renderer_manifest_version or ""),
+        target_resolution=str(target_resolution or "").lower(),
+        aspect_ratio=str(aspect_ratio or ""),
+        negative_prompt_digest=canonical_digest(negative_prompt or "") if negative_prompt else "",
+        master_fps=max(1, int(master_fps or 24)),
+        request_contract_version=str(request_contract_version or "1"),
     )
 
 

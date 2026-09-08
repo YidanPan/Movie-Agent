@@ -423,6 +423,7 @@ class PlanningPipeline:
             story_world=story_world,
             storyboard_review=storyboard_review,
             film_language=self.settings.film_language,
+            target_fps=int(getattr(self.settings, "project_master_fps", 24) or 24),
             continuity_lock=continuity_lock,
             voice_profile={
                 "voice_id": self.settings.tts_voice,

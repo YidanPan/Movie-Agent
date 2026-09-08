@@ -441,6 +441,9 @@ class ContinuousVoiceService:
         track.update(
             {
                 "status": result.status,
+                "media_status": "MEDIA_READY" if result.media_path else (
+                    "DEFERRED" if result.status in {"PROVIDER REQUIRED", "SCRIPT_TIMING_REVIEW"} else "PLANNED"
+                ),
                 "source": "CONTINUOUS ENGLISH VOICE TRACK",
                 "generation_strategy": result.method,
                 "alignment_method": result.alignment_method,

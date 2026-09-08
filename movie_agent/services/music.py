@@ -90,6 +90,7 @@ def render_music_asset(
         raise RuntimeError("Music provider returned no real audio asset.")
     return {
         "status": "READY",
+        "media_status": "MEDIA_READY",
         "provider": str(getattr(provider, "name", provider.__class__.__name__)),
         "media_path": str(rendered),
         "preview_url": f"/api/projects/{project.project_id}/audio/tracks/music",

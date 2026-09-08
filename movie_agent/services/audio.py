@@ -22,6 +22,7 @@ from movie_agent.services.music import MusicProvider, render_music_asset
 MUSIC_MODES = {"ai", "library", "upload"}
 TRACK_ORDER = ("voice", "music", "sfx", "ambience")
 EDIT_AUDIO_STAGES = ("picture_cut", "voice", "music", "sfx", "subtitles", "mix", "final_encode")
+AUDIO_MEDIA_STATES = {"PLANNED", "RENDERING", "MEDIA_READY", "DEFERRED", "FAILED"}
 DEFAULT_MUSIC_INTENSITY = 0.6
 TARGET_LOUDNESS_LUFS = -14.0
 TARGET_TRUE_PEAK_DBTP = -1.0
@@ -265,6 +266,8 @@ def build_audio_tracks(
     music_source, music_status = _mode_source(resolved_mode, asset_name)
     existing_music = (getattr(project, "audio_tracks", {}) or {}).get("music", {})
     existing_media = Path(str(existing_music.get("media_path") or ""))
+    existing_voice = (getattr(project, "audio_tracks", {}) or {}).get("voice", {})
+    voice_media = Path(str(existing_voice.get("media_path") or ""))
     if resolved_mode == "upload" and not existing_media.is_file():
         music_status = "BRIEF READY · AUDIO PENDING"
     cue_count = len(script_subtitle_track(getattr(project, "script", {}) or {}))
@@ -275,6 +278,10 @@ def build_audio_tracks(
             "label": "VOICE",
             "name": "Narration / Dialogue",
             "status": "READY" if locked else "LOCK REQUIRED",
+            # ``status`` describes the locked editorial plan for backwards
+            # compatible UI labels; ``media_status`` is the truthful asset
+            # lifecycle and never calls a plan-ready track rendered media.
+            "media_status": "MEDIA_READY" if voice_media.is_file() else ("PLANNED" if locked else "DEFERRED"),
             "source": f"LOCKED DIALOGUE BOOK · {cue_count} CUES" if locked else "DIALOGUE BOOK / REVIEW",
             "generation_strategy": "continuous_voice_track",
             "voice_id": voice_profile.get("voice_id", "en-US-GuyNeural"),
@@ -294,6 +301,7 @@ def build_audio_tracks(
             "label": "MUSIC",
             "name": "AI Score / Music",
             "status": music_status,
+            "media_status": "MEDIA_READY" if existing_media.is_file() else "PLANNED",
             "source": music_source,
             "provider": "pending" if music_status.endswith("PENDING") else "file_upload",
             "brief_status": "BRIEF READY" if music_status.endswith("PENDING") else "AUDIO READY",
@@ -310,6 +318,7 @@ def build_audio_tracks(
             "label": "SFX",
             "name": "Sound Effects / SFX",
             "status": "CUE MAP READY" if sfx_count else "CUE MAP EMPTY",
+            "media_status": "PLANNED",
             "source": f"SHOT SOUND DESIGN · {sfx_count} CUES",
             "enabled": True,
             "volume_db": -10,
@@ -324,6 +333,7 @@ def build_audio_tracks(
             "label": "AMBIENCE",
             "name": "Ambience / Atmos",
             "status": "ROOM TONE READY" if shots else "WAITING FOR SHOTS",
+            "media_status": "PLANNED",
             "source": "VISUAL BIBLE · CONTINUOUS BED",
             "enabled": True,
             "volume_db": -22,
@@ -427,11 +437,14 @@ def ensure_audio_design(
         for setting in ("pan", "ducking"):
             if setting in previous:
                 track[setting] = previous[setting]
-        for setting in ("alignment", "duration_seconds", "duration_source", "provider_error"):
+        for setting in ("alignment", "duration_seconds", "duration_source", "provider_error", "media_status"):
             if setting in previous:
                 track[setting] = deepcopy(previous[setting])
         if key == "voice" and str(previous.get("status") or "").startswith("STALE"):
             track["status"] = previous["status"]
+        media_path = Path(str(track.get("media_path") or ""))
+        if media_path.is_file():
+            track["media_status"] = "MEDIA_READY"
         if previous.get("preview_url") and not (key == "music" and mode != "upload"):
             track["preview_url"] = previous["preview_url"]
         if previous.get("media_path") and not (key == "music" and mode != "upload"):
@@ -481,6 +494,10 @@ def ensure_audio_design(
         "ducking": "ON" if enabled else "OFF",
         "media_mixed": bool(previous_mix.get("media_mixed", False)),
         "stage_status": {stage: str(previous_stage_status.get(stage, "queued")) for stage in EDIT_AUDIO_STAGES},
+        "media_status": {
+            key: str((project.audio_tracks.get(key) or {}).get("media_status") or "PLANNED")
+            for key in TRACK_ORDER
+        },
     }
     return project
 
@@ -534,6 +551,23 @@ def replan_track(project: Any, track_key: str) -> Any:
         project.music_brief["version"] = int(project.music_brief.get("version", 1) or 1) + 1
     project.mix_state["media_mixed"] = False
     project.mix_state["status"] = "DESIGN UPDATED"
+    return project
+
+
+def mark_audio_media_status(project: Any, track_key: str, status: str) -> Any:
+    """Record real audio asset progress separately from editorial stage state."""
+
+    key = str(track_key or "").strip().lower()
+    resolved = str(status or "").strip().upper()
+    if key not in TRACK_ORDER:
+        raise ValueError(f"Unknown audio track: {track_key}")
+    if resolved not in AUDIO_MEDIA_STATES:
+        raise ValueError(f"Unknown audio media status: {status}")
+    track = (getattr(project, "audio_tracks", {}) or {}).setdefault(key, {})
+    track["media_status"] = resolved
+    media_status = dict((getattr(project, "mix_state", {}) or {}).get("media_status") or {})
+    media_status[key] = resolved
+    project.mix_state["media_status"] = media_status
     return project
 
 

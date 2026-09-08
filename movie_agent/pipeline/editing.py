@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from movie_agent.services.audio import apply_audio_track_params, ensure_audio_design
-from movie_agent.services.audio import EDIT_AUDIO_STAGES, mark_audio_stage
+from movie_agent.services.audio import EDIT_AUDIO_STAGES, mark_audio_media_status, mark_audio_stage
 from movie_agent.services.errors import clear_failure
 from movie_agent.services.final_look import normalise_final_look, reset_final_look
 from movie_agent.services.readiness import ensure_action_ready
@@ -154,6 +154,14 @@ class EditPipeline:
         else:
             project.logs.append(
                 f"Voice Agent: Continuous English voice pending provider ({voice_result.error or 'no media renderer configured'})."
+            )
+        mark_audio_media_status(project, "voice", "MEDIA_READY" if voice_result.media_path else "DEFERRED")
+        for track_key in ("music", "sfx", "ambience"):
+            track = (project.audio_tracks or {}).get(track_key) or {}
+            mark_audio_media_status(
+                project,
+                track_key,
+                "MEDIA_READY" if Path(str(track.get("media_path") or "")).is_file() else "PLANNED",
             )
         self._save(project)
         mark_audio_stage(project, "voice", "done")

@@ -90,6 +90,8 @@ COMFY_WORKFLOW_TEMPLATE=minimax_h3_t2v_api.json
 COMFY_OUTPUT_DIR=/path/to/ComfyUI/output
 OUTPUTS_DIR=/path/to/Movie-Agent/outputs
 COMFY_MAX_RETRIES=2
+VIDEO_GENERATION_MAX_RETRIES=2
+PROJECT_MASTER_FPS=24
 ```
 
-点击页面的“Spark 真实生成”后，应用会逐镜调用固定 API 工作流；每个镜头完成即保存 `project.json`，全部通过质检后显示 `SHOTS READY` 并推进到 `DELIVER`。点击 AI Edit 后按 Picture Cut、Voice、Music、SFX、Subtitles、Mix、Final Encode 顺序生成可预览的 `rough-cut.mp4`，用户确认字幕与声音设计后批准才输出 `final-cut.mp4`。放映室可重新剪辑已批准项目，并通过导出配置接口生成不同容器、分辨率、画幅与字幕模式的交付文件。已通过质检的镜头会在再次点击后跳过；单镜生成或媒体完整性质检失败时，会按 `COMFY_MAX_RETRIES` 自动重试。
+点击页面的“Spark 真实生成”后，应用会逐镜调用固定 API 工作流；每个镜头完成即保存 `project.json`，全部通过质检后显示 `SHOTS READY` 并推进到 `DELIVER`。点击 AI Edit 后按 Picture Cut、Voice、Music、SFX、Subtitles、Mix、Final Encode 顺序生成可预览的 `rough-cut.mp4`，用户确认字幕与声音设计后批准才输出 `final-cut.mp4`。放映室可重新剪辑已批准项目，并通过导出配置接口生成不同容器、分辨率、画幅与字幕模式的交付文件。已通过质检的镜头会在再次点击后跳过；单镜生成或媒体完整性质检失败时，会按 `VIDEO_GENERATION_MAX_RETRIES` 自动重试。远程视频任务使用独立的 request/task timeout，并在首次获得 task_id 后持久化；进程重启时 resume 已提交任务，不会因为轮询失败重新 POST。
