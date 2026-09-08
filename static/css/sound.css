@@ -1,3 +1,46 @@
 /* Sound Design extraction seam. */
 :where(.p2-sound) { isolation: isolate; }
 
+/* Sound owns the responsive geometry of the mixer.  style.css keeps only
+   the legacy visual skin; these layout rules are the single working contract. */
+body[data-design="archive-console"] .audio-focus-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.12fr) minmax(270px, .88fr);
+  gap: clamp(24px, 4vw, 56px);
+  align-items: stretch;
+}
+
+body[data-design="archive-console"] .audio-mode-switch {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  width: 100%;
+  gap: 8px;
+}
+
+body[data-design="archive-console"] .audio-mixer-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(250px, .42fr);
+  gap: 20px;
+  align-items: start;
+}
+
+body[data-design="archive-console"] .audio-track {
+  display: grid;
+  grid-template-columns: 28px minmax(170px, 1.2fr) minmax(90px, .66fr) minmax(110px, .7fr) auto;
+  align-items: center;
+  min-width: 0;
+}
+
+@media (max-width: 900px) {
+  body[data-design="archive-console"] .audio-focus-grid,
+  body[data-design="archive-console"] .audio-mixer-layout { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 720px) {
+  body[data-design="archive-console"] .audio-mode-switch { grid-template-columns: 1fr; }
+  body[data-design="archive-console"] .audio-track { grid-template-columns: 28px minmax(0, 1fr) auto; gap: 8px; }
+  body[data-design="archive-console"] .audio-track-meter,
+  body[data-design="archive-console"] .audio-track-status { display: none; }
+  body[data-design="archive-console"] .audio-track-actions { grid-column: 2 / -1; }
+}
+

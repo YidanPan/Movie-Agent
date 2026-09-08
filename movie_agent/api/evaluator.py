@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import threading
 from typing import Any
 from uuid import uuid4
@@ -13,9 +15,11 @@ from pydantic import BaseModel, Field, ValidationError, field_validator
 from movie_agent.services.errors import error_info
 from movie_agent.services.media_quality import best_master_path, best_screening_path
 from movie_agent.pipeline.evaluator_submissions import EvaluatorSubmissionIndex
+from movie_agent.pipeline.jobs import JobCapacityReached
 
 
 router = APIRouter(prefix="/api/v1", tags=["evaluator"])
+PLANNING_PROGRESS_AGENTS = frozenset({"director", "writer", "story_world", "story_beats", "visual_bible", "storyboard", "quality"})
 
 
 class EvaluatorGeneratePayload(BaseModel):
@@ -64,6 +68,16 @@ def _public_job(ledger: Any, job_id: str) -> dict[str, Any]:
     }
 
 
+def _submission_fingerprint(payload: EvaluatorGeneratePayload) -> str:
+    canonical = json.dumps(
+        {"idea": payload.idea, "duration": payload.duration, "visual_style": payload.visual_style},
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
+
+
 @router.post("/generate", status_code=202)
 async def evaluator_generate(
     request: Request,
@@ -81,6 +95,7 @@ async def evaluator_generate(
             )
         return JSONResponse({"error": "Request must be valid JSON."}, status_code=400)
     idempotency_key = str(request.headers.get("idempotency-key") or "").strip()
+    request_fingerprint = _submission_fingerprint(payload)
     submission_index = EvaluatorSubmissionIndex(settings.projects_dir)
 
     def replay(existing: dict[str, Any]) -> JSONResponse:
@@ -103,12 +118,13 @@ async def evaluator_generate(
         if idempotency_key:
             existing = submission_index.get(idempotency_key)
             if existing:
+                existing_fingerprint = str(existing.get("request_fingerprint") or "")
+                if existing_fingerprint and existing_fingerprint != request_fingerprint:
+                    return JSONResponse(
+                        {"error": "Idempotency key was reused for a different payload.", "error_code": "IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_PAYLOAD"},
+                        status_code=409,
+                    )
                 return replay(existing)
-        if ledger.active_count() >= int(getattr(settings, "max_active_jobs", 2) or 2):
-            return JSONResponse(
-                {"error": "Evaluator job capacity has been reached.", "error_code": "JOB_CAPACITY_REACHED"},
-                status_code=429,
-            )
         project_id = f"film-{uuid4().hex[:8]}"
         # Keep the raw caller key out of the job ledger too; the dedicated
         # index stores only its SHA-256 digest.
@@ -120,12 +136,21 @@ async def evaluator_generate(
                 stage="planning",
                 idempotency_key=ledger_key,
                 mutates_project=True,
+                max_active_jobs=int(getattr(settings, "max_active_jobs", 2) or 2),
+            )
+        except JobCapacityReached:
+            return JSONResponse(
+                {"error": "Evaluator job capacity has been reached.", "error_code": "JOB_CAPACITY_REACHED"},
+                status_code=429,
             )
         except Exception as error:  # pragma: no cover - ledger-specific failures are surfaced safely
             return JSONResponse({"error": str(error), "error_code": "JOB_START_FAILED"}, status_code=409)
         if idempotency_key:
             reserved = submission_index.reserve(
-                idempotency_key, project_id=project_id, job_id=str(job["job_id"])
+                idempotency_key,
+                project_id=project_id,
+                job_id=str(job["job_id"]),
+                request_fingerprint=request_fingerprint,
             )
             if str(reserved.get("project_id")) != project_id:
                 # This is defensive for future multi-process implementations;
@@ -139,7 +164,7 @@ async def evaluator_generate(
 
     def emit(event: dict[str, Any]) -> None:
         nonlocal completed_agents
-        if str(event.get("type") or "") == "agent_done":
+        if str(event.get("type") or "") == "agent_done" and str(event.get("agent") or "") in PLANNING_PROGRESS_AGENTS:
             completed_agents += 1
         ledger.append(
             project_id,

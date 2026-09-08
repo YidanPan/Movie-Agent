@@ -29,7 +29,7 @@ class ProjectStore:
         target_dir = self._project_dir(project.project_id)
         with self._lock:
             target_dir.mkdir(parents=True, exist_ok=True)
-            now = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+            now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
             if not getattr(project, "created_at", ""):
                 project.created_at = now
             project.updated_at = now

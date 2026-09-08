@@ -48,10 +48,19 @@ def test_deliver_geometry_has_one_authoritative_module_owner():
     assert "grid-template-columns:" not in REFINEMENT
 
 
-def test_production_bible_visual_cards_stretch_as_equal_grid_rows():
+def test_production_bible_summary_stretches_but_asset_cards_use_natural_flow():
     assert ".visual-summary-grid" in BIBLE
     assert ".visual-assets-grid" in BIBLE
     assert "align-items: stretch;" in BIBLE
     assert "grid-template-rows: auto 1fr auto;" in BIBLE
-    assert "align-self: stretch;" in BIBLE
-    assert "height: 100%;" in BIBLE
+    summary_start = BIBLE.index(".visual-summary-card")
+    summary_end = BIBLE.find("}", summary_start)
+    summary_rule = BIBLE[summary_start:summary_end]
+    assert "align-self: stretch;" in summary_rule
+    assert "height: 100%;" in summary_rule
+    asset_start = BIBLE.index(".visual-asset-card")
+    asset_end = BIBLE.find("}", asset_start)
+    asset_rule = BIBLE[asset_start:asset_end]
+    assert "align-self: start;" in asset_rule
+    assert "height: auto;" in asset_rule
+    assert "height: 100%;" not in asset_rule

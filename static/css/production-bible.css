@@ -19,7 +19,7 @@ body[data-design="archive-console"] .manual-panel .manual-reading-grid {
   display: grid;
   grid-template-columns: 148px minmax(0, 1fr);
   gap: clamp(24px, 4vw, 58px);
-  align-items: start;
+  align-items: stretch;
 }
 
 body[data-design="archive-console"] .manual-panel .manual-navigation {
@@ -398,20 +398,32 @@ body[data-design="archive-console"] .manual-panel .visual-summary-grid,
 body[data-design="archive-console"] .manual-panel .visual-assets-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  align-items: stretch;
+  align-items: start;
   gap: 18px 28px;
   width: 100%;
   margin-top: 17px;
 }
 
-body[data-design="archive-console"] .manual-panel .visual-summary-card,
-body[data-design="archive-console"] .manual-panel .visual-asset-card {
+body[data-design="archive-console"] .manual-panel .visual-summary-card {
   display: grid;
   grid-template-rows: auto 1fr auto;
   align-self: stretch;
   gap: 10px;
   min-width: 0;
   height: 100%;
+  padding: 15px 0 17px;
+  border-bottom: 1px solid var(--line-soft);
+  background: transparent;
+  box-shadow: none;
+}
+
+body[data-design="archive-console"] .manual-panel .visual-asset-card {
+  display: grid;
+  grid-template-rows: auto;
+  align-self: start;
+  gap: 10px;
+  min-width: 0;
+  height: auto;
   padding: 15px 0 17px;
   border-bottom: 1px solid var(--line-soft);
   background: transparent;
@@ -595,7 +607,7 @@ body[data-design="archive-console"] .manual-panel .shot-detail-head h3 {
 
   body[data-design="archive-console"] .manual-panel .manual-navigation {
     position: static;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 8px;
     padding-top: 12px;
   }

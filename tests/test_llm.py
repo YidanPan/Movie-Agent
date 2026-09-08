@@ -53,13 +53,32 @@ class ModelScopeLLMTests(unittest.TestCase):
         self.assertEqual(_parse_json_object('Here is the result:\n```json\n{"status":"ok"}\n```\nDone.'), {"status": "ok"})
         self.assertEqual(_parse_json_object('{"status":"ok"}\nExplanation after JSON.'), {"status": "ok"})
 
-    def test_malformed_json_is_a_non_retryable_structured_error(self) -> None:
+    def test_malformed_json_is_retried_then_reported_as_structured_error(self) -> None:
         client = self.make_client(retries=3)
         with patch("movie_agent.services.llm.urllib.request.urlopen", return_value=_success("not json")):
             with self.assertRaises(ModelScopeAPIError) as raised:
                 client.complete_json("screenwriter", "Return JSON")
         self.assertEqual(raised.exception.error_type, "invalid_json")
-        self.assertEqual(client.request_count, 1)
+        self.assertEqual(client.request_count, 3)
+
+    def test_invalid_json_retries_then_succeeds(self) -> None:
+        client = self.make_client(retries=3)
+        with patch(
+            "movie_agent.services.llm.urllib.request.urlopen",
+            side_effect=[_success("not json"), _success('{"status":"ok"}')],
+        ), patch("movie_agent.services.llm.time.sleep"):
+            self.assertEqual(client.complete_json("screenwriter", "Return JSON"), {"status": "ok"})
+        self.assertEqual(client.request_count, 2)
+
+    def test_invalid_json_exhausts_retries(self) -> None:
+        client = self.make_client(retries=2)
+        with patch("movie_agent.services.llm.urllib.request.urlopen", return_value=_success("not json")), patch(
+            "movie_agent.services.llm.time.sleep"
+        ):
+            with self.assertRaises(ModelScopeAPIError) as raised:
+                client.complete_json("screenwriter", "Return JSON")
+        self.assertEqual(raised.exception.error_type, "invalid_json")
+        self.assertEqual(client.request_count, 2)
 
     def test_auth_and_model_errors_are_not_retried(self) -> None:
         for status, error_type in ((401, "authentication"), (403, "permission"), (404, "invalid_model_or_endpoint")):

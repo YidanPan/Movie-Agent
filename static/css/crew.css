@@ -21,6 +21,7 @@ body[data-design="archive-console"] .crew-flow-node {
 body[data-design="archive-console"] .crew-flow-node:last-child { padding-right: 0; }
 
 body[data-design="archive-console"] .crew-flow-link {
+  display: none;
   position: absolute;
   top: 50%;
   right: 0;
@@ -153,6 +154,7 @@ body[data-design="archive-console"] .crew-flow .crew-identity {
   display: grid;
   gap: 3px;
   min-width: 0;
+  min-height: 68px;
   margin-top: 16px;
 }
 
@@ -180,7 +182,7 @@ body[data-design="archive-console"] .crew-flow .crew-en {
   text-align: left;
   word-break: normal;
   overflow-wrap: normal;
-  white-space: normal;
+  white-space: nowrap;
   writing-mode: horizontal-tb;
 }
 

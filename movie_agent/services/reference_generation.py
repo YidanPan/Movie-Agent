@@ -17,6 +17,7 @@ from typing import Any, Callable
 from movie_agent.config import Settings
 from movie_agent.services.media_generation import MediaGenerationError, ModelScopeImageProvider
 from movie_agent.services.continuity import derive_shot_seed
+from movie_agent.services.render_input import canonical_digest
 from movie_agent.storage.reference_bank import ReferenceAsset, ReferenceBankStore
 
 
@@ -32,6 +33,23 @@ class ReferenceImageRequest:
     shot_number: int | None = None
     revision: int = 1
     seed: int | None = None
+
+
+def reference_request_fingerprint(request: ReferenceImageRequest, *, resolved_revision: int | None = None) -> str:
+    """Hash the effective provider request without storing prompt text in a job ledger."""
+
+    return canonical_digest({
+        "kind": request.kind,
+        "name": request.name,
+        "prompt": request.prompt,
+        "negative_prompt": request.negative_prompt,
+        "character_id": request.character_id,
+        "character_ids": sorted(request.character_ids),
+        "scene_id": request.scene_id,
+        "shot_number": request.shot_number,
+        "revision": int(resolved_revision or request.revision or 1),
+        "seed": request.seed,
+    })
 
 
 @dataclass(frozen=True)
@@ -145,7 +163,7 @@ def generate_reference_image(
             source=f"{provider.name}:{completed.task_id or 'synchronous'}",
             approved=False,
             shot_number=request.shot_number,
-            revision=request.revision,
+            revision=int(request.revision or 1),
             name=request.name,
             character_id=request.character_id,
             character_ids=list(request.character_ids),
@@ -170,5 +188,6 @@ __all__ = [
     "ImageConditioningInputs",
     "ReferenceImageRequest",
     "generate_reference_image",
+    "reference_request_fingerprint",
     "resolve_image_conditioning_inputs",
 ]

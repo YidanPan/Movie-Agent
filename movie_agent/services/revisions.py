@@ -18,7 +18,9 @@ from typing import Any
 
 from movie_agent.services.render_input import (
     RENDERER_MANIFEST_VERSION,
+    GenerationInputFingerprint,
     RendererContractUnavailable,
+    build_generation_input_fingerprint,
     compile_renderer_input,
 )
 
@@ -242,30 +244,63 @@ def reconcile_generation_fingerprints(
             entity_state_delta=record.get("delta"),
             entity_state_after=record.get("after"),
         )
-        try:
-            manifest = compile_renderer_input(
-                project,
+        source_record = (getattr(shot, "media_assets", {}) or {}).get("source")
+        provider = str(getattr(shot, "provider", "") or (source_record or {}).get("provider") or "comfyui").lower()
+        if provider != "comfyui":
+            from movie_agent.agents.generation import build_continuity_prompt
+            from movie_agent.services.continuity import derive_shot_seed
+
+            seed = getattr(shot, "seed", None)
+            if seed is None:
+                seed = derive_shot_seed(
+                    str(getattr(project, "project_id", "ad-hoc-project") or "ad-hoc-project"),
+                    str((getattr(project, "visual_bible", {}) or {}).get("reference_seed") or "42"),
+                    number,
+                )
+            prompt = str(getattr(shot, "compiled_generation_prompt", "") or "") or build_continuity_prompt(
                 shot,
+                getattr(project, "visual_bible", {}) or {},
                 previous,
-                context,
-                workflow_path,
-                workflow_identity=workflow_identity,
+                project_id=str(getattr(project, "project_id", "ad-hoc-project") or "ad-hoc-project"),
                 film_language=str(getattr(project, "film_language", "en") or "en"),
+                context=context,
+                story_world=getattr(project, "story_world", {}) or {},
             )
-        except RendererContractUnavailable as error:
-            project.renderer_contract = {
-                "status": error.status,
-                "valid": False,
-                "errors": list(error.errors),
-            }
-            return {
-                "affected_shots": [],
-                "old_hashes": {},
-                "new_hashes": {},
-                "event": None,
-                "contract_status": error.status,
-                "contract_errors": list(error.errors),
-            }
+            manifest = build_generation_input_fingerprint(
+                provider=provider,
+                model=str(getattr(shot, "model", "") or (source_record or {}).get("model") or provider),
+                generation_mode=str(getattr(shot, "generation_mode", "") or ""),
+                compiled_prompt=prompt,
+                seed=seed,
+                source_duration_seconds=getattr(shot, "source_duration_seconds", 0) or getattr(shot, "duration_seconds", 0),
+                reference_digests=(source_record or {}).get("external_input_digests") if isinstance(source_record, dict) else {},
+                shot_revision=getattr(shot, "revision", 1),
+            )
+        else:
+            try:
+                manifest = compile_renderer_input(
+                    project,
+                    shot,
+                    previous,
+                    context,
+                    workflow_path,
+                    workflow_identity=workflow_identity,
+                    film_language=str(getattr(project, "film_language", "en") or "en"),
+                )
+            except RendererContractUnavailable as error:
+                project.renderer_contract = {
+                    "status": error.status,
+                    "valid": False,
+                    "errors": list(error.errors),
+                }
+                return {
+                    "affected_shots": [],
+                    "old_hashes": {},
+                    "new_hashes": {},
+                    "event": None,
+                    "contract_status": error.status,
+                    "contract_errors": list(error.errors),
+                }
         contexts.append((shot, previous, context, manifest))
         previous = shot
 
@@ -276,11 +311,30 @@ def reconcile_generation_fingerprints(
     new_hashes: dict[str, str] = {}
     contract_diffs: dict[str, dict[str, str]] = {}
     for shot, previous, context, manifest in contexts:
-        new_hash = manifest.fingerprint()
+        new_hash = manifest.fingerprint if isinstance(manifest, GenerationInputFingerprint) else manifest.fingerprint()
         number = int(getattr(shot, "number", 0) or 0)
         new_hashes[str(number)] = new_hash
         source_record = (getattr(shot, "media_assets", {}) or {}).get("source")
         rendered_hash = source_record.get("generation_input_hash") if isinstance(source_record, dict) else ""
+        if isinstance(manifest, GenerationInputFingerprint):
+            if _shot_has_current_source(shot) and isinstance(source_record, dict):
+                if not rendered_hash:
+                    source_record["renderer_verification_status"] = "UNVERIFIED_LEGACY"
+                elif rendered_hash != new_hash:
+                    diff = {"reason": "RENDERER_INPUT_CHANGED", "detail": "Provider-neutral generation input differs from rendered source."}
+                    source_record["renderer_verification_status"] = "STALE"
+                    old_hashes[str(number)] = str(rendered_hash)
+                    contract_diffs[str(number)] = diff
+                    changed.append(number)
+                    if not bool(getattr(shot, "stale", False)):
+                        mark_shot_stale(shot, diff["reason"])
+                    else:
+                        shot.qc_status = "STALE"
+                else:
+                    source_record["renderer_verification_status"] = "VERIFIED"
+            shot.generation_input_hash = new_hash
+            previous = shot
+            continue
         if _shot_has_current_source(shot):
             required_manifest_fields = (
                 "generation_input_hash",

@@ -973,7 +973,10 @@ class MovieOrchestrator:
             shot=shot if visual_or_narrative else None,
         )
         edit_event["impact"] = impact
-        if visual_or_narrative:
+        # A state-delta update rebuilds continuity state, but does not by
+        # itself alter the renderer-facing visual prompt. Keep the current
+        # shot usable until an actual visual field changes.
+        if impact["visual"]:
             reconcile_generation_fingerprints(
                 project,
                 workflow_identity=self.settings.comfy_workflow_template or "verified-comfyui-workflow",

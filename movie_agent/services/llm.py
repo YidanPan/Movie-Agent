@@ -161,7 +161,6 @@ class ModelScopeLLM:
                     error_type="invalid_json",
                 )
                 self._log_failure(agent, attempt, started, "invalid_json")
-                raise last_error from error
             except (socket.timeout, TimeoutError) as error:
                 last_error = ModelScopeAPIError("ModelScope API 请求超时。", error_type="timeout")
                 self._log_failure(agent, attempt, started, "timeout")

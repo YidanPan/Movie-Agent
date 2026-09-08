@@ -78,8 +78,6 @@ const els = {
   renderRec: $("#render-rec"),
   btnRender: $("#btn-render"),
   renderNote: $("#render-note"),
-  renderReadiness: $("#render-readiness"),
-  shotsReady: $("#shots-ready"),
   btnAiEdit: $("#btn-ai-edit"),
   editStatus: $("#edit-status"),
   logFeed: $("#log-feed"),
@@ -121,7 +119,6 @@ const els = {
   btnApproveEdit: $("#btn-approve-edit"),
   btnSoundSettings: $("#btn-sound-settings"),
   soundSummary: $("#sound-summary"),
-  soundSummaryChips: $("#sound-summary-chips"),
   soundSummaryLabel: $("[data-sound-summary-label]"),
   btnReedit: $("#btn-reedit"),
   btnEditSubtitles: $("#btn-edit-subtitles"),
@@ -213,8 +210,6 @@ const els = {
   btnExportRun: $("#btn-export-run"),
   exportSelection: $("#export-selection"),
   exportPreflight: $("#export-preflight"),
-  posterTitle: $("#poster-title"),
-  posterMeta: $("#poster-meta"),
   exportJson: $("#export-json"),
   exportMd: $("#export-md"),
   exportSrt: $("#export-srt"),
@@ -281,7 +276,7 @@ const AGENT_DEFS = [
         secondary: shots.length ? "LOCKED" : "AWAITING STORYBOARD",
       };
     } },
-  { id: "quality", index: "05", name: "质检", en: "QC GATE", role: "连续性 · 风险",
+  { id: "quality", index: "05", name: "质检", en: "QC", role: "连续性 · 风险",
     input: "SHOTS", output: "QC",
     summarize: (d) => {
       const checks = d.quality_report || [];
@@ -3513,13 +3508,13 @@ function renderWorkspace(project, options = {}) {
     els.renderNote.textContent = allShotsReady
       ? "镜头已全部通过质检，请先锁定台词本，再启动 AI Edit Rough Cut。"
       : state.project?.script?.dialogue_locked
-        ? "逐镜提交已验证的 MiniMax-H3 工作流；已通过质检的镜头会自动跳过，失败镜头按重试策略重新提交。"
-        : "请先在剧本与旁白页审阅并锁定台词本，再提交 Spark 真实生成。";
+        ? "逐镜提交已验证的视频生成任务；已通过质检的镜头会自动跳过，失败镜头按重试策略重新提交。"
+        : "请先在剧本与旁白页审阅并锁定台词本，再提交真实生成。";
   } else {
     els.btnRender.disabled = true;
     els.renderNote.textContent = allShotsReady
       ? "mock 镜头已全部就绪：锁定台词本后可直接启动 AI Edit Rough Cut。"
-      : "当前为 mock 视频流程：在 Spark 的 .env 设置 VIDEO_GENERATION_MODE=comfyui 后，这里会变成真实逐镜生成与 FFmpeg 合片。";
+      : "当前为 mock 视频流程：启用真实视频 Provider 后，这里会变成逐镜生成与 FFmpeg 合片。";
   }
 }
 
@@ -4226,7 +4221,7 @@ function handleCreateEvent(event) {
     state.pendingProjectId = event.project_id;
     pushCrewRadio({ type: "status", agent: "system", status: "BOOT", message: "Project slate received · crew assembly online" });
     els.crewMeta.textContent = `LIVE · PROJECT ${String(event.project_id || "").replace(/^film-/, "").toUpperCase()}`;
-    els.modeNote.textContent = `文案引擎：${event.text_mode === "modelscope" ? "ModelScope AI" : "mock"} · 视频引擎：${event.video_mode === "comfyui" ? "Spark 真实生成" : "mock 流程"}`;
+  els.modeNote.textContent = `文案引擎：${event.text_mode === "modelscope" ? "ModelScope AI" : "mock"} · 视频引擎：${event.video_mode === "comfyui" ? "真实视频 Provider" : "mock 流程"}`;
   } else if (event.type === "agent_start") {
     state.workingAgent = event.agent;
     rememberCrewEvent(event.agent, { status: "working", startedAt: Date.now() });
@@ -4405,7 +4400,7 @@ function handleRenderEvent(event) {
     // All approved shots now enter DELIVER/AI Edit; do not leave the old
     // full-render CTA looking actionable after the queue is complete.
     els.btnRender.disabled = true;
-    els.btnRender.textContent = "提交 Spark 真实生成";
+      els.btnRender.textContent = "提交真实生成";
     toast(`${event.project.storyboard?.length || 0}/${event.project.storyboard?.length || 0} SHOTS READY，当前阶段已推进到 DELIVER；请启动 AI Edit 粗剪。`);
   } else if (event.type === "error") {
     const failure = eventErrorMessage(event);
@@ -4419,7 +4414,7 @@ function handleRenderEvent(event) {
     setBrowserActivity("idle", state.project);
     state.rendering = false;
     els.btnRender.disabled = false;
-    els.btnRender.textContent = "提交 Spark 真实生成";
+    els.btnRender.textContent = "提交真实生成";
     els.monitorDesc.textContent = `生成中断：${failure}`;
     rememberCrewEvent("generation", { status: "failed" });
     appendCrewStatus("generation", "FAILED", failure);
@@ -4435,7 +4430,7 @@ async function startRender() {
   state.renderStartedAt = performance.now();
   els.btnRender.disabled = true;
   els.btnRender.textContent = "生成中…（可断点续跑）";
-  els.monitorDesc.textContent = "正在连接 Spark ComfyUI…";
+  els.monitorDesc.textContent = "正在连接视频生成服务…";
   renderMonitor(state.project, true);
   setBrowserActivity("render", state.project);
   startProjectorHum();
@@ -4452,7 +4447,7 @@ async function startRender() {
     setBrowserActivity("idle", state.project);
     state.rendering = false;
     els.btnRender.disabled = false;
-    els.btnRender.textContent = "提交 Spark 真实生成";
+    els.btnRender.textContent = "提交真实生成";
     els.monitorDesc.textContent = `生成中断：${error.message}`;
     toast(`渲染失败：${error.message}`, true);
     if (state.project?.project_id) refreshJobStatus(state.project.project_id, { poll: true });
@@ -5458,7 +5453,7 @@ async function loadHealth() {
     state.health = await response.json();
     els.engineLamp?.classList.remove("is-pending", "is-error");
     const text = state.health.text_mode === "modelscope" ? "ModelScope AI 文案" : "mock 文案";
-    const video = state.health.video_mode === "comfyui" ? "Spark 真实视频" : "mock 视频流程";
+    const video = state.health.video_mode === "comfyui" ? "真实视频 Provider" : "mock 视频流程";
     els.modeNote.textContent = `制作引擎就绪 · ${text} + ${video}`;
   } catch {
     els.engineLamp?.classList.remove("is-pending");

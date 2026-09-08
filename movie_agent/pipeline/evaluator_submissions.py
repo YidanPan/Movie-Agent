@@ -21,10 +21,15 @@ from typing import Any, Iterator
 class EvaluatorSubmissionIndex:
     """Single-process, atomically persisted evaluator idempotency index."""
 
+    _registry_guard = threading.Lock()
+    _registry: dict[str, threading.RLock] = {}
+
     def __init__(self, projects_root: Path) -> None:
         self.root = Path(projects_root)
         self.path = self.root / "evaluator-submissions.json"
-        self._lock = threading.RLock()
+        key = str(self.path.resolve())
+        with self._registry_guard:
+            self._lock = self._registry.setdefault(key, threading.RLock())
 
     @staticmethod
     def _key_hash(key: str) -> str:
@@ -43,7 +48,7 @@ class EvaluatorSubmissionIndex:
     def _write_locked(self, entries: dict[str, Any]) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         temporary = self.path.with_suffix(".json.tmp")
-        payload = {"schema_version": 1, "entries": entries}
+        payload = {"schema_version": 2, "entries": entries}
         with temporary.open("w", encoding="utf-8", newline="\n") as handle:
             handle.write(json.dumps(payload, ensure_ascii=False, indent=2))
             handle.flush()
@@ -65,7 +70,7 @@ class EvaluatorSubmissionIndex:
             entry = self._read_locked().get(key_hash)
             return dict(entry) if isinstance(entry, dict) else None
 
-    def reserve(self, key: str, *, project_id: str, job_id: str) -> dict[str, Any]:
+    def reserve(self, key: str, *, project_id: str, job_id: str, request_fingerprint: str = "") -> dict[str, Any]:
         """Return the original entry, or persist this submission atomically."""
 
         raw = str(key or "").strip()
@@ -76,16 +81,28 @@ class EvaluatorSubmissionIndex:
             entries = self._read_locked()
             existing = entries.get(key_hash)
             if isinstance(existing, dict):
+                existing_fingerprint = str(existing.get("request_fingerprint") or "")
+                if existing_fingerprint and request_fingerprint and existing_fingerprint != str(request_fingerprint):
+                    raise IdempotencyKeyConflict(dict(existing))
                 return dict(existing)
             entry = {
                 "key_hash": key_hash,
                 "project_id": str(project_id),
                 "job_id": str(job_id),
                 "status": "running",
+                "request_fingerprint": str(request_fingerprint or ""),
             }
             entries[key_hash] = entry
             self._write_locked(entries)
             return dict(entry)
 
 
-__all__ = ["EvaluatorSubmissionIndex"]
+class IdempotencyKeyConflict(RuntimeError):
+    """Raised when one idempotency key is reused for different input."""
+
+    def __init__(self, existing: dict[str, Any]):
+        self.existing = existing
+        super().__init__("This idempotency key was already used for a different payload.")
+
+
+__all__ = ["EvaluatorSubmissionIndex", "IdempotencyKeyConflict"]

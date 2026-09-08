@@ -22,6 +22,7 @@ import threading
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal
+from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
@@ -35,11 +36,11 @@ from movie_agent.services.subtitles import render_srt, render_vtt, script_subtit
 from movie_agent.services.media_quality import best_master_path, best_screening_path, quality_snapshot
 from movie_agent.pipeline.diagnostics import delivery_preflight, diagnostics_snapshot
 from movie_agent.services.readiness import PRODUCTION_ACTION_CONTRACT, PRODUCTION_ACTIONS, ProductionBlockedError, ensure_action_ready, production_readiness
-from movie_agent.pipeline.jobs import JobAlreadyRunning, JobLedger
+from movie_agent.pipeline.jobs import JobAlreadyRunning, JobCapacityReached, JobLedger
 from movie_agent.state import shot_previewable
 from movie_agent.services.video_generation import build_video_provider
 from movie_agent.services.cache_cleanup import clean_working_cache, storage_summary
-from movie_agent.services.reference_generation import ReferenceImageRequest, generate_reference_image
+from movie_agent.services.reference_generation import ReferenceImageRequest, generate_reference_image, reference_request_fingerprint
 from movie_agent.storage.reference_bank import ReferenceBankStore
 from movie_agent.services.state_ledger import validate_state_delta_shape
 from movie_agent.services.change_impact import SHOT_EDITABLE_FIELDS
@@ -508,6 +509,7 @@ def run_with_sse(
                 idempotency_key=fence.get("idempotency_key"),
                 project_revision=fence.get("project_revision"),
                 expected_input_hash=fence.get("expected_input_hash"),
+                max_active_jobs=int(getattr(settings, "max_active_jobs", 2) or 2),
             )
         except JobAlreadyRunning as conflict:
             return JSONResponse(
@@ -518,6 +520,11 @@ def run_with_sse(
                     "job": conflict.snapshot,
                 },
                 status_code=409,
+            )
+        except JobCapacityReached as error:
+            return JSONResponse(
+                {"error": "Production job capacity has been reached.", "error_code": "JOB_CAPACITY_REACHED", "active": error.active, "maximum": error.maximum},
+                status_code=429,
             )
         if started.get("idempotent_replay"):
             return JSONResponse({"job": started, "idempotent_replay": True}, status_code=200)
@@ -557,6 +564,7 @@ def run_with_sse(
                     idempotency_key=fence.get("idempotency_key"),
                     project_revision=fence.get("project_revision"),
                     expected_input_hash=fence.get("expected_input_hash"),
+                    max_active_jobs=int(getattr(settings, "max_active_jobs", 2) or 2),
                 )
                 if started.get("idempotent_replay"):
                     event_payload = {"type": "job_replay", "job": started}
@@ -572,6 +580,15 @@ def run_with_sse(
                     "error_message": "A production job is already running for this project.",
                     "stage": stage,
                     "job": conflict.snapshot,
+                }
+            except JobCapacityReached as error:
+                event_payload = {
+                    "type": "error",
+                    "error_code": "JOB_CAPACITY_REACHED",
+                    "error_message": "Production job capacity has been reached.",
+                    "stage": stage,
+                    "active": error.active,
+                    "maximum": error.maximum,
                 }
         if job_id and resolved_project_id:
             persisted = job_ledger.append(resolved_project_id, job_id, event_payload)
@@ -803,13 +820,15 @@ async def create_project_stream(request: Request) -> StreamingResponse:
             return invalid_payload(error)  # type: ignore[return-value]
         return JSONResponse({"error": "Request must be valid JSON."}, status_code=400)  # type: ignore[return-value]
 
+    project_id = f"film-{uuid4().hex[:8]}"
+
     def work(emit: Callable[[dict], None]) -> None:
         project = orchestrator.create_project(
-            payload.idea, payload.duration, payload.visual_style, event_callback=emit
+            payload.idea, payload.duration, payload.visual_style, event_callback=emit, project_id=project_id
         )
         emit({"type": "done", "project": serialized_project(project)})
 
-    return run_with_sse(request, work, job_kind="planning", stage="planning")
+    return run_with_sse(request, work, project_id=project_id, job_kind="planning", stage="planning")
 
 
 @app.patch("/api/projects/{project_id}/script")
@@ -970,6 +989,7 @@ def _run_audio_track_action(project_id: str, track_key: str, action: str, reques
                 idempotency_key=fence["idempotency_key"],
                 project_revision=fence["project_revision"],
                 expected_input_hash=fence["expected_input_hash"],
+                max_active_jobs=int(getattr(settings, "max_active_jobs", 2) or 2),
             )
             if started_job.get("idempotent_replay"):
                 return JSONResponse({"job": started_job, "idempotent_replay": True}, status_code=200)
@@ -983,6 +1003,8 @@ def _run_audio_track_action(project_id: str, track_key: str, action: str, reques
         return project_not_found(project_id)
     except JobAlreadyRunning as error:
         return JSONResponse({"error": str(error), "error_code": "JOB_ALREADY_RUNNING", "job": error.snapshot}, status_code=409)
+    except JobCapacityReached as error:
+        return JSONResponse({"error": "Production job capacity has been reached.", "error_code": "JOB_CAPACITY_REACHED", "active": error.active, "maximum": error.maximum}, status_code=429)
     except ProductionBlockedError as error:
         return structured_error_response(error, status_code=409, stage="audio")
     except ValueError as error:
@@ -1201,18 +1223,41 @@ async def generate_reference(project_id: str, request: Request):
     if payload.kind == "shot_keyframe" and payload.shot_number is None:
         return JSONResponse({"error": "shot_keyframe requires shot_number."}, status_code=400)
     try:
-        project = orchestrator.store.load(project_id)
+        with project_lock(project_id):
+            project = orchestrator.store.load(project_id)
+            if payload.shot_number is not None and not 1 <= payload.shot_number <= len(project.storyboard):
+                return JSONResponse(
+                    {"error": f"Shot number must be between 1 and {len(project.storyboard)}."},
+                    status_code=400,
+                )
+            resolved_revision = int(payload.revision or 1)
+            if payload.kind == "shot_keyframe" and payload.shot_number is not None:
+                resolved_revision = int(project.storyboard[payload.shot_number - 1].revision or 1)
+                if "revision" in payload.model_fields_set and int(payload.revision) != resolved_revision:
+                    return JSONResponse(
+                        {"error": "The requested shot revision is stale.", "error_code": "STALE_REFERENCE_REQUEST", "current_revision": resolved_revision},
+                        status_code=409,
+                    )
+            reference_request = ReferenceImageRequest(
+                kind=payload.kind,
+                name=payload.name,
+                prompt=payload.prompt,
+                negative_prompt=payload.negative_prompt,
+                character_id=payload.character_id,
+                character_ids=tuple(payload.character_ids),
+                scene_id=payload.scene_id,
+                shot_number=payload.shot_number,
+                revision=resolved_revision,
+                seed=payload.seed,
+            )
+            input_fingerprint = reference_request_fingerprint(reference_request, resolved_revision=resolved_revision)
+            project_revision = str(project.updated_at or "")
     except FileNotFoundError:
         return project_not_found(project_id)
     except ValueError as error:
         return invalid_project_id(error)
-    if payload.shot_number is not None and not 1 <= payload.shot_number <= len(project.storyboard):
-        return JSONResponse(
-            {"error": f"Shot number must be between 1 and {len(project.storyboard)}."},
-            status_code=400,
-        )
 
-    idempotency_key = f"{project_id}:reference:{payload.kind}:{payload.name}:{project.updated_at}"
+    idempotency_key = f"{project_id}:reference:{input_fingerprint}"
     try:
         started = job_ledger.start(
             project_id,
@@ -1220,49 +1265,45 @@ async def generate_reference(project_id: str, request: Request):
             stage="references",
             shot_number=payload.shot_number,
             idempotency_key=idempotency_key,
-            project_revision=project.updated_at,
+            project_revision=project_revision,
+            expected_input_hash=input_fingerprint,
+            max_active_jobs=int(getattr(settings, "max_active_jobs", 2) or 2),
         )
     except JobAlreadyRunning as error:
         return JSONResponse({"error": str(error), "error_code": "JOB_ALREADY_RUNNING", "job": error.snapshot}, status_code=409)
+    except JobCapacityReached as error:
+        return JSONResponse({"error": "Production job capacity has been reached.", "error_code": "JOB_CAPACITY_REACHED", "active": error.active, "maximum": error.maximum}, status_code=429)
     if started.get("idempotent_replay"):
         return JSONResponse({"job": started}, status_code=200)
 
     def work() -> None:
         try:
             with job_ledger.keepalive(project_id, started["job_id"], interval_seconds=JOB_HEARTBEAT_INTERVAL_SECONDS):
-                with project_lock(project_id):
-                    def on_progress(result: Any) -> None:
-                        job_ledger.heartbeat(project_id, started["job_id"])
-                        job_ledger.append(
-                            project_id,
-                            started["job_id"],
-                            {
-                                "type": "media_progress",
-                                "stage": "references",
-                                "status": str(getattr(result, "status", "RUNNING")),
-                                "description": f"{payload.kind} reference task is {getattr(result, 'status', 'running').lower()}",
-                            },
-                        )
-
-                    asset = generate_reference_image(
-                        settings,
+                def on_progress(result: Any) -> None:
+                    job_ledger.heartbeat(project_id, started["job_id"])
+                    job_ledger.append(
                         project_id,
-                        ReferenceImageRequest(
-                            kind=payload.kind,
-                            name=payload.name,
-                            prompt=payload.prompt,
-                            negative_prompt=payload.negative_prompt,
-                            character_id=payload.character_id,
-                            character_ids=tuple(payload.character_ids),
-                            scene_id=payload.scene_id,
-                            shot_number=payload.shot_number,
-                            revision=payload.revision,
-                            seed=payload.seed,
-                        ),
-                        on_progress=on_progress,
+                        started["job_id"],
+                        {
+                            "type": "media_progress",
+                            "stage": "references",
+                            "status": str(getattr(result, "status", "RUNNING")),
+                            "description": f"{payload.kind} reference task is {getattr(result, 'status', 'running').lower()}",
+                        },
                     )
+
+                asset = generate_reference_image(settings, project_id, reference_request, on_progress=on_progress)
+                with project_lock(project_id):
                     project = orchestrator.store.load(project_id)
-                    if payload.kind == "shot_keyframe" and payload.shot_number is not None:
+                    current_revision = str(project.updated_at or "")
+                    stale = current_revision != project_revision or (
+                        payload.kind == "shot_keyframe"
+                        and payload.shot_number is not None
+                        and int(project.storyboard[payload.shot_number - 1].revision or 1) != resolved_revision
+                    )
+                    if stale:
+                        ReferenceBankStore(settings.outputs_dir).mark_stale(project_id, asset.reference_id, reason="REFERENCE_INPUT_CHANGED")
+                    elif payload.kind == "shot_keyframe" and payload.shot_number is not None:
                         shot = project.storyboard[payload.shot_number - 1]
                         shot.media_generation = {
                             **(shot.media_generation or {}),
@@ -1279,7 +1320,7 @@ async def generate_reference(project_id: str, request: Request):
                     job_ledger.append(
                         project_id,
                         started["job_id"],
-                        {"type": "reference_complete", "stage": "references", "status": "PENDING_REVIEW", "description": f"{payload.kind} reference persisted"},
+                        {"type": "reference_complete", "stage": "references", "status": "STALE" if stale else "PENDING_REVIEW", "description": f"{payload.kind} reference persisted"},
                     )
             job_ledger.finish(project_id, started["job_id"], status="succeeded")
         except Exception as error:  # noqa: BLE001 - persisted job reports the safe failure
@@ -1320,9 +1361,10 @@ def list_references(project_id: str) -> dict[str, Any]:
 
 @app.post("/api/projects/{project_id}/references/{reference_id}/approve")
 def approve_reference(project_id: str, reference_id: str) -> dict[str, Any]:
-    _load_project_or_http(project_id)
     try:
-        asset = ReferenceBankStore(settings.outputs_dir).set_approval(project_id, reference_id, True)
+        with project_lock(project_id):
+            _load_project_or_http(project_id)
+            asset = ReferenceBankStore(settings.outputs_dir).set_approval(project_id, reference_id, True)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Reference not found.")
     except ValueError as error:
@@ -1332,9 +1374,10 @@ def approve_reference(project_id: str, reference_id: str) -> dict[str, Any]:
 
 @app.post("/api/projects/{project_id}/references/{reference_id}/reject")
 def reject_reference(project_id: str, reference_id: str) -> dict[str, Any]:
-    _load_project_or_http(project_id)
     try:
-        asset = ReferenceBankStore(settings.outputs_dir).set_approval(project_id, reference_id, False)
+        with project_lock(project_id):
+            _load_project_or_http(project_id)
+            asset = ReferenceBankStore(settings.outputs_dir).set_approval(project_id, reference_id, False)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Reference not found.")
     return {"project_id": project_id, "reference": _public_reference(asset)}
@@ -1400,6 +1443,7 @@ def render_single_shot(project_id: str, shot_number: int, request: Request):
                 idempotency_key=fence["idempotency_key"],
                 project_revision=fence["project_revision"],
                 expected_input_hash=fence["expected_input_hash"],
+                max_active_jobs=int(getattr(settings, "max_active_jobs", 2) or 2),
             )
             if started_job.get("idempotent_replay"):
                 return JSONResponse({"job": started_job, "idempotent_replay": True}, status_code=200)
@@ -1410,6 +1454,8 @@ def render_single_shot(project_id: str, shot_number: int, request: Request):
         return project_not_found(project_id)
     except JobAlreadyRunning as error:
         return JSONResponse({"error": str(error), "error_code": "JOB_ALREADY_RUNNING", "job": error.snapshot}, status_code=409)
+    except JobCapacityReached as error:
+        return JSONResponse({"error": "Production job capacity has been reached.", "error_code": "JOB_CAPACITY_REACHED", "active": error.active, "maximum": error.maximum}, status_code=429)
     except ProductionBlockedError as error:
         if started_job:
             job_ledger.finish(project_id, started_job["job_id"], status="failed", error=error_info(error, stage="generation"))
@@ -1447,6 +1493,7 @@ def generate_final_master(project_id: str, request: Request):
                 idempotency_key=fence["idempotency_key"],
                 project_revision=fence["project_revision"],
                 expected_input_hash=fence["expected_input_hash"],
+                max_active_jobs=int(getattr(settings, "max_active_jobs", 2) or 2),
             )
             if started_job.get("idempotent_replay"):
                 return JSONResponse({"job": started_job, "idempotent_replay": True}, status_code=200)
@@ -1457,6 +1504,8 @@ def generate_final_master(project_id: str, request: Request):
         return project_not_found(project_id)
     except JobAlreadyRunning as error:
         return JSONResponse({"error": str(error), "error_code": "JOB_ALREADY_RUNNING", "job": error.snapshot}, status_code=409)
+    except JobCapacityReached as error:
+        return JSONResponse({"error": "Production job capacity has been reached.", "error_code": "JOB_CAPACITY_REACHED", "active": error.active, "maximum": error.maximum}, status_code=429)
     except ProductionBlockedError as error:
         if started_job:
             job_ledger.finish(project_id, started_job["job_id"], status="failed", error=error_info(error, stage="final_master"))
@@ -1778,6 +1827,7 @@ async def export_video(project_id: str, request: Request):
                 idempotency_key=fence["idempotency_key"],
                 project_revision=fence["project_revision"],
                 expected_input_hash=fence["expected_input_hash"],
+                max_active_jobs=int(getattr(settings, "max_active_jobs", 2) or 2),
             )
             if started_job.get("idempotent_replay"):
                 return JSONResponse({"job": started_job, "idempotent_replay": True}, status_code=200)
@@ -1788,6 +1838,8 @@ async def export_video(project_id: str, request: Request):
         return project_not_found(project_id)
     except JobAlreadyRunning as error:
         return JSONResponse({"error": str(error), "error_code": "JOB_ALREADY_RUNNING", "job": error.snapshot}, status_code=409)
+    except JobCapacityReached as error:
+        return JSONResponse({"error": "Production job capacity has been reached.", "error_code": "JOB_CAPACITY_REACHED", "active": error.active, "maximum": error.maximum}, status_code=429)
     except ProductionBlockedError as error:
         return structured_error_response(error, status_code=409, stage="generation")
     except ValueError as error:

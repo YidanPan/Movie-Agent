@@ -16,7 +16,7 @@ from movie_agent.services.comfyui import ComfyUIClient, ComfyUIError, WorkflowOv
 from movie_agent.services.media_quality import asset_record
 from movie_agent.services.continuity import derive_shot_seed
 from movie_agent.services.errors import clear_failure, error_info, record_failure
-from movie_agent.services.render_input import compile_renderer_input
+from movie_agent.services.render_input import build_generation_input_fingerprint, compile_renderer_input
 from movie_agent.services.revisions import ensure_shot_metadata, hash_shot_prompt, utc_now
 from movie_agent.services.shot_context import ResolvedShotContext, resolve_shot_context
 from movie_agent.services.video_generation import (
@@ -367,6 +367,19 @@ class GenerationAgent:
                 raise wrapped from error
             shot.generation_input_hash = manifest.fingerprint()
             shot.qc_details["renderer_manifest"] = manifest.audit_dict()
+        else:
+            neutral_fingerprint = build_generation_input_fingerprint(
+                provider=provider_name,
+                model=str(getattr(self.provider, "model", "") or provider_name),
+                generation_mode=shot.generation_mode,
+                compiled_prompt=continuity_prompt,
+                seed=seed,
+                source_duration_seconds=shot.source_duration_seconds or shot.duration_seconds,
+                reference_digests=external_input_digests,
+                shot_revision=shot.revision,
+            )
+            shot.generation_input_hash = neutral_fingerprint.fingerprint
+            shot.qc_details["generation_input_fingerprint"] = neutral_fingerprint.payload()
         ensure_shot_metadata(
             shot,
             provider=provider_name,

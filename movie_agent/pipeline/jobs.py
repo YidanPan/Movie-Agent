@@ -72,6 +72,15 @@ class JobAlreadyRunning(RuntimeError):
         super().__init__("A production job is already running for this project.")
 
 
+class JobCapacityReached(RuntimeError):
+    """Raised when the bounded worker capacity is already occupied."""
+
+    def __init__(self, active: int, maximum: int):
+        self.active = int(active)
+        self.maximum = int(maximum)
+        super().__init__("The production job capacity has been reached.")
+
+
 class JobLedger:
     """Persist one bounded event journal per project.
 
@@ -81,10 +90,15 @@ class JobLedger:
     of spinning forever on a dead SSE connection.
     """
 
+    _registry_guard = threading.Lock()
+    _registry: dict[str, threading.RLock] = {}
+
     def __init__(self, projects_root: Path, *, max_events: int = 120) -> None:
         self.root = Path(projects_root)
         self.max_events = max(20, int(max_events))
-        self._lock = threading.RLock()
+        key = str(self.root.resolve())
+        with self._registry_guard:
+            self._lock = self._registry.setdefault(key, threading.RLock())
         self._active: set[str] = set()
 
     def _path(self, project_id: str) -> Path:
@@ -242,6 +256,7 @@ class JobLedger:
         project_revision: str | int | None = None,
         expected_input_hash: str | None = None,
         lease_seconds: int = _DEFAULT_LEASE_SECONDS,
+        max_active_jobs: int | None = None,
     ) -> dict[str, Any]:
         """Start a job, rejecting duplicate active submissions safely."""
 
@@ -257,6 +272,11 @@ class JobLedger:
             if current and str(current.get("status")) in _ACTIVE:
                 if str(current.get("job_id") or "") in self._active:
                     raise JobAlreadyRunning(self._public(current, include_events=False))
+            if max_active_jobs is not None:
+                maximum = max(1, int(max_active_jobs))
+                active = self._count_persisted_active_locked()
+                if active >= maximum:
+                    raise JobCapacityReached(active, maximum)
             if not requested_key:
                 target = f"shot:{shot_number}" if shot_number is not None else f"track:{track_key}" if track_key else "project"
                 requested_key = f"{project_id}:{kind}:{target}"
@@ -460,6 +480,18 @@ class JobLedger:
                     continue
         return count
 
+    def _count_persisted_active_locked(self) -> int:
+        count = 0
+        for path in self.root.glob("film-*/job.json"):
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+                continue
+            if not isinstance(payload, dict) or str(payload.get("status") or "").lower() not in _ACTIVE:
+                continue
+            count += 1
+        return count
+
     def find_job(self, job_id: str) -> dict[str, Any] | None:
         """Find a public job snapshot without exposing the ledger path."""
 
@@ -607,4 +639,4 @@ class JobLedger:
             thread.join(timeout=max(1.0, min(5.0, float(interval_seconds))))
 
 
-__all__ = ["JobAlreadyRunning", "JobLedger"]
+__all__ = ["JobAlreadyRunning", "JobCapacityReached", "JobLedger"]

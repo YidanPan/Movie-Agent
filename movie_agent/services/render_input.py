@@ -139,6 +139,71 @@ class RendererInputManifest:
         return canonical_digest(self.fingerprint_payload())
 
 
+@dataclass(frozen=True)
+class GenerationInputFingerprint:
+    """Provider-neutral facts that determine a shot generation request."""
+
+    provider: str
+    model: str
+    generation_mode: str
+    compiled_prompt_digest: str
+    seed: int | None
+    source_duration_seconds: int
+    reference_digests: dict[str, str] = field(default_factory=dict)
+    shot_revision: int = 1
+    workflow_template_digest: str = ""
+    submitted_workflow_digest: str = ""
+    renderer_manifest_version: str = ""
+
+    def payload(self) -> dict[str, Any]:
+        return {
+            "provider": self.provider,
+            "model": self.model,
+            "generation_mode": self.generation_mode,
+            "compiled_prompt_digest": self.compiled_prompt_digest,
+            "seed": self.seed,
+            "source_duration_seconds": self.source_duration_seconds,
+            "reference_digests": dict(sorted(self.reference_digests.items())),
+            "shot_revision": self.shot_revision,
+            "workflow_template_digest": self.workflow_template_digest,
+            "submitted_workflow_digest": self.submitted_workflow_digest,
+            "renderer_manifest_version": self.renderer_manifest_version,
+        }
+
+    @property
+    def fingerprint(self) -> str:
+        return canonical_digest(self.payload())
+
+
+def build_generation_input_fingerprint(
+    *,
+    provider: str,
+    model: str,
+    generation_mode: str,
+    compiled_prompt: str,
+    seed: int | None,
+    source_duration_seconds: int,
+    reference_digests: dict[str, str] | None = None,
+    shot_revision: int = 1,
+    workflow_template_digest: str = "",
+    submitted_workflow_digest: str = "",
+    renderer_manifest_version: str = "",
+) -> GenerationInputFingerprint:
+    return GenerationInputFingerprint(
+        provider=str(provider or "").lower(),
+        model=str(model or ""),
+        generation_mode=str(generation_mode or "").upper(),
+        compiled_prompt_digest=canonical_digest(compiled_prompt or ""),
+        seed=int(seed) if seed is not None else None,
+        source_duration_seconds=max(0, int(source_duration_seconds or 0)),
+        reference_digests=dict(reference_digests or {}),
+        shot_revision=max(1, int(shot_revision or 1)),
+        workflow_template_digest=str(workflow_template_digest or ""),
+        submitted_workflow_digest=str(submitted_workflow_digest or ""),
+        renderer_manifest_version=str(renderer_manifest_version or ""),
+    )
+
+
 def _context_payload(context: Any) -> dict[str, Any]:
     if hasattr(context, "to_dict"):
         value = context.to_dict()
@@ -266,11 +331,13 @@ __all__ = [
     "RENDERER_MANIFEST_VERSION",
     "RendererContractUnavailable",
     "RendererInputManifest",
+    "GenerationInputFingerprint",
     "UNSUPPORTED_GENERATION_MODE",
     "WORKFLOW_COMPILE_FAILED",
     "WORKFLOW_INVALID",
     "WORKFLOW_MISSING",
     "canonical_digest",
+    "build_generation_input_fingerprint",
     "compile_renderer_input",
     "submitted_workflow_digest",
     "workflow_template_digest",

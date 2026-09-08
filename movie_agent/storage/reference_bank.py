@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 import shutil
+import threading
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -58,9 +59,14 @@ class ReferenceBankStore:
     """Index real reference files below ``outputs/<project>/references``."""
 
     _slug_pattern = re.compile(r"[^a-zA-Z0-9._-]+")
+    _registry_guard = threading.Lock()
+    _registry: dict[str, threading.RLock] = {}
 
     def __init__(self, outputs_root: Path) -> None:
         self.outputs_root = Path(outputs_root)
+        key = str(self.outputs_root.resolve())
+        with self._registry_guard:
+            self._lock = self._registry.setdefault(key, threading.RLock())
 
     def project_dir(self, project_id: str) -> Path:
         return self.outputs_root / project_id / "references"
@@ -69,39 +75,41 @@ class ReferenceBankStore:
         return self.project_dir(project_id) / "reference-bank.json"
 
     def load(self, project_id: str) -> ReferenceBank:
-        path = self.manifest_path(project_id)
-        if not path.is_file():
-            return ReferenceBank(project_id=project_id)
-        payload = json.loads(path.read_text(encoding="utf-8"))
-        assets: list[ReferenceAsset] = []
-        for item in payload.get("assets", []):
-            if not isinstance(item, dict):
-                continue
-            record = dict(item)
-            character_ids = record.get("character_ids")
-            if isinstance(character_ids, str):
-                character_ids = [value.strip() for value in character_ids.split(",") if value.strip()]
-            if not character_ids and record.get("character_id"):
-                character_ids = [str(record["character_id"])]
-            record["character_ids"] = character_ids or []
-            assets.append(ReferenceAsset(**record))
-        return ReferenceBank(
-            project_id=str(payload.get("project_id") or project_id),
-            assets=assets,
-            schema_version=max(1, int(payload.get("schema_version") or 1)),
-        )
+        with self._lock:
+            path = self.manifest_path(project_id)
+            if not path.is_file():
+                return ReferenceBank(project_id=project_id)
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            assets: list[ReferenceAsset] = []
+            for item in payload.get("assets", []):
+                if not isinstance(item, dict):
+                    continue
+                record = dict(item)
+                character_ids = record.get("character_ids")
+                if isinstance(character_ids, str):
+                    character_ids = [value.strip() for value in character_ids.split(",") if value.strip()]
+                if not character_ids and record.get("character_id"):
+                    character_ids = [str(record["character_id"])]
+                record["character_ids"] = character_ids or []
+                assets.append(ReferenceAsset(**record))
+            return ReferenceBank(
+                project_id=str(payload.get("project_id") or project_id),
+                assets=assets,
+                schema_version=max(1, int(payload.get("schema_version") or 1)),
+            )
 
     def save(self, bank: ReferenceBank) -> Path:
-        directory = self.project_dir(bank.project_id)
-        directory.mkdir(parents=True, exist_ok=True)
-        path = self.manifest_path(bank.project_id)
-        temporary = path.with_suffix(".json.tmp")
-        temporary.write_text(
-            json.dumps(asdict(bank), ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-        temporary.replace(path)
-        return path
+        with self._lock:
+            directory = self.project_dir(bank.project_id)
+            directory.mkdir(parents=True, exist_ok=True)
+            path = self.manifest_path(bank.project_id)
+            temporary = path.with_suffix(".json.tmp")
+            temporary.write_text(
+                json.dumps(asdict(bank), ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            temporary.replace(path)
+            return path
 
     def get(self, project_id: str, reference_id: str) -> ReferenceAsset:
         """Return one persisted reference or raise a stable not-found error."""
@@ -112,7 +120,7 @@ class ReferenceBankStore:
                 return asset
         raise FileNotFoundError(f"Reference {reference_id} was not found.")
 
-    def set_approval(self, project_id: str, reference_id: str, approved: bool) -> ReferenceAsset:
+    def _set_approval(self, project_id: str, reference_id: str, approved: bool) -> ReferenceAsset:
         """Persist an explicit human approval decision for one reference."""
 
         bank = self.load(project_id)
@@ -130,7 +138,11 @@ class ReferenceBankStore:
             return asset
         raise FileNotFoundError(f"Reference {reference_id} was not found.")
 
-    def register_file(
+    def set_approval(self, project_id: str, reference_id: str, approved: bool) -> ReferenceAsset:
+        with self._lock:
+            return self._set_approval(project_id, reference_id, approved)
+
+    def _register_file(
         self,
         project_id: str,
         source_path: Path,
@@ -195,7 +207,11 @@ class ReferenceBankStore:
         self.save(bank)
         return asset
 
-    def promote_shot_references(self, project_id: str, shot_number: int, revision: int) -> int:
+    def register_file(self, project_id: str, source_path: Path, **kwargs: Any) -> ReferenceAsset:
+        with self._lock:
+            return self._register_file(project_id, source_path, **kwargs)
+
+    def _promote_shot_references(self, project_id: str, shot_number: int, revision: int) -> int:
         """Promote only this shot's review frames after manual approval."""
 
         bank = self.load(project_id)
@@ -222,6 +238,26 @@ class ReferenceBankStore:
         if promoted:
             self.save(bank)
         return promoted
+
+    def promote_shot_references(self, project_id: str, shot_number: int, revision: int) -> int:
+        with self._lock:
+            return self._promote_shot_references(project_id, shot_number, revision)
+
+    def mark_stale(self, project_id: str, reference_id: str, *, reason: str = "INPUT_CHANGED") -> ReferenceAsset:
+        """Mark an asynchronously generated asset stale without promoting it."""
+
+        with self._lock:
+            bank = self.load(project_id)
+            for asset in bank.assets:
+                if asset.reference_id != str(reference_id):
+                    continue
+                asset.approved = False
+                asset.metadata["stale"] = True
+                asset.metadata["stale_reason"] = str(reason)
+                asset.metadata["review_status"] = "STALE"
+                self.save(bank)
+                return asset
+        raise FileNotFoundError(f"Reference {reference_id} was not found.")
 
     def qc_reference_paths(
         self,
