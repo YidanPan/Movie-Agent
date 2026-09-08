@@ -3,6 +3,7 @@
 __pycache__/
 .pytest_cache/
 .chrome-audit/
+.ci/
 *.py[cod]
 
 # Large local assets and generated deliverables stay on Spark or external storage.
