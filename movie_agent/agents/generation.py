@@ -193,7 +193,12 @@ class GenerationAgent:
                 code="VIDEO_GENERATION_MODE_UNSUPPORTED",
                 provider=provider_name,
             )
-            record_failure(shot, error, stage="generation")
+            record_failure(
+                shot,
+                error,
+                stage="generation",
+                recoverable=getattr(error, "recoverable", None),
+            )
             shot.status = "generation_failed"
             shot.qc_status = "FAILED"
             raise error
@@ -230,7 +235,12 @@ class GenerationAgent:
                 code="VIDEO_PROVIDER_NOT_CONFIGURED",
                 provider=provider_name,
             )
-            record_failure(shot, error, stage="generation")
+            record_failure(
+                shot,
+                error,
+                stage="generation",
+                recoverable=getattr(error, "recoverable", None),
+            )
             shot.status = "generation_failed"
             shot.qc_status = "FAILED"
             raise error
@@ -479,9 +489,21 @@ class GenerationAgent:
             destination = Path(provider_result.video_path)
             source = Path(str(provider_result.metadata.get("source_path") or destination))
         except Exception as error:  # noqa: BLE001 - provider boundary is normalized below
-            shot.media_generation["generation_status"] = "FAILED"
+            in_flight_task = bool(shot.media_generation.get("provider_task_id")) and str(
+                getattr(error, "error_code", "") or ""
+            ) in {
+                "VIDEO_PROVIDER_TIMEOUT",
+                "VIDEO_PROVIDER_NETWORK_ERROR",
+                "VIDEO_PROVIDER_HTTP_ERROR",
+            }
+            shot.media_generation["generation_status"] = "RUNNING" if in_flight_task else "FAILED"
             shot.media_generation["error"] = str(error)[:300]
-            record_failure(shot, error, stage="generation")
+            record_failure(
+                shot,
+                error,
+                stage="generation",
+                recoverable=getattr(error, "recoverable", None),
+            )
             shot.status = "generation_failed"
             shot.qc_status = "FAILED"
             safe_message = error_info(error, stage="generation")["error_message"]

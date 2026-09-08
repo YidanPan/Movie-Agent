@@ -62,7 +62,13 @@ def error_info(
         payload.setdefault("recoverable", bool(payload.get("next_actions")))
         payload.setdefault("created_at", utc_now())
         return payload
+    explicit_code = str(getattr(error, "error_code", "") or "").strip()
     code, default_recoverable = classify_error(error, stage=stage)
+    if explicit_code:
+        code = explicit_code
+    provider_recoverable = getattr(error, "recoverable", None)
+    if recoverable is None and isinstance(provider_recoverable, bool):
+        recoverable = provider_recoverable
     try:
         safe_retry_count = max(0, int(retry_count or 0))
     except (TypeError, ValueError):

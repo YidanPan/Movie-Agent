@@ -199,14 +199,21 @@ class RenderPipeline:
                         shot,
                         error,
                         stage=stage,
+                        recoverable=getattr(error, "recoverable", None),
                         increment_retry=not bool(getattr(shot, "error_code", "")),
                     )
-                    record_failure(project, error, stage=stage)
+                    record_failure(project, error, stage=stage, recoverable=getattr(error, "recoverable", None))
                     failure_message = error_info(error, stage=stage)["error_message"]
                     project.logs.append(
                         f"Generation Agent: Shot {shot.number} attempt {attempt}/{max_retries} failed: {failure_message}"
                     )
                     self._save(project)
+                    # An ambiguous submit outcome is intentionally not
+                    # retried: without a task id, another POST could charge
+                    # twice.  In-flight task timeouts remain recoverable and
+                    # the next attempt resumes the persisted task instead.
+                    if getattr(error, "recoverable", None) is False:
+                        break
             if last_error is not None:
                 project.status = "render_failed"
                 project.logs.append("Generation Agent: You can click the real generate button again to resume from incomplete shots.")

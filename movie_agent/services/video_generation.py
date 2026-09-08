@@ -493,11 +493,16 @@ class DashScopeVideoProvider:
             decoded = json.loads(response.body.decode("utf-8") or "{}")
         except (UnicodeDecodeError, ValueError) as error:
             if not 200 <= response.status_code < 300:
+                ambiguous_submit = operation == "submit" and response.status_code in {408, 425, 500, 502, 503, 504}
                 raise VideoGenerationError(
-                    f"Remote video service returned an HTTP error (HTTP {response.status_code}).",
-                    code="VIDEO_PROVIDER_HTTP_ERROR",
+                    (
+                        "The video submit outcome is unknown after the provider returned a transient HTTP error."
+                        if ambiguous_submit
+                        else f"Remote video service returned an HTTP error (HTTP {response.status_code})."
+                    ),
+                    code="VIDEO_PROVIDER_SUBMIT_OUTCOME_UNKNOWN" if ambiguous_submit else "VIDEO_PROVIDER_HTTP_ERROR",
                     provider=self.name,
-                    recoverable=response.status_code in {408, 425, 429, 500, 502, 503, 504},
+                    recoverable=False if ambiguous_submit else response.status_code in {408, 425, 429, 500, 502, 503, 504},
                     status_code=response.status_code,
                     headers=response.headers,
                 ) from error
@@ -513,11 +518,17 @@ class DashScopeVideoProvider:
                 provider=self.name,
             )
         if not 200 <= response.status_code < 300:
+            ambiguous_submit = operation == "submit" and response.status_code in {408, 425, 500, 502, 503, 504}
             raise VideoGenerationError(
-                self._response_message(decoded),
-                code="VIDEO_PROVIDER_HTTP_ERROR",
+                (
+                    "The video submit outcome is unknown after the provider returned a transient HTTP error; "
+                    "the task must be reconciled before retrying."
+                    if ambiguous_submit
+                    else self._response_message(decoded)
+                ),
+                code="VIDEO_PROVIDER_SUBMIT_OUTCOME_UNKNOWN" if ambiguous_submit else "VIDEO_PROVIDER_HTTP_ERROR",
                 provider=self.name,
-                recoverable=response.status_code in {408, 425, 429, 500, 502, 503, 504},
+                recoverable=False if ambiguous_submit else response.status_code in {408, 425, 429, 500, 502, 503, 504},
                 status_code=response.status_code,
                 headers=response.headers,
             )
