@@ -52,10 +52,29 @@ def _protected_paths(project: Any) -> set[Path]:
         for _, path in sorted(entries, reverse=True)[:2]:
             protected.add(path.resolve())
     for path, record in _record_paths(project):
+        # Every current, non-stale derived record remains in use by the
+        # project. The cache sweep may remove stale revisions and untracked
+        # working files, but it must not infer that a current preview is safe
+        # to delete merely because it lives under ``previews/``.
+        if not record.get("stale"):
+            protected.add(path.resolve())
         if str(record.get("tier") or "") == "source":
             continue
         if record.get("tier") == "final_master" and not record.get("stale"):
             protected.add(path.resolve())
+    for shot in getattr(project, "storyboard", []) or []:
+        pointer = str(getattr(shot, "output_placeholder", "") or "")
+        if pointer:
+            protected.add(Path(pointer).resolve())
+    for pointer in (
+        getattr(project, "rough_cut_placeholder", ""),
+        getattr(project, "final_output_placeholder", ""),
+    ):
+        if pointer:
+            protected.add(Path(str(pointer)).resolve())
+    for track in (getattr(project, "audio_tracks", {}) or {}).values():
+        if isinstance(track, dict) and track.get("media_path"):
+            protected.add(Path(str(track["media_path"])).resolve())
     return protected
 
 
