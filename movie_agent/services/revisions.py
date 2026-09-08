@@ -81,6 +81,29 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
+def _current_reference_digests(shot: Any) -> dict[str, str]:
+    """Recompute the exact reference-file digests used by the last render."""
+
+    details = getattr(shot, "qc_details", {}) or {}
+    references = details.get("reference_inputs") if isinstance(details, dict) else None
+    if not isinstance(references, dict):
+        return {}
+    digests: dict[str, str] = {}
+    for role, paths in references.items():
+        if not isinstance(paths, (list, tuple)):
+            continue
+        for index, raw_path in enumerate(paths):
+            path = Path(str(raw_path or ""))
+            if not path.is_file():
+                continue
+            digest = hashlib.sha256()
+            with path.open("rb") as handle:
+                for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                    digest.update(chunk)
+            digests[f"{role}:{index}"] = digest.hexdigest()
+    return digests
+
+
 def hash_shot_prompt(shot: Any) -> str:
     """Hash all renderer-facing shot inputs, not only the short Shot Delta."""
 
@@ -297,6 +320,7 @@ def reconcile_generation_fingerprints(
                     workflow_path,
                     workflow_identity=workflow_identity,
                     film_language=str(getattr(project, "film_language", "en") or "en"),
+                    external_input_digests=_current_reference_digests(shot),
                 )
             except RendererContractUnavailable as error:
                 project.renderer_contract = {
