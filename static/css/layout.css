@@ -11,10 +11,6 @@
   --page-gutter: clamp(20px, 4vw, 32px);
 }
 
-/* Fixed atmospheric and inspector layers must not become document width. */
-html,
-body { overflow-x: clip; }
-
 body[data-design="archive-console"] main {
   width: min(var(--page-max), calc(100vw - 64px));
   max-width: none;
@@ -31,6 +27,10 @@ body[data-design="archive-console"] .production-route {
 
 body[data-design="archive-console"] .workspace > *,
 body[data-design="archive-console"] .production-route > * { min-width: 0; }
+
+/* The film strip keeps its own horizontal scroller. Contain that deliberate
+   track overflow at the studio view so it cannot widen the document itself. */
+body[data-design="archive-console"] .view-studio { overflow-x: clip; }
 
 body[data-design="archive-console"] .workspace .panel {
   width: 100%;

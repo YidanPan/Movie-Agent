@@ -350,6 +350,183 @@ body[data-design="archive-console"] .manual-panel .visual-palette {
   padding-top: 20px;
 }
 
+/* Visual Bible: summary first, locked specification on demand.  These blocks
+   deliberately grow with their content; the old visual-board treated every
+   nested object as a full-height card and created a long, sparse document. */
+body[data-design="archive-console"] .manual-panel .visual-summary-section,
+body[data-design="archive-console"] .manual-panel .visual-assets-section {
+  width: 100%;
+  max-width: var(--manual-content-width);
+  margin-inline: 0;
+}
+
+body[data-design="archive-console"] .manual-panel .visual-summary-section { margin-top: 30px; }
+body[data-design="archive-console"] .manual-panel .visual-assets-section { margin-top: 38px; }
+
+body[data-design="archive-console"] .manual-panel .visual-section-head {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 18px;
+  padding-bottom: 11px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+body[data-design="archive-console"] .manual-panel .visual-section-head h4 {
+  margin: 4px 0 0;
+  color: var(--text-strong);
+  font: 650 16px/1.25 var(--sans);
+  letter-spacing: .015em;
+}
+
+body[data-design="archive-console"] .manual-panel .visual-section-head > .type-status {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+body[data-design="archive-console"] .manual-panel .visual-summary-grid,
+body[data-design="archive-console"] .manual-panel .visual-assets-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 18px 28px;
+  width: 100%;
+  margin-top: 17px;
+}
+
+body[data-design="archive-console"] .manual-panel .visual-summary-card,
+body[data-design="archive-console"] .manual-panel .visual-asset-card {
+  display: grid;
+  align-self: start;
+  gap: 10px;
+  min-width: 0;
+  height: auto;
+  padding: 15px 0 17px;
+  border-bottom: 1px solid var(--line-soft);
+  background: transparent;
+  box-shadow: none;
+}
+
+body[data-design="archive-console"] .manual-panel .visual-section-card-head,
+body[data-design="archive-console"] .manual-panel .visual-asset-head {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+body[data-design="archive-console"] .manual-panel .visual-section-card-head h4,
+body[data-design="archive-console"] .manual-panel .visual-asset-head h4 {
+  min-width: 0;
+  margin: 0;
+  color: var(--text-strong);
+  font: 650 15px/1.35 var(--sans);
+  letter-spacing: .01em;
+  word-break: normal;
+  overflow-wrap: break-word;
+}
+
+body[data-design="archive-console"] .manual-panel .visual-section-card-head .visual-lock,
+body[data-design="archive-console"] .manual-panel .visual-asset-head .visual-lock {
+  flex: 0 0 auto;
+  color: var(--status-ok-token);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+body[data-design="archive-console"] .manual-panel .visual-summary-fields {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  margin: 0;
+}
+
+body[data-design="archive-console"] .manual-panel .visual-summary-fields > div {
+  display: grid;
+  grid-template-columns: 108px minmax(0, 1fr);
+  gap: 10px;
+  align-items: baseline;
+  min-width: 0;
+}
+
+body[data-design="archive-console"] .manual-panel .visual-summary-fields dt,
+body[data-design="archive-console"] .manual-panel .visual-summary-fields dd {
+  min-width: 0;
+  margin: 0;
+}
+
+body[data-design="archive-console"] .manual-panel .visual-summary-fields dt { color: var(--text-muted); font-size: 11px; }
+body[data-design="archive-console"] .manual-panel .visual-summary-value {
+  display: -webkit-box;
+  color: var(--text-body);
+  font: var(--manual-body-size)/1.55 var(--sans);
+  overflow: hidden;
+  overflow-wrap: break-word;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+body[data-design="archive-console"] .manual-panel .visual-asset-id {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--text-muted);
+  font-size: 10px;
+  letter-spacing: .08em;
+}
+
+body[data-design="archive-console"] .manual-panel .visual-asset-role {
+  margin: -3px 0 0;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+body[data-design="archive-console"] .manual-panel .visual-asset-summary {
+  display: -webkit-box;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--text-body);
+  font: var(--manual-body-size)/1.65 var(--sans);
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+body[data-design="archive-console"] .manual-panel .visual-spec-details {
+  min-width: 0;
+  margin-top: 2px;
+  border-top: 1px solid var(--line-soft);
+}
+
+body[data-design="archive-console"] .manual-panel .visual-spec-details summary {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  color: var(--text-muted);
+  font-size: 11px;
+  letter-spacing: .06em;
+  cursor: pointer;
+  list-style: none;
+}
+
+body[data-design="archive-console"] .manual-panel .visual-spec-details summary::-webkit-details-marker { display: none; }
+body[data-design="archive-console"] .manual-panel .visual-spec-details summary::before { margin-right: 7px; color: var(--accent-token); content: "+"; font-family: var(--mono); }
+body[data-design="archive-console"] .manual-panel .visual-spec-details[open] summary::before { content: "−"; }
+body[data-design="archive-console"] .manual-panel .visual-detail {
+  max-width: 100%;
+  padding: 3px 0 5px;
+  color: var(--text-body);
+  font: var(--manual-body-size)/var(--manual-body-leading) var(--sans);
+  overflow-wrap: break-word;
+}
+
+body[data-design="archive-console"] .manual-panel .visual-detail .production-readable-dl,
+body[data-design="archive-console"] .manual-panel .visual-detail .production-readable-list { margin-top: 0; }
+
 body[data-design="archive-console"] .manual-panel .shot-sheet {
   grid-template-columns: minmax(220px, .34fr) minmax(0, 1fr);
   gap: 48px;
@@ -410,6 +587,11 @@ body[data-design="archive-console"] .manual-panel .shot-detail-head h3 {
     grid-template-columns: 1fr;
     gap: 0;
   }
+
+  body[data-design="archive-console"] .manual-panel .visual-summary-grid,
+  body[data-design="archive-console"] .manual-panel .visual-assets-grid { grid-template-columns: 1fr; gap: 0; }
+
+  body[data-design="archive-console"] .manual-panel .visual-summary-fields > div { grid-template-columns: 96px minmax(0, 1fr); }
 
   body[data-design="archive-console"] .manual-panel .dialogue-book {
     padding: 16px;

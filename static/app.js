@@ -472,7 +472,6 @@ const state = {
   audioTimelineDuration: 0,
   diagnostics: null,
   exportPreflightRun: 0,
-  deliverInspectorTab: "picture",
   job: null,
   jobCursor: 0,
 };
@@ -487,101 +486,6 @@ let drawerContentRun = 0;
 let drawerHideTimer = null;
 let jobPollTimer = null;
 let jobPollRun = 0;
-let deliverScreeningLayoutReady = false;
-
-function initDeliverScreeningLayout() {
-  if (deliverScreeningLayoutReady || !els.deliverRoom || !els.deliverFinal) return;
-  const workspace = els.deliverFinal.querySelector(".final-cut-workspace");
-  const screening = workspace?.querySelector(".final-cut-screening");
-  const actions = document.querySelector("#deliver-actions");
-  if (!workspace || !screening || !actions) return;
-
-  const layout = document.createElement("div");
-  layout.className = "deliver-screening-layout";
-  const stage = document.createElement("main");
-  stage.className = "deliver-screening-stage";
-  stage.setAttribute("aria-label", "Final Film screening monitor");
-  const inspector = document.createElement("aside");
-  inspector.className = "deliver-inspector";
-  inspector.setAttribute("aria-label", "Final Cut inspector");
-  const tabNav = document.createElement("div");
-  tabNav.className = "deliver-inspector-tabs";
-  tabNav.setAttribute("role", "tablist");
-  tabNav.setAttribute("aria-label", "Final Cut inspector sections");
-  const panels = {};
-  MovieAgentModules.deliver.DELIVER_INSPECTOR_TABS.forEach(({ key, label, description }) => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "deliver-inspector-tab";
-    button.dataset.deliverInspectorTab = key;
-    button.id = `deliver-tab-${key}`;
-    button.setAttribute("role", "tab");
-    button.setAttribute("aria-controls", `deliver-panel-${key}`);
-    button.title = description;
-    button.innerHTML = `<span class="deliver-inspector-tab-index mono">${String(MovieAgentModules.deliver.DELIVER_INSPECTOR_TABS.findIndex((item) => item.key === key) + 1).padStart(2, "0")}</span><b>${label}</b>`;
-    tabNav.appendChild(button);
-    const panel = document.createElement("section");
-    panel.className = "deliver-inspector-panel";
-    panel.dataset.deliverInspectorPanel = key;
-    panel.id = `deliver-panel-${key}`;
-    panel.setAttribute("role", "tabpanel");
-    panel.setAttribute("aria-labelledby", button.id);
-    panels[key] = panel;
-  });
-
-  const pictureActions = document.createElement("div");
-  pictureActions.className = "deliver-picture-actions";
-  pictureActions.append(els.btnAiEdit, els.btnApproveEdit, els.btnReedit, els.btnEditSubtitles, els.btnSoundSettings, els.btnMoreExport);
-  const moreMenu = els.moreExportMenu;
-  if (moreMenu) pictureActions.append(moreMenu);
-  const exportActions = document.createElement("div");
-  exportActions.className = "deliver-export-actions";
-  exportActions.innerHTML = '<span class="deliver-label mono">DELIVERY ACTION</span>';
-  exportActions.append(els.btnExportFinal);
-  const exportSpecs = document.createElement("div");
-  exportSpecs.className = "deliver-export-specs";
-  exportSpecs.innerHTML = `
-    <div><span class="deliver-label mono">MASTER</span><strong data-deliver-export-master>VERIFICATION REQUIRED</strong></div>
-    <div><span class="deliver-label mono">FORMAT</span><strong>H.264 / MP4</strong></div>
-    <div><span class="deliver-label mono">FRAME</span><strong data-deliver-export-frame>1080P · 16:9 · 24 FPS</strong></div>
-    <div><span class="deliver-label mono">SUBTITLES</span><strong data-deliver-export-subtitles>ENGLISH · BURNED IN</strong></div>`;
-
-  const roughStage = els.roughCutStage;
-  const audioConsole = els.audioDesignConsole;
-  stage.append(roughStage, screening);
-  panels.picture.append(els.deliverSummary, els.deliverWorkProgress, els.deliverShotTimeline.closest(".shot-timeline-section"), pictureActions, els.editStatus);
-  panels.sound.append(els.soundSummary, audioConsole);
-  panels.look.append(els.finalLookPanel);
-  panels.export.append(exportSpecs, els.techSummary, exportActions);
-  workspace.remove();
-  actions.remove();
-  layout.append(stage, inspector);
-  inspector.append(tabNav, ...Object.values(panels));
-  els.deliverFinal.innerHTML = "";
-  els.deliverFinal.append(layout);
-  deliverScreeningLayoutReady = true;
-  setDeliverInspectorTab(state.deliverInspectorTab);
-}
-
-function setDeliverInspectorTab(value) {
-  const tab = MovieAgentModules.deliver.deliverInspectorTab(value);
-  state.deliverInspectorTab = tab;
-  document.querySelectorAll("[data-deliver-inspector-tab]").forEach((button) => {
-    const selected = button.dataset.deliverInspectorTab === tab;
-    button.classList.toggle("is-active", selected);
-    button.setAttribute("aria-selected", String(selected));
-    button.tabIndex = selected ? 0 : -1;
-  });
-  document.querySelectorAll("[data-deliver-inspector-panel]").forEach((panel) => {
-    panel.hidden = panel.dataset.deliverInspectorPanel !== tab;
-  });
-  if (tab === "sound") {
-    els.soundSummaryBody?.classList.remove("hidden");
-    els.soundSummaryToggle?.setAttribute("aria-expanded", "true");
-  }
-  if (tab === "export") refreshExportPreflight();
-}
-
 /* ── 小工具 ────────────────────────────────────────────────── */
 
 function esc(value) {
@@ -2027,6 +1931,68 @@ function productionValueMarkup(value, depth = 0) {
   return copy.split(/\n+/).filter(Boolean).map((line) => `<p class="visual-spec-copy-line">${esc(line.trim())}</p>`).join("");
 }
 
+function visualParsedValue(value) {
+  if (typeof value !== "string") return value;
+  const candidate = value.trim();
+  if (!candidate) return "";
+  if ((candidate.startsWith("{") && candidate.endsWith("}")) || (candidate.startsWith("[") && candidate.endsWith("]"))) {
+    try { return JSON.parse(candidate); } catch { return value; }
+  }
+  return value;
+}
+
+function visualField(source, keys, fallback = "暂无已锁定内容") {
+  const data = source && typeof source === "object" ? source : {};
+  for (const key of keys) {
+    const value = data[key];
+    if (value !== undefined && value !== null && String(value).trim()) return value;
+  }
+  return fallback;
+}
+
+function visualSummaryText(value, fallback = "暂无已锁定内容") {
+  const normalized = visualParsedValue(value);
+  if (Array.isArray(normalized)) return normalized.slice(0, 2).map((item) => visualSummaryText(item, "")).filter(Boolean).join(" · ") || fallback;
+  if (normalized && typeof normalized === "object") {
+    return visualSummaryText(visualField(normalized, ["summary", "description", "lock", "name"], ""), fallback);
+  }
+  return String(normalized ?? fallback).replace(/\s+/g, " ").trim() || fallback;
+}
+
+function visualDetailMarkup(value) {
+  const normalized = visualParsedValue(value);
+  return productionValueMarkup(normalized);
+}
+
+function visualSummaryCard(title, fields, details, className = "") {
+  return `
+    <article class="visual-summary-card ${className}">
+      <header class="visual-section-card-head"><h4>${esc(title)}</h4><span class="visual-lock type-status">LOCKED ✓</span></header>
+      <dl class="visual-summary-fields">${fields.map(([label, value]) => `<div><dt class="manual-label type-ui-label">${esc(label)}</dt><dd class="visual-summary-value">${esc(visualSummaryText(value))}</dd></div>`).join("")}</dl>
+      <details class="visual-spec-details"><summary class="type-control">VIEW LOCKED SPEC</summary><div class="visual-detail">${visualDetailMarkup(details)}</div></details>
+    </article>`;
+}
+
+function renderVisualAssetCard(kind, item, index) {
+  const data = item && typeof item === "object" ? item : {};
+  const prefix = kind.slice(0, -1).toUpperCase();
+  const id = visualSummaryText(visualField(data, [`${kind.slice(0, -1)}_id`, "id"], `${prefix}-${String(index + 1).padStart(2, "0")}`));
+  const name = visualSummaryText(visualField(data, ["name", "title"], `未命名${kind === "characters" ? "角色" : kind === "scenes" ? "场景" : "道具"}`));
+  const role = visualSummaryText(visualField(data, ["role", "story_role", "entity_type"], "production asset"));
+  const summaryKeys = kind === "characters"
+    ? ["appearance_lock", "face_lock", "costume_lock", "lock"]
+    : kind === "scenes"
+      ? ["environment_lock", "architecture_lock", "lighting_lock", "lock"]
+      : ["appearance_lock", "material_lock", "state_lock", "lock"];
+  return `
+    <article class="visual-asset-card">
+      <header class="visual-asset-head"><div><span class="visual-asset-id mono">${esc(id)}</span><h4>${esc(name)}</h4></div><span class="visual-lock type-status">LOCKED ✓</span></header>
+      <p class="visual-asset-role type-system-meta">${esc(role)}</p>
+      <p class="visual-asset-summary">${esc(visualSummaryText(visualField(data, summaryKeys)))}</p>
+      <details class="visual-spec-details"><summary class="type-control">VIEW LOCKED SPEC</summary><div class="visual-detail">${visualDetailMarkup(data)}</div></details>
+    </article>`;
+}
+
 function renderScriptTab(project) {
   const script = project.script || {};
   const story = String(script.story || "").split(/\n+/).filter(Boolean);
@@ -2062,7 +2028,17 @@ function renderScriptTab(project) {
 }
 
 function renderVisualTab(project) {
-  const entries = Object.entries(project.visual_bible || {});
+  const bible = project.visual_bible || {};
+  const characters = Array.isArray(bible.characters) ? bible.characters : [];
+  const scenes = Array.isArray(bible.scenes) ? bible.scenes : [];
+  const props = Array.isArray(bible.props) ? bible.props : [];
+  const cinematography = bible.cinematography || {};
+  const referenceDetails = {
+    reference_seed: bible.reference_seed,
+    character_lock: bible.character_lock,
+    scene_lock: bible.scene_lock,
+    prop_lock: bible.prop_lock,
+  };
   const palette = [
     ["SHADOW", "#080706"],
     ["PANEL", "#17140f"],
@@ -2075,8 +2051,26 @@ function renderVisualTab(project) {
       <h3>所有镜头共享同一套世界规则。</h3>
       <p class="manual-type type-helper">角色、场景、风格与声音被锁定为可复用的视觉连续性约束。</p>
     </section>
-    <div class="visual-board">${entries.map(([key, value]) => `
-      <section class="visual-spec"><header><span class="manual-label type-ui-label">${esc(manualFieldLabel(key))}</span><span class="visual-lock type-status">LOCKED ✓</span></header><h4>${esc(String(key).replace(/[_-]+/g, " "))}</h4><div class="visual-spec-copy">${productionValueMarkup(value)}</div></section>`).join("") || '<p class="empty-note type-helper">暂无视觉规范。</p>'}</div>
+    <section class="visual-summary-section" aria-labelledby="visual-world-heading">
+      <header class="visual-section-head"><div><span class="manual-section-kicker type-system-meta">01 / WORLD</span><h4 id="visual-world-heading">WORLD / STYLE</h4></div><span class="type-status">LOCKED ✓</span></header>
+      <div class="visual-summary-grid">
+        ${visualSummaryCard("WORLD / STYLE", [["STYLE", bible.style_card], ["WORLD", bible.scene_card], ["CONTINUITY", bible.character_card]], { style_card: bible.style_card, scene_card: bible.scene_card, character_card: bible.character_card, sound_card: bible.sound_card })}
+        ${visualSummaryCard("CINEMATOGRAPHY", [["LENS / CAMERA", cinematography.lock || bible.cinematography_lock], ["PALETTE", cinematography.palette], ["LIGHTING", bible.scene_card]], cinematography)}
+        ${visualSummaryCard("REFERENCE", [["SEED", bible.reference_seed], ["CHARACTER BANK", `${characters.length} LOCKED`], ["SCENE BANK", `${scenes.length} LOCKED`]], referenceDetails)}
+      </div>
+    </section>
+    <section class="visual-assets-section" aria-labelledby="visual-characters-heading">
+      <header class="visual-section-head"><div><span class="manual-section-kicker type-system-meta">02 / CAST</span><h4 id="visual-characters-heading">CHARACTERS</h4></div><span class="type-status">${characters.length} LOCKED</span></header>
+      <div class="visual-assets-grid">${characters.map((item, index) => renderVisualAssetCard("characters", item, index)).join("") || '<p class="empty-note type-helper">暂无角色参考资产。</p>'}</div>
+    </section>
+    <section class="visual-assets-section" aria-labelledby="visual-scenes-heading">
+      <header class="visual-section-head"><div><span class="manual-section-kicker type-system-meta">03 / WORLD SPACE</span><h4 id="visual-scenes-heading">SCENES</h4></div><span class="type-status">${scenes.length} LOCKED</span></header>
+      <div class="visual-assets-grid">${scenes.map((item, index) => renderVisualAssetCard("scenes", item, index)).join("") || '<p class="empty-note type-helper">暂无场景参考资产。</p>'}</div>
+    </section>
+    <section class="visual-assets-section" aria-labelledby="visual-props-heading">
+      <header class="visual-section-head"><div><span class="manual-section-kicker type-system-meta">04 / CONTINUITY</span><h4 id="visual-props-heading">PROPS</h4></div><span class="type-status">${props.length} LOCKED</span></header>
+      <div class="visual-assets-grid">${props.map((item, index) => renderVisualAssetCard("props", item, index)).join("") || '<p class="empty-note type-helper">暂无道具参考资产。</p>'}</div>
+    </section>
     <div class="visual-palette"><span class="manual-label type-ui-label">STUDIO PALETTE / 片场参考色</span><div>${palette.map(([label, color]) => `<span class="palette-chip"><i style="--chip:${color}"></i><b class="type-system-meta">${label}</b></span>`).join("")}</div></div>`;
 }
 
@@ -5472,7 +5466,6 @@ async function loadHealth() {
 
 function init() {
   MovieAgentModules.productionActions.registerProductionActionHandlers(productionActionHandlers());
-  initDeliverScreeningLayout();
   initTheme();
   if (LOW_PERFORMANCE) document.body.classList.add("low-performance");
   applyView(currentView());
@@ -5540,12 +5533,9 @@ function init() {
     els.soundSummaryToggle.setAttribute("aria-expanded", String(!isHidden));
   });
   els.btnSoundSettings?.addEventListener("click", () => {
-    setDeliverInspectorTab("sound");
+    els.soundSummaryBody?.classList.remove("hidden");
+    els.soundSummaryToggle?.setAttribute("aria-expanded", "true");
     els.soundSummary?.scrollIntoView({ behavior: REDUCED_MOTION ? "auto" : "smooth", block: "nearest" });
-  });
-  document.addEventListener("click", (event) => {
-    const tab = event.target.closest("[data-deliver-inspector-tab]");
-    if (tab) setDeliverInspectorTab(tab.dataset.deliverInspectorTab);
   });
   document.querySelector("[data-audio-advanced-toggle]")?.addEventListener("click", (event) => {
     const button = event.currentTarget;

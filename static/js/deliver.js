@@ -1,11 +1,4 @@
 /** Deliver read helpers keep quality and final-state semantics explicit. */
-export const DELIVER_INSPECTOR_TABS = Object.freeze([
-  { key: "picture", label: "PICTURE", description: "画面与剪辑" },
-  { key: "sound", label: "SOUND", description: "声音与混音" },
-  { key: "look", label: "LOOK", description: "Final Look" },
-  { key: "export", label: "EXPORT", description: "交付设置" },
-]);
-export const deliverInspectorTab = (value) => DELIVER_INSPECTOR_TABS.some((tab) => tab.key === value) ? value : "picture";
 export const isFinalReady = (project = {}) => String(project.status || "").startsWith("completed") && Boolean(project.final_output_placeholder || project.final_video_url);
 export const qualityLabel = (record = {}) => String(record.quality || (record.width && record.height ? `${record.width}×${record.height}` : "QUALITY UNKNOWN"));
 export const deliverRuntime = (project = {}) => {
@@ -29,6 +22,6 @@ export const deliverStatus = (project = {}, hasFinalVideo = false) => {
 };
 
 export function moduleDeliver() {
-  return { DELIVER_INSPECTOR_TABS, deliverInspectorTab, isFinalReady, qualityLabel, deliverRuntime, finalVideoCandidate, deliverStatus };
+  return { isFinalReady, qualityLabel, deliverRuntime, finalVideoCandidate, deliverStatus };
 }
 

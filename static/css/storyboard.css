@@ -1,10 +1,13 @@
 /* Storyboard / film-strip extraction seam. */
 :where(.p2-storyboard) { isolation: isolate; }
 
+body[data-design="archive-console"] .filmstrip-panel { overflow-x: clip; }
+
 body[data-design="archive-console"] .filmstrip-viewport {
   min-width: 0;
   max-width: 100%;
   overflow-x: auto;
+  contain: inline-size paint;
   overscroll-behavior-inline: contain;
   scrollbar-width: thin;
 }

@@ -163,6 +163,9 @@ def test_production_bible_is_a_quiet_reading_workspace():
     assert "font-size: var(--manual-body-size)" in BIBLE
     assert "line-height: var(--manual-body-leading)" in BIBLE
     assert "box-shadow: none" in BIBLE
+    assert ".visual-summary-grid" in BIBLE
+    assert ".visual-assets-section" in BIBLE
+    assert ".visual-spec-details" in BIBLE
     assert ".manual-document .tab-body" not in REFINEMENT
 
 
@@ -314,19 +317,40 @@ def test_production_desk_monitor_is_embedded_hardware_with_collapsed_activity():
     assert "--desk-monitor-disabled: #b1a493" in CSS
 
 
-def test_final_cut_workspace_is_clipped_two_column_inspector_and_progressive():
+def test_final_cut_workspace_owns_responsive_two_column_layout():
     assert 'class="final-preview final-compare"' in INDEX
     assert 'class="final-look-step final-look-disclosure"' in INDEX
     assert 'id="final-look-fine-tune"' in INDEX
     assert 'id="final-look-fine-tune" open' not in INDEX
     deliver = (ROOT / "static" / "css" / "deliver.css").read_text(encoding="utf-8")
-    assert "grid-template-columns: minmax(0, 1.8fr) minmax(320px, 1fr);" in deliver
-    assert "gap: clamp(20px, 2.4vw, 32px);" in deliver
-    assert ".final-preview {" in CSS
-    assert "aspect-ratio: 16 / 9;" in CSS
-    assert "contain: paint;" in CSS
-    assert "const canStartAiEdit = showSummary" in APP
+    assert "grid-template-columns: minmax(0, 1fr) minmax(340px, 380px);" in deliver
+    assert "@media (max-width: 1099px)" in deliver
+    assert "grid-template-columns: 1fr;" in deliver
+    assert ".final-preview {" in deliver
+    assert "aspect-ratio: 16 / 9;" in deliver
+    assert "contain: paint;" in deliver
+    assert "writing-mode: horizontal-tb;" in deliver
+    assert "deliver-screening-layout" not in APP
+    assert "deliver-inspector" not in deliver
     assert 'if (finalApproved) states.deliver = "done";' in MODULE_STATE
+
+
+def test_workspace_layout_does_not_hide_overflow_or_scale_the_document():
+    layout = (ROOT / "static" / "css" / "layout.css").read_text(encoding="utf-8")
+    assert "html,\nbody { overflow-x: clip; }" not in layout
+    assert ".view-studio { overflow-x: clip; }" in layout
+    assert "zoom:" not in layout
+    assert "transform: scale(" not in layout
+
+
+def test_crew_route_uses_readable_desktop_breakpoints():
+    assert "grid-template-columns: repeat(4, minmax(0, 1fr));" in CREW
+    assert "@media (max-width: 1199px)" in CREW
+    assert "grid-template-columns: repeat(3, minmax(0, 1fr));" in CREW
+    assert "@media (max-width: 899px)" in CREW
+    assert "grid-template-columns: repeat(2, minmax(0, 1fr));" in CREW
+    assert "@media (max-width: 599px)" in CREW
+    assert "grid-template-columns: repeat(7" not in CREW
 
 
 def test_light_screening_room_keeps_content_sharp_and_monitor_readable():

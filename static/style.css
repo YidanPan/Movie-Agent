@@ -2393,13 +2393,17 @@ main {
   border-left: 1px solid rgba(215, 166, 74, 0.3);
   box-shadow: -18px 0 44px rgba(0, 0, 0, 0.3);
   overflow-y: auto;
-  transform: translateX(105%);
-  transition: width 0.42s cubic-bezier(0.16, 1, 0.3, 1), transform 0.34s cubic-bezier(0.22, 1, 0.36, 1);
+  /* Keep the fixed inspector inside the viewport's containing box while it
+     is closed. A translated fixed box contributes to document scrollWidth
+     even though it is visually off-screen. */
+  clip-path: inset(0 0 0 100%);
+  pointer-events: none;
+  transition: width 0.42s cubic-bezier(0.16, 1, 0.3, 1), clip-path 0.34s cubic-bezier(0.22, 1, 0.36, 1);
   scrollbar-width: thin;
   scrollbar-color: var(--line) transparent;
 }
 
-.drawer.open { transform: translateX(0); }
+.drawer.open { clip-path: inset(0); pointer-events: auto; }
 .drawer.is-expanded { width: min(94vw, 1240px); }
 
 .inspector-content {

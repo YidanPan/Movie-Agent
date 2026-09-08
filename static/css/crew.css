@@ -4,7 +4,7 @@
 /* The route is a real grid, not a fixed-width strip. */
 body[data-design="archive-console"] .crew-flow {
   display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 16px 10px;
   align-items: stretch;
   min-width: 0;
@@ -437,8 +437,8 @@ body[data-design="archive-console"] .crew-flow .crew-card.failed .crew-state-ico
   }
 }
 
-@media (max-width: 1279px) {
-  body[data-design="archive-console"] .crew-flow { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 1199px) {
+  body[data-design="archive-console"] .crew-flow { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   body[data-design="archive-console"] .crew-flow-link { display: none; }
 }
 
