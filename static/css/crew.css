@@ -164,15 +164,15 @@ body[data-design="archive-console"] .crew-flow .crew-name {
   font: 650 19px/1.25 var(--sans);
   letter-spacing: .035em;
   word-break: normal;
-  overflow-wrap: normal;
-  white-space: nowrap;
+  overflow-wrap: break-word;
+  white-space: normal;
   writing-mode: horizontal-tb;
 }
 
 body[data-design="archive-console"] .crew-flow .crew-en {
   display: block;
   width: auto;
-  max-width: none;
+  max-width: 100%;
   min-width: 0;
   color: var(--text-muted);
   font: 600 12px/1.2 var(--mono);
@@ -180,7 +180,7 @@ body[data-design="archive-console"] .crew-flow .crew-en {
   text-align: left;
   word-break: normal;
   overflow-wrap: normal;
-  white-space: nowrap;
+  white-space: normal;
   writing-mode: horizontal-tb;
 }
 
@@ -193,7 +193,8 @@ body[data-design="archive-console"] .crew-flow .crew-role {
   letter-spacing: 0;
   word-break: normal;
   overflow-wrap: normal;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: break-word;
   writing-mode: horizontal-tb;
 }
 
@@ -258,8 +259,8 @@ body[data-design="archive-console"] .crew-flow .crew-summary-secondary {
   overflow: visible;
   text-overflow: clip;
   word-break: normal;
-  overflow-wrap: normal;
-  white-space: nowrap;
+  overflow-wrap: break-word;
+  white-space: normal;
   writing-mode: horizontal-tb;
 }
 
@@ -296,7 +297,8 @@ body[data-design="archive-console"] .crew-flow .crew-card .crew-artifact-preview
   flex: 0 0 auto;
   gap: 7px;
   min-width: 0;
-  max-height: 128px;
+  height: auto;
+  max-height: none;
   padding: 9px;
   overflow: visible;
   border: 1px solid var(--line-soft);
@@ -375,7 +377,8 @@ body[data-design="archive-console"] .crew-flow .crew-node-route {
   color: var(--text-muted);
   font: 600 11px/1.25 var(--mono);
   letter-spacing: .025em;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: break-word;
 }
 
 body[data-design="archive-console"] .crew-flow .crew-route-input,
@@ -385,7 +388,8 @@ body[data-design="archive-console"] .crew-flow .crew-route-output {
   text-overflow: clip;
   word-break: normal;
   overflow-wrap: normal;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: break-word;
   writing-mode: horizontal-tb;
 }
 

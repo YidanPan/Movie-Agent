@@ -335,6 +335,32 @@ def test_final_cut_workspace_owns_responsive_two_column_layout():
     assert 'if (finalApproved) states.deliver = "done";' in MODULE_STATE
 
 
+def test_text_collision_contract_keeps_readable_copy_in_flow():
+    layout = (ROOT / "static" / "css" / "layout.css").read_text(encoding="utf-8")
+    deliver = (ROOT / "static" / "css" / "deliver.css").read_text(encoding="utf-8")
+
+    assert ".crew-flow .crew-en" in CREW
+    assert ".crew-flow .crew-role" in CREW
+    assert ".crew-flow .crew-summary-headline" in CREW
+    assert "white-space: normal;" in CREW
+    assert "max-height: 128px" not in CREW
+    assert ".crew-artifact-preview" in CREW and "height: auto;" in CREW
+    assert ".crew-node-route" in CREW and ".crew-route-input" in CREW
+    assert "flex-wrap: wrap;" in layout
+    assert "@media (max-width: 900px)" in layout
+    assert ".crew-flow-head > :first-child" in layout
+    assert "flex: 0 1 auto;" in layout
+    assert "grid-template-columns: minmax(0, 1fr);" in deliver
+    assert "max-width: 100%;" in deliver
+    assert "aspect-ratio: auto;" not in CSS
+
+
+def test_production_bible_nested_values_use_vertical_detail_rows():
+    assert ".visual-detail .production-readable-dl .production-readable-dl" in BIBLE
+    assert ".visual-detail .production-readable-dl .production-readable-dl > div" in BIBLE
+    assert "grid-template-columns: 1fr;" in BIBLE
+
+
 def test_workspace_layout_does_not_hide_overflow_or_scale_the_document():
     layout = (ROOT / "static" / "css" / "layout.css").read_text(encoding="utf-8")
     assert "html,\nbody { overflow-x: clip; }" not in layout

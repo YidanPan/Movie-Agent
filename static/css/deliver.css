@@ -1,6 +1,21 @@
 /* Deliver / Final Cut extraction seam. */
 :where(.p2-deliver) { isolation: isolate; }
 
+/* A grid child must be allowed to shrink with the screening panel. Without
+   this zero min-content contract, padded look controls can widen the entire
+   Deliver column on a narrow viewport before the responsive rule applies. */
+body[data-design="archive-console"] .deliver-final {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+body[data-design="archive-console"] .deliver-room {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 /* The source DOM owns this layout. Keep the film and its finish controls in
    one predictable grid; JavaScript must not move them into a second grid. */
 body[data-design="archive-console"] .final-cut-workspace {
@@ -10,6 +25,8 @@ body[data-design="archive-console"] .final-cut-workspace {
   gap: 28px;
   width: 100%;
   min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 body[data-design="archive-console"] .final-cut-screening,
@@ -18,11 +35,14 @@ body[data-design="archive-console"] .final-preview,
 body[data-design="archive-console"] .final-look-panel {
   width: 100%;
   min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 body[data-design="archive-console"] .final-cut-screening { min-width: 0; }
 
 body[data-design="archive-console"] .final-player-shell {
+  position: relative;
   aspect-ratio: 16 / 9;
   overflow: hidden;
 }
@@ -38,10 +58,14 @@ body[data-design="archive-console"] .final-preview {
 }
 
 body[data-design="archive-console"] .final-preview > video,
-body[data-design="archive-console"] .final-preview .final-compare-after,
-body[data-design="archive-console"] .final-preview .final-compare-divider,
-body[data-design="archive-console"] .final-preview .final-compare-label {
+body[data-design="archive-console"] .final-preview .final-compare-after {
+  width: 100%;
+  height: 100%;
   max-width: 100%;
+}
+
+body[data-design="archive-console"] .final-preview .final-compare-divider {
+  height: 100%;
 }
 
 body[data-design="archive-console"] .final-preview > video {

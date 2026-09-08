@@ -7621,7 +7621,6 @@ body[data-design="archive-console"] .final-preview {
 }
 
 body[data-design="archive-console"] .final-player-shell {
-  aspect-ratio: auto;
   overflow: hidden;
 }
 

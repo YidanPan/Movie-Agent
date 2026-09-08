@@ -38,6 +38,78 @@ body[data-design="archive-console"] .workspace .panel {
   box-sizing: border-box;
 }
 
+/* Shared header contract: the information block may shrink and wrap, while
+   short technical metadata remains an independent, non-overlapping item. */
+body[data-design="archive-console"] .panel-head,
+body[data-design="archive-console"] .act-head,
+body[data-design="archive-console"] .crew-flow-head,
+body[data-design="archive-console"] .production-route-head,
+body[data-design="archive-console"] .manual-project-line,
+body[data-design="archive-console"] .final-look-head,
+body[data-design="archive-console"] .final-look-presets-head,
+body[data-design="archive-console"] .sound-summary-head,
+body[data-design="archive-console"] .deliver-progress-head {
+  min-width: 0;
+  flex-wrap: wrap;
+  row-gap: 10px;
+}
+
+body[data-design="archive-console"] .panel-head > :first-child,
+body[data-design="archive-console"] .act-head > :first-child,
+body[data-design="archive-console"] .crew-flow-head > :first-child,
+body[data-design="archive-console"] .production-route-head > :first-child,
+body[data-design="archive-console"] .manual-project-line > :first-child,
+body[data-design="archive-console"] .final-look-head > :first-child,
+body[data-design="archive-console"] .final-look-presets-head > :first-child,
+body[data-design="archive-console"] .sound-summary-head > :first-child,
+body[data-design="archive-console"] .deliver-progress-head > :first-child {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+body[data-design="archive-console"] .panel-head > :last-child,
+body[data-design="archive-console"] .act-head > :last-child,
+body[data-design="archive-console"] .crew-flow-head > :last-child,
+body[data-design="archive-console"] .production-route-head > :last-child,
+body[data-design="archive-console"] .manual-project-line > :last-child,
+body[data-design="archive-console"] .final-look-head > :last-child,
+body[data-design="archive-console"] .final-look-presets-head > :last-child,
+body[data-design="archive-console"] .sound-summary-head > :last-child,
+body[data-design="archive-console"] .deliver-progress-head > :last-child {
+  min-width: 0;
+  max-width: 100%;
+}
+
+body[data-design="archive-console"] .production-route-flow {
+  flex-wrap: wrap;
+  white-space: normal;
+  overflow-wrap: break-word;
+}
+
+/* The header keeps its three-column geometry at wide desktop sizes, then
+   removes the long pipeline before it can compete with the utility controls. */
+@media (max-width: 1199px) {
+  body[data-design="archive-console"] .header-center .pipeline { display: none; }
+  body[data-design="archive-console"] .global-header-inner {
+    grid-template-columns: minmax(190px, 1fr) auto minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 900px) {
+  body[data-design="archive-console"] .crew-flow-head,
+  body[data-design="archive-console"] .production-route-head,
+  body[data-design="archive-console"] .manual-project-line {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  body[data-design="archive-console"] .crew-flow-head > :first-child,
+  body[data-design="archive-console"] .production-route-head > :first-child,
+  body[data-design="archive-console"] .manual-project-line > :first-child {
+    flex: 0 1 auto;
+  }
+}
+
 @media (max-width: 720px) {
   body[data-design="archive-console"] main { width: calc(100vw - 32px); }
 }
