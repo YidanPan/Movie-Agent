@@ -45,7 +45,37 @@ def _state_text(value: dict[str, Any] | None) -> str:
     return "\n".join(lines) or "none"
 
 
-REMOTE_RESUME_STATUSES = frozenset({"SUBMITTED", "PENDING", "RUNNING", "RESUMING"})
+REMOTE_RESUME_STATUSES = frozenset({
+    "SUBMITTED", "PENDING", "RUNNING", "RESUMING", "SUCCEEDED", "COMPLETED"
+})
+
+
+def _record_provider_task_history(media_generation: dict[str, Any], event: str) -> None:
+    """Keep a compact audit record before replacing or recovering a task."""
+
+    task_id = str(media_generation.get("provider_task_id") or "").strip()
+    if not task_id:
+        return
+    history = list(media_generation.get("provider_task_history") or [])
+    entry = {
+        "event": str(event),
+        "recorded_at": utc_now(),
+        "provider_task_id": task_id,
+        "provider_task_status": str(media_generation.get("provider_task_status") or media_generation.get("generation_status") or ""),
+        "provider_task_revision": media_generation.get("provider_task_revision"),
+        "provider_task_request_hash": str(media_generation.get("provider_task_request_hash") or ""),
+        "provider_task_provider": str(media_generation.get("provider_task_provider") or ""),
+        "provider_task_model": str(media_generation.get("provider_task_model") or ""),
+        "provider_task_submitted_at": str(media_generation.get("provider_task_submitted_at") or ""),
+    }
+    if not any(
+        isinstance(item, dict)
+        and item.get("event") == entry["event"]
+        and item.get("provider_task_id") == entry["provider_task_id"]
+        for item in history
+    ):
+        history.append(entry)
+    media_generation["provider_task_history"] = history
 
 
 def _remote_task_matches_request(
@@ -525,10 +555,13 @@ class GenerationAgent:
                 or existing_media_generation.get("generation_status")
                 or ""
             ).upper()
+            if existing_task_status in {"SUCCEEDED", "COMPLETED"}:
+                _record_provider_task_history(shot.media_generation, "RECOVERED_COMPLETED_TASK")
         else:
             # A task from another revision/provider/model is never reusable.
             # Clear only the in-flight identity; the new request remains fully
             # auditable in the shot record.
+            _record_provider_task_history(shot.media_generation, "SUPERSEDED_TASK")
             existing_task_id = ""
             existing_task_status = ""
             shot.media_generation.update(
@@ -562,7 +595,7 @@ class GenerationAgent:
             if (
                 callable(resume)
                 and existing_task_id
-                and existing_task_status in {"SUBMITTED", "PENDING", "RUNNING", "RESUMING"}
+                and existing_task_status in REMOTE_RESUME_STATUSES
             ):
                 provider_result = resume(
                     existing_task_id,

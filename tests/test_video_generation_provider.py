@@ -528,6 +528,65 @@ def test_remote_task_with_changed_request_hash_is_not_resumed():
         assert provider.calls == ["generate", "generate"]
 
 
+@pytest.mark.parametrize("completed_status", ["SUCCEEDED", "COMPLETED"])
+def test_completed_remote_task_recovers_without_resubmitting(completed_status):
+    with TemporaryDirectory() as directory:
+        root = Path(directory)
+        output = root / "video.mp4"
+        output.write_bytes(b"real-video")
+        provider = _ResumableFakeProvider(output)
+        agent = GenerationAgent(_settings(root), provider=provider)
+        shot = _reference_shot("")
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr("movie_agent.agents.generation.asset_record", lambda *args, **kwargs: kwargs)
+            agent.generate(
+                "film-a1b2c3d4", shot,
+                visual_bible={"scene_lock": "home", "character_lock": "hero", "cinematography_lock": "camera"},
+            )
+            # Simulate a process crash after the provider completed but before
+            # the local source asset was finalized.
+            shot.status = "generating"
+            shot.output_placeholder = str(root / "not-downloaded-yet.mp4")
+            shot.media_assets = {}
+            shot.media_generation["generation_status"] = completed_status
+            shot.media_generation["provider_task_status"] = completed_status
+            agent.generate(
+                "film-a1b2c3d4", shot,
+                visual_bible={"scene_lock": "home", "character_lock": "hero", "cinematography_lock": "camera"},
+            )
+        assert provider.calls == ["generate", "resume:fake-task-1"]
+        assert any(
+            item["event"] == "RECOVERED_COMPLETED_TASK"
+            and item["provider_task_id"] == "fake-task-1"
+            for item in shot.media_generation["provider_task_history"]
+        )
+
+
+def test_superseded_remote_task_remains_in_history():
+    with TemporaryDirectory() as directory:
+        root = Path(directory)
+        output = root / "video.mp4"
+        output.write_bytes(b"real-video")
+        provider = _ResumableFakeProvider(output)
+        agent = GenerationAgent(_settings(root), provider=provider)
+        shot = _reference_shot("")
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr("movie_agent.agents.generation.asset_record", lambda *args, **kwargs: kwargs)
+            agent.generate(
+                "film-a1b2c3d4", shot,
+                visual_bible={"scene_lock": "home", "character_lock": "hero", "cinematography_lock": "camera"},
+            )
+            shot.status = "generating"
+            shot.media_generation["generation_status"] = "RUNNING"
+            shot.media_generation["provider_task_status"] = "RUNNING"
+            shot.prompt = "replanned shot delta"
+            agent.generate(
+                "film-a1b2c3d4", shot,
+                visual_bible={"scene_lock": "home", "character_lock": "hero", "cinematography_lock": "camera"},
+            )
+        assert any(item["event"] == "SUPERSEDED_TASK" for item in shot.media_generation["provider_task_history"])
+
+
 def test_provider_capability_rejects_unsupported_generation_mode():
     with TemporaryDirectory() as directory:
         root = Path(directory)
