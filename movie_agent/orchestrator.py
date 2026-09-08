@@ -66,13 +66,13 @@ def _failure_stage(error: BaseException) -> str:
 
 
 def _render_ready_status(settings: Settings) -> str:
-    """Keep legacy persisted labels for old providers, generic for remote."""
+    """Persist one provider-neutral state for every real render provider."""
 
-    return "render_ready" if str(settings.video_generation_mode or "mock").lower() == "remote" else "ready_for_comfyui_render"
+    return "render_ready"
 
 
 def _rendering_status(settings: Settings) -> str:
-    return "rendering" if str(settings.video_generation_mode or "mock").lower() == "remote" else "rendering_comfyui"
+    return "rendering"
 
 
 class MovieOrchestrator:
@@ -1294,7 +1294,7 @@ class MovieOrchestrator:
         try:
             if self.settings.video_generation_mode != "mock":
                 project.logs.append(self.editor.assemble(project, project.subtitle_mode))
-                project.status = "completed_comfyui" if self.settings.video_generation_mode == "comfyui" else "completed"
+                project.status = "completed"
             else:
                 project.logs.append(self.editor.assemble_mock(project))
                 project.status = "completed_text_ai_video_mock" if self.using_creative_llm else "completed_mock"

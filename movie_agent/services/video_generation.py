@@ -49,6 +49,9 @@ class VideoGenerationProvider(Protocol):
     """The only video contract visible to the generation stage."""
 
     name: str
+    # Providers must declare the renderer modes they can actually execute.
+    # An empty set is a deliberate fail-closed capability declaration.
+    supported_modes: frozenset[str]
 
     def is_available(self) -> bool:
         ...
@@ -75,6 +78,7 @@ class MockVideoProvider:
     """
 
     name = "mock"
+    supported_modes = frozenset({"T2V"})
 
     def is_available(self) -> bool:
         return True
@@ -91,6 +95,7 @@ class ComfyUIVideoProvider:
     """Adapter for the verified, local ComfyUI API workflow."""
 
     name = "comfyui"
+    supported_modes = frozenset({"T2V"})
 
     def __init__(
         self,
@@ -236,6 +241,9 @@ class RemoteVideoProvider:
     """
 
     name = "remote"
+    # The remote wire protocol is not implemented yet, so it must not claim
+    # support for a generation mode merely because an endpoint exists.
+    supported_modes = frozenset()
 
     def __init__(self, settings: Any) -> None:
         self.base_url = str(getattr(settings, "remote_video_api_base", "") or "").strip()

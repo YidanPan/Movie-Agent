@@ -4465,7 +4465,7 @@ function handleEditEvent(event) {
     if (event.project) applyProjectSnapshot(event.project);
     if (els.editStatus) els.editStatus.textContent = event.description || "AI Edit 处理中…";
     if (els.monitorDesc) els.monitorDesc.textContent = event.description || "AI Edit 处理中…";
-    if (event.project) renderDeliverProgress(event.project, event.description || "");
+    if (state.project) renderDeliverProgress(state.project, event.description || "");
     if (state.project) renderLogFeed(state.project);
     appendCrewStatus("editor", "PROGRESS", event.description || "AI Edit working");
   } else if (event.type === "done") {

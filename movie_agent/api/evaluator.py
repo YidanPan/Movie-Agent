@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from movie_agent.services.errors import error_info
 from movie_agent.services.media_quality import best_master_path, best_screening_path
+from movie_agent.pipeline.evaluator_submissions import EvaluatorSubmissionIndex
 
 
 router = APIRouter(prefix="/api/v1", tags=["evaluator"])
@@ -79,23 +80,60 @@ async def evaluator_generate(
                 {"error": f"Invalid submission: {first.get('msg', 'invalid')}"}, status_code=400
             )
         return JSONResponse({"error": "Request must be valid JSON."}, status_code=400)
-    if ledger.active_count() >= int(getattr(settings, "max_active_jobs", 2) or 2):
-        return JSONResponse(
-            {"error": "Evaluator job capacity has been reached.", "error_code": "JOB_CAPACITY_REACHED"},
-            status_code=429,
-        )
-    project_id = f"film-{uuid4().hex[:8]}"
-    idempotency_key = request.headers.get("idempotency-key") or f"evaluator:{project_id}"
+    idempotency_key = str(request.headers.get("idempotency-key") or "").strip()
+    submission_index = EvaluatorSubmissionIndex(settings.projects_dir)
+
+    def replay(existing: dict[str, Any]) -> JSONResponse:
+        existing_job = ledger.find_job(str(existing.get("job_id") or ""))
+        body = {
+            "project_id": str(existing.get("project_id") or ""),
+            "job_id": str(existing.get("job_id") or ""),
+            "status": str((existing_job or {}).get("status") or existing.get("status") or "recoverable_failed"),
+            "idempotent_replay": True,
+        }
+        return JSONResponse(body, status_code=200)
+
+    # The lookup and first job creation share one process-local lock.  This is
+    # enough for the current single-worker deployment and prevents two HTTP
+    # retries from creating different projects for one key.
+    claim_context = submission_index.claim_lock() if idempotency_key else None
+    if claim_context is not None:
+        claim_context.__enter__()
     try:
-        job = ledger.start(
-            project_id,
-            kind="planning",
-            stage="planning",
-            idempotency_key=idempotency_key,
-            mutates_project=True,
-        )
-    except Exception as error:  # pragma: no cover - ledger-specific failures are surfaced safely
-        return JSONResponse({"error": str(error), "error_code": "JOB_START_FAILED"}, status_code=409)
+        if idempotency_key:
+            existing = submission_index.get(idempotency_key)
+            if existing:
+                return replay(existing)
+        if ledger.active_count() >= int(getattr(settings, "max_active_jobs", 2) or 2):
+            return JSONResponse(
+                {"error": "Evaluator job capacity has been reached.", "error_code": "JOB_CAPACITY_REACHED"},
+                status_code=429,
+            )
+        project_id = f"film-{uuid4().hex[:8]}"
+        # Keep the raw caller key out of the job ledger too; the dedicated
+        # index stores only its SHA-256 digest.
+        ledger_key = f"evaluator:{project_id}"
+        try:
+            job = ledger.start(
+                project_id,
+                kind="planning",
+                stage="planning",
+                idempotency_key=ledger_key,
+                mutates_project=True,
+            )
+        except Exception as error:  # pragma: no cover - ledger-specific failures are surfaced safely
+            return JSONResponse({"error": str(error), "error_code": "JOB_START_FAILED"}, status_code=409)
+        if idempotency_key:
+            reserved = submission_index.reserve(
+                idempotency_key, project_id=project_id, job_id=str(job["job_id"])
+            )
+            if str(reserved.get("project_id")) != project_id:
+                # This is defensive for future multi-process implementations;
+                # the current lock makes this branch unreachable.
+                return replay(reserved)
+    finally:
+        if claim_context is not None:
+            claim_context.__exit__(None, None, None)
 
     completed_agents = 0
 
@@ -118,13 +156,14 @@ async def evaluator_generate(
 
     def worker() -> None:
         try:
-            orchestrator.create_project(
-                payload.idea,
-                payload.duration,
-                payload.visual_style,
-                event_callback=emit,
-                project_id=project_id,
-            )
+            with ledger.keepalive(project_id, job["job_id"]):
+                orchestrator.create_project(
+                    payload.idea,
+                    payload.duration,
+                    payload.visual_style,
+                    event_callback=emit,
+                    project_id=project_id,
+                )
             ledger.finish(project_id, job["job_id"], status="succeeded")
         except Exception as error:  # noqa: BLE001 - persist a safe terminal state
             ledger.finish(

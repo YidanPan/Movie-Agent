@@ -65,3 +65,33 @@ def test_evaluator_api_starts_async_job_and_exposes_safe_views(monkeypatch):
         result = client.get(f"/api/v1/projects/{submission['project_id']}/result")
         assert result.status_code == 200
         assert result.json()["status"] == "not_ready"
+
+
+def test_evaluator_idempotency_key_reuses_original_project_and_job(monkeypatch):
+    with TemporaryDirectory() as temporary_directory:
+        root = Path(temporary_directory)
+        orchestrator = _orchestrator(root)
+        monkeypatch.setattr(server, "orchestrator", orchestrator)
+        monkeypatch.setattr(server, "settings", orchestrator.settings)
+        monkeypatch.setattr(server, "job_ledger", JobLedger(orchestrator.settings.projects_dir))
+        client = TestClient(server.app)
+        request = {
+            "idea": "A society where memory becomes subscription based.",
+            "duration": 45,
+            "visual_style": "cold cinematic sci-fi",
+        }
+        headers = {"Idempotency-Key": "round2-submit-001"}
+        first = client.post("/api/v1/generate", json=request, headers=headers)
+        assert first.status_code == 202
+        replay = client.post("/api/v1/generate", json=request, headers=headers)
+        assert replay.status_code == 200
+        assert replay.json()["idempotent_replay"] is True
+        assert replay.json()["project_id"] == first.json()["project_id"]
+        assert replay.json()["job_id"] == first.json()["job_id"]
+        for _ in range(100):
+            if client.get(f"/api/v1/jobs/{first.json()['job_id']}").json()["status"] not in {"queued", "running"}:
+                break
+            time.sleep(0.05)
+        index = root / "projects" / "evaluator-submissions.json"
+        contents = index.read_text(encoding="utf-8")
+        assert "round2-submit-001" not in contents

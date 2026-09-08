@@ -517,8 +517,8 @@ def invalidate_downstream(
     shots_ready = bool(shots) and all(str(getattr(item, "status", "")).startswith("approved") and not getattr(item, "stale", False) for item in shots)
     if shots_ready:
         project.status = "ready_for_ai_edit"
-    elif str(getattr(project, "status", "")) not in {"planning_live", "rendering_comfyui", "generating_video_mock"}:
-        project.status = "ready_for_comfyui_render"
+    elif str(getattr(project, "status", "")) not in {"planning_live", "rendering", "rendering_comfyui", "generating_video_mock"}:
+        project.status = "render_ready"
     return event
 
 

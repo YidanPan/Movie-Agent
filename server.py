@@ -37,6 +37,7 @@ from movie_agent.pipeline.diagnostics import delivery_preflight, diagnostics_sna
 from movie_agent.services.readiness import PRODUCTION_ACTION_CONTRACT, PRODUCTION_ACTIONS, ProductionBlockedError, ensure_action_ready, production_readiness
 from movie_agent.pipeline.jobs import JobAlreadyRunning, JobLedger
 from movie_agent.state import shot_previewable
+from movie_agent.services.video_generation import build_video_provider
 from movie_agent.services.cache_cleanup import clean_working_cache, storage_summary
 from movie_agent.services.reference_generation import ReferenceImageRequest, generate_reference_image
 from movie_agent.storage.reference_bank import ReferenceBankStore
@@ -99,6 +100,24 @@ def runtime_checks() -> dict[str, dict[str, Any]]:
     video_mode = str(settings.video_generation_mode or "mock").lower()
     provider = str(settings.model_provider or "mock").lower()
     workflow = settings.workflows_dir / settings.comfy_workflow_template
+    try:
+        video_provider = build_video_provider(settings)
+        declared_modes = sorted(
+            str(item).upper() for item in (getattr(video_provider, "supported_modes", frozenset()) or frozenset())
+        )
+        if video_mode == "mock":
+            video_provider_ok = True
+        elif video_mode == "comfyui":
+            # Health must remain non-invasive: workflow/config validation is
+            # local, while the actual ComfyUI probe happens at generation.
+            video_provider_ok = bool(workflow.is_file() and declared_modes)
+        else:
+            # RemoteVideoProvider is fail-closed until a concrete protocol
+            # adapter is installed. is_available() is local-only today.
+            video_provider_ok = bool(video_provider.is_available())
+    except (OSError, ValueError):
+        video_provider_ok = False
+        declared_modes = []
     checks = {
         "projects_storage": {"ok": _directory_ready(settings.projects_dir), "required": True},
         "outputs_storage": {"ok": _directory_ready(settings.outputs_dir), "required": True},
@@ -111,6 +130,12 @@ def runtime_checks() -> dict[str, dict[str, Any]]:
         "comfyui_workflow": {
             "ok": video_mode != "comfyui" or workflow.is_file(),
             "required": video_mode == "comfyui",
+        },
+        "video_provider": {
+            "ok": video_provider_ok,
+            "required": video_mode != "mock",
+            "provider": video_mode,
+            "supported_modes": declared_modes,
         },
     }
     return checks
@@ -330,9 +355,15 @@ def serialized_project(project) -> dict[str, Any]:
     payload = _sanitize_public_payload(payload)
     # Audio providers persist an absolute media path for the editor, while
     # browsers should always use the guarded project-scoped preview endpoint.
-    for key, track in (payload.get("audio_tracks") or {}).items():
-        if isinstance(track, dict) and track.get("media_path") and Path(str(track["media_path"])).is_file():
-            track.setdefault("preview_url", f"/api/projects/{project.project_id}/audio/tracks/{key}")
+    # Sanitization intentionally removes media_path.  Compute the guarded
+    # browser URL from the private project object before/alongside the public
+    # payload instead of trying to inspect the already-sanitized dictionary.
+    public_tracks = payload.get("audio_tracks") or {}
+    for key, track in (getattr(project, "audio_tracks", {}) or {}).items():
+        public_track = public_tracks.get(key)
+        media_path = (track or {}).get("media_path") if isinstance(track, dict) else getattr(track, "media_path", "")
+        if isinstance(public_track, dict) and media_path and Path(str(media_path)).is_file():
+            public_track.setdefault("preview_url", f"/api/projects/{project.project_id}/audio/tracks/{key}")
     payload["video_quality"] = _sanitize_public_payload(quality_snapshot(project, settings.ffprobe_bin))
     payload["screening_preview_url"] = f"/api/projects/{project.project_id}/screening-preview"
     # Diagnostics contain only status, counts, redacted errors and media
@@ -508,6 +539,7 @@ def run_with_sse(
 
         nonlocal job_id, resolved_project_id
         event_payload = dict(payload)
+        event_payload.setdefault("stage", stage)
         if resolved_project_id is None:
             resolved_project_id = str(
                 event_payload.get("project_id")
@@ -711,19 +743,12 @@ def get_project_diagnostics(project_id: str) -> dict:
 @contextmanager
 def keep_job_heartbeat(project_id: str, job_id: str):
     """Renew a ledger lease around a blocking non-SSE operation."""
-
-    stop = threading.Event()
-
-    def pulse() -> None:
-        while not stop.wait(JOB_HEARTBEAT_INTERVAL_SECONDS):
-            job_ledger.heartbeat(project_id, job_id)
-
-    thread = threading.Thread(target=pulse, name=f"heartbeat-{job_id}", daemon=True)
-    thread.start()
-    try:
+    with job_ledger.keepalive(
+        project_id,
+        job_id,
+        interval_seconds=JOB_HEARTBEAT_INTERVAL_SECONDS,
+    ):
         yield
-    finally:
-        stop.set()
 
 
 @app.get("/api/projects/{project_id}/delivery-preflight")
@@ -850,11 +875,9 @@ async def create_rough_cut_stream(project_id: str, request: Request) -> Streamin
     def work(emit: Callable[[dict], None]) -> None:
         with project_lock(project_id):
             def on_progress(description: str) -> None:
-                try:
-                    snapshot = serialized_project(orchestrator.store.load(project_id))
-                except Exception:  # noqa: BLE001 - snapshot is best-effort
-                    snapshot = None
-                emit({"type": "edit_progress", "description": description, "project": snapshot})
+                # Progress is a compact event.  The full project is sent only
+                # by the terminal ``done`` event or an explicit GET snapshot.
+                emit({"type": "edit_progress", "description": description})
 
             project = orchestrator.create_rough_cut(
                 project_id,
@@ -1145,17 +1168,12 @@ async def render_project_stream(project_id: str, request: Request) -> StreamingR
     def work(emit: Callable[[dict], None]) -> None:
         with project_lock(project_id):
             def on_progress(completed: int, total: int, description: str) -> None:
-                try:
-                    snapshot = serialized_project(orchestrator.store.load(project_id))
-                except Exception:  # noqa: BLE001 - snapshot is best-effort
-                    snapshot = None
                 emit(
                     {
                         "type": "render_progress",
                         "completed": completed,
                         "total": total,
                         "description": description,
-                        "project": snapshot,
                     }
                 )
 
@@ -1211,57 +1229,58 @@ async def generate_reference(project_id: str, request: Request):
 
     def work() -> None:
         try:
-            with project_lock(project_id):
-                def on_progress(result: Any) -> None:
-                    job_ledger.heartbeat(project_id, started["job_id"])
+            with job_ledger.keepalive(project_id, started["job_id"], interval_seconds=JOB_HEARTBEAT_INTERVAL_SECONDS):
+                with project_lock(project_id):
+                    def on_progress(result: Any) -> None:
+                        job_ledger.heartbeat(project_id, started["job_id"])
+                        job_ledger.append(
+                            project_id,
+                            started["job_id"],
+                            {
+                                "type": "media_progress",
+                                "stage": "references",
+                                "status": str(getattr(result, "status", "RUNNING")),
+                                "description": f"{payload.kind} reference task is {getattr(result, 'status', 'running').lower()}",
+                            },
+                        )
+
+                    asset = generate_reference_image(
+                        settings,
+                        project_id,
+                        ReferenceImageRequest(
+                            kind=payload.kind,
+                            name=payload.name,
+                            prompt=payload.prompt,
+                            negative_prompt=payload.negative_prompt,
+                            character_id=payload.character_id,
+                            character_ids=tuple(payload.character_ids),
+                            scene_id=payload.scene_id,
+                            shot_number=payload.shot_number,
+                            revision=payload.revision,
+                            seed=payload.seed,
+                        ),
+                        on_progress=on_progress,
+                    )
+                    project = orchestrator.store.load(project_id)
+                    if payload.kind == "shot_keyframe" and payload.shot_number is not None:
+                        shot = project.storyboard[payload.shot_number - 1]
+                        shot.media_generation = {
+                            **(shot.media_generation or {}),
+                            "shot_id": f"shot-{shot.number:02d}",
+                            "keyframe_path": asset.path,
+                            "image_path": asset.path,
+                            "generation_status": "KEYFRAME_READY_PENDING_REVIEW",
+                            "provider_task_id": asset.metadata.get("provider_task_id", ""),
+                        }
+                    project.logs.append(
+                        f"Reference Bank: {payload.kind} '{payload.name}' generated and stored as pending visual review."
+                    )
+                    orchestrator.store.save(project)
                     job_ledger.append(
                         project_id,
                         started["job_id"],
-                        {
-                            "type": "media_progress",
-                            "stage": "references",
-                            "status": str(getattr(result, "status", "RUNNING")),
-                            "description": f"{payload.kind} reference task is {getattr(result, 'status', 'running').lower()}",
-                        },
+                        {"type": "reference_complete", "stage": "references", "status": "PENDING_REVIEW", "description": f"{payload.kind} reference persisted"},
                     )
-
-                asset = generate_reference_image(
-                    settings,
-                    project_id,
-                    ReferenceImageRequest(
-                        kind=payload.kind,
-                        name=payload.name,
-                        prompt=payload.prompt,
-                        negative_prompt=payload.negative_prompt,
-                        character_id=payload.character_id,
-                        character_ids=tuple(payload.character_ids),
-                        scene_id=payload.scene_id,
-                        shot_number=payload.shot_number,
-                        revision=payload.revision,
-                        seed=payload.seed,
-                    ),
-                    on_progress=on_progress,
-                )
-                project = orchestrator.store.load(project_id)
-                if payload.kind == "shot_keyframe" and payload.shot_number is not None:
-                    shot = project.storyboard[payload.shot_number - 1]
-                    shot.media_generation = {
-                        **(shot.media_generation or {}),
-                        "shot_id": f"shot-{shot.number:02d}",
-                        "keyframe_path": asset.path,
-                        "image_path": asset.path,
-                        "generation_status": "KEYFRAME_READY_PENDING_REVIEW",
-                        "provider_task_id": asset.metadata.get("provider_task_id", ""),
-                    }
-                project.logs.append(
-                    f"Reference Bank: {payload.kind} '{payload.name}' generated and stored as pending visual review."
-                )
-                orchestrator.store.save(project)
-                job_ledger.append(
-                    project_id,
-                    started["job_id"],
-                    {"type": "reference_complete", "stage": "references", "status": "PENDING_REVIEW", "description": f"{payload.kind} reference persisted"},
-                )
             job_ledger.finish(project_id, started["job_id"], status="succeeded")
         except Exception as error:  # noqa: BLE001 - persisted job reports the safe failure
             job_ledger.finish(
@@ -1384,7 +1403,8 @@ def render_single_shot(project_id: str, shot_number: int, request: Request):
             )
             if started_job.get("idempotent_replay"):
                 return JSONResponse({"job": started_job, "idempotent_replay": True}, status_code=200)
-            project = orchestrator.render_shot(project_id, shot_number)
+            with keep_job_heartbeat(project_id, started_job["job_id"]):
+                project = orchestrator.render_shot(project_id, shot_number)
             job_ledger.finish(project_id, started_job["job_id"], status="succeeded")
     except FileNotFoundError:
         return project_not_found(project_id)

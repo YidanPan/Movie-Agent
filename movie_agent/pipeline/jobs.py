@@ -14,6 +14,7 @@ import os
 import re
 import threading
 import uuid
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -113,6 +114,42 @@ class JobLedger:
             handle.flush()
             os.fsync(handle.fileno())
         temporary.replace(path)
+        job_id = str(payload.get("job_id") or "")
+        if re.fullmatch(r"job-[0-9a-f]{12}", job_id):
+            history_dir = path.parent / "jobs"
+            history_dir.mkdir(parents=True, exist_ok=True)
+            history_path = history_dir / f"{job_id}.json"
+            history_tmp = history_path.with_suffix(".json.tmp")
+            with history_tmp.open("w", encoding="utf-8", newline="\n") as handle:
+                handle.write(json.dumps(payload, ensure_ascii=False, indent=2))
+                handle.flush()
+                os.fsync(handle.fileno())
+            history_tmp.replace(history_path)
+
+    def _reconcile_process_state_locked(self, project_id: str, job: dict[str, Any]) -> bool:
+        """Persist the truth when a new process observes a dead active job."""
+
+        if str(job.get("status") or "").lower() not in _ACTIVE:
+            return False
+        if self._recover_expired_locked(job):
+            self._write_locked(project_id, job)
+            return True
+        job_id = str(job.get("job_id") or "")
+        if job_id in self._active:
+            return False
+        timestamp = _now()
+        job["status"] = "recoverable_failed"
+        job["updated_at"] = timestamp
+        job["finished_at"] = timestamp
+        job["recovery_state"] = "RECOVERABLE_FAILED"
+        job["recoverable"] = True
+        job["error"] = {
+            "error_code": "JOB_PROCESS_LOST",
+            "error_message": "The production process stopped before this job completed.",
+            "recoverable": True,
+        }
+        self._write_locked(project_id, job)
+        return True
 
     @staticmethod
     def _lease_expires_at(seconds: int = _DEFAULT_LEASE_SECONDS) -> str:
@@ -211,31 +248,15 @@ class JobLedger:
         with self._lock:
             current = self._read_locked(project_id)
             if current and str(current.get("status")) in _ACTIVE:
-                if self._recover_expired_locked(current):
-                    self._write_locked(project_id, current)
-                    current = None
+                self._reconcile_process_state_locked(project_id, current)
             requested_key = _safe_text(idempotency_key, 180)
             if current and requested_key and requested_key == _safe_text(current.get("idempotency_key"), 180):
                 replay = self._public(current, include_events=False)
                 replay["idempotent_replay"] = True
                 return replay
             if current and str(current.get("status")) in _ACTIVE:
-                current_job = str(current.get("job_id") or "")
-                if current_job in self._active:
+                if str(current.get("job_id") or "") in self._active:
                     raise JobAlreadyRunning(self._public(current, include_events=False))
-                # The previous process disappeared. Mark the operation
-                # explicitly recoverable before accepting a replacement.
-                current["status"] = "recoverable_failed"
-                current["updated_at"] = _now()
-                current["finished_at"] = current.get("updated_at", _now())
-                current["recovery_state"] = "RECOVERABLE_FAILED"
-                current["recoverable"] = True
-                current["error"] = {
-                    "error_code": "JOB_PROCESS_LOST",
-                    "error_message": "The production process stopped before this job completed.",
-                    "recoverable": True,
-                }
-                self._write_locked(project_id, current)
             if not requested_key:
                 target = f"shot:{shot_number}" if shot_number is not None else f"track:{track_key}" if track_key else "project"
                 requested_key = f"{project_id}:{kind}:{target}"
@@ -369,8 +390,6 @@ class JobLedger:
     def _public(self, job: dict[str, Any], *, include_events: bool, after: int = 0, limit: int = 50) -> dict[str, Any]:
         status = str(job.get("status") or "unknown")
         job_id = str(job.get("job_id") or "")
-        if status in _ACTIVE and job_id not in self._active:
-            status = "recoverable_failed"
         events = [item for item in (job.get("events") or []) if isinstance(item, dict)]
         public: dict[str, Any] = {
             "job_id": job_id,
@@ -405,16 +424,18 @@ class JobLedger:
         if include_events:
             safe_after = max(0, _safe_int(after))
             safe_limit = min(120, max(1, _safe_int(limit, 50)))
-            public["events"] = [event for event in events if _safe_int(event.get("event_id")) > safe_after][:safe_limit]
-            public["next_cursor"] = _safe_int(job.get("event_seq"))
-            public["has_more"] = any(_safe_int(event.get("event_id")) > safe_after + safe_limit for event in events)
+            available = [event for event in events if _safe_int(event.get("event_id")) > safe_after]
+            page = available[:safe_limit]
+            public["events"] = page
+            public["next_cursor"] = _safe_int(page[-1].get("event_id")) if page else safe_after
+            public["has_more"] = len(available) > len(page)
         return public
 
     def summary(self, project_id: str) -> dict[str, Any] | None:
         with self._lock:
             job = self._read_locked(project_id)
-            if job and self._recover_expired_locked(job):
-                self._write_locked(project_id, job)
+            if job:
+                self._reconcile_process_state_locked(project_id, job)
             return self._public(job, include_events=False) if job else None
 
     def active_count(self) -> int:
@@ -429,13 +450,14 @@ class JobLedger:
                     continue
                 if not isinstance(payload, dict) or str(payload.get("status") or "").lower() not in _ACTIVE:
                     continue
-                if self._recover_expired_locked(payload):
-                    try:
-                        self._write_locked(str(payload.get("project_id") or ""), payload)
-                    except ValueError:
-                        continue
+                project_id = str(payload.get("project_id") or "")
+                try:
+                    if self._reconcile_process_state_locked(project_id, payload):
+                        if str(payload.get("status") or "").lower() not in _ACTIVE:
+                            continue
+                    count += 1
+                except ValueError:
                     continue
-                count += 1
         return count
 
     def find_job(self, job_id: str) -> dict[str, Any] | None:
@@ -445,17 +467,37 @@ class JobLedger:
         if not re.fullmatch(r"job-[0-9a-f]{12}", requested):
             return None
         with self._lock:
-            for path in self.root.glob("film-*/job.json"):
+            candidates = list(self.root.glob("film-*/job.json")) + list(self.root.glob("film-*/jobs/job-*.json"))
+            for path in candidates:
                 try:
                     payload = json.loads(path.read_text(encoding="utf-8"))
                 except (OSError, json.JSONDecodeError, UnicodeDecodeError):
                     continue
                 if isinstance(payload, dict) and str(payload.get("job_id") or "") == requested:
-                    if self._recover_expired_locked(payload):
+                    project_id = str(payload.get("project_id") or "")
+                    if path.name == "job.json":
                         try:
-                            self._write_locked(str(payload.get("project_id") or ""), payload)
+                            self._reconcile_process_state_locked(project_id, payload)
                         except ValueError:
                             return None
+                    elif str(payload.get("status") or "").lower() in _ACTIVE and requested not in self._active:
+                        # Historical active records should only occur after an
+                        # interrupted write. Reconcile that copy without
+                        # replacing the project's current-job pointer.
+                        timestamp = _now()
+                        payload["status"] = "recoverable_failed"
+                        payload["updated_at"] = timestamp
+                        payload["finished_at"] = timestamp
+                        payload["recovery_state"] = "RECOVERABLE_FAILED"
+                        payload["recoverable"] = True
+                        payload["error"] = {
+                            "error_code": "JOB_PROCESS_LOST",
+                            "error_message": "The production process stopped before this job completed.",
+                            "recoverable": True,
+                        }
+                        temporary = path.with_suffix(".json.tmp")
+                        temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+                        temporary.replace(path)
                     return self._public(payload, include_events=False)
         return None
 
@@ -498,8 +540,7 @@ class JobLedger:
             job = self._read_locked(project_id)
             if not job:
                 return {"active_jobs": []}
-            if self._recover_expired_locked(job):
-                self._write_locked(project_id, job)
+            self._reconcile_process_state_locked(project_id, job)
             public = self._public(job, include_events=False)
             if public.get("status") not in _ACTIVE or public.get("mutates_project") is not True:
                 return {"active_jobs": []}
@@ -535,11 +576,35 @@ class JobLedger:
             job = self._read_locked(project_id)
             if not job:
                 return {"job": None, "events": [], "next_cursor": 0, "has_more": False}
-            if self._recover_expired_locked(job):
-                self._write_locked(project_id, job)
+            self._reconcile_process_state_locked(project_id, job)
             public = self._public(job, include_events=True, after=after, limit=limit)
             events = public.pop("events", [])
             return {"job": public, "events": events, "next_cursor": public.pop("next_cursor", 0), "has_more": public.pop("has_more", False)}
+
+    @contextmanager
+    def keepalive(
+        self,
+        project_id: str,
+        job_id: str,
+        *,
+        interval_seconds: float = 45,
+        lease_seconds: int = _DEFAULT_LEASE_SECONDS,
+    ):
+        """Renew a lease while a worker performs a blocking operation."""
+
+        stop = threading.Event()
+
+        def pulse() -> None:
+            while not stop.wait(max(0.1, float(interval_seconds))):
+                self.heartbeat(project_id, job_id, lease_seconds=lease_seconds)
+
+        thread = threading.Thread(target=pulse, name=f"heartbeat-{job_id}", daemon=True)
+        thread.start()
+        try:
+            yield
+        finally:
+            stop.set()
+            thread.join(timeout=max(1.0, min(5.0, float(interval_seconds))))
 
 
 __all__ = ["JobAlreadyRunning", "JobLedger"]

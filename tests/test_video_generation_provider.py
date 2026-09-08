@@ -13,6 +13,7 @@ from movie_agent.services.video_generation import (
     ComfyUIVideoProvider,
     MockVideoProvider,
     VideoGenerationError,
+    VideoGenerationResult,
     build_video_provider,
 )
 
@@ -135,3 +136,189 @@ def test_remote_provider_exposes_fail_closed_async_lifecycle():
             provider.poll("task-1")
         with pytest.raises(VideoGenerationError, match="not configured"):
             provider.download({}, Path(directory), "shot.mp4")
+
+
+def test_reference_bank_same_name_keeps_immutable_bytes():
+    with TemporaryDirectory() as directory:
+        root = Path(directory)
+        store = GenerationAgent(_settings(root)).reference_bank
+        first = root / "first.webp"
+        second = root / "second.webp"
+        first.write_bytes(b"first-reference")
+        second.write_bytes(b"second-reference")
+        one = store.register_file("film-a1b2c3d4", first, kind="character", source="test", name="hero")
+        two = store.register_file("film-a1b2c3d4", second, kind="character", source="test", name="hero")
+        assert one.path != two.path
+        assert Path(one.path).read_bytes() == b"first-reference"
+        assert Path(two.path).read_bytes() == b"second-reference"
+
+
+def test_pending_same_name_reference_cannot_borrow_old_approval():
+    with TemporaryDirectory() as directory:
+        root = Path(directory)
+        store = GenerationAgent(_settings(root)).reference_bank
+        approved_source = root / "approved.webp"
+        pending_source = root / "pending.webp"
+        approved_source.write_bytes(b"approved")
+        pending_source.write_bytes(b"pending")
+        approved = store.register_file(
+            "film-a1b2c3d4", approved_source, kind="shot_keyframe", source="test",
+            approved=False, shot_number=1, revision=1, name="linran",
+        )
+        store.set_approval("film-a1b2c3d4", approved.reference_id, True)
+        pending = store.register_file(
+            "film-a1b2c3d4", pending_source, kind="shot_keyframe", source="test",
+            approved=False, shot_number=1, revision=1, name="linran",
+        )
+        assert approved.path != pending.path
+        shot = _reference_shot(pending.path)
+        with pytest.raises(ValueError, match="REFERENCE_REVIEW_REQUIRED"):
+            store.approved_generation_inputs("film-a1b2c3d4", shot, require_keyframe=True)
+
+
+class _FakeVideoProvider:
+    name = "fake-remote"
+    supported_modes = frozenset({"T2V"})
+
+    def __init__(self, output: Path):
+        self.output = output
+        self.references: list[Path] = []
+
+    def is_available(self):
+        return True
+
+    def generate(self, **kwargs):
+        self.references = list(kwargs["reference_images"])
+        return VideoGenerationResult(
+            provider=self.name,
+            task_id="fake-task-1",
+            status="COMPLETED",
+            video_path=self.output,
+            model="fake-model",
+            metadata={"source_path": str(self.output)},
+        )
+
+
+def _reference_shot(path: str, *, revision: int = 1) -> Shot:
+    return Shot(
+        1, 6, "medium", "image", "action", "sound", "T2V", "delta", "shot.mp4",
+        revision=revision,
+        scene_id="home",
+        character_ids=["hero"],
+        media_generation={"keyframe_path": path},
+    )
+
+
+def test_pending_keyframe_is_rejected_before_fake_provider_receives_inputs():
+    with TemporaryDirectory() as directory:
+        root = Path(directory)
+        pending = root / "pending.webp"
+        pending.write_bytes(b"pending")
+        agent = GenerationAgent(_settings(root), provider=_FakeVideoProvider(root / "video.mp4"))
+        asset = agent.reference_bank.register_file(
+            "film-a1b2c3d4", pending, kind="shot_keyframe", source="test", approved=False,
+            shot_number=1, revision=1, name="keyframe",
+        )
+        shot = _reference_shot(asset.path)
+        with pytest.raises(VideoGenerationError) as error:
+            agent.generate(
+                "film-a1b2c3d4", shot,
+                visual_bible={"scene_lock": "home", "character_lock": "hero", "cinematography_lock": "camera"},
+            )
+        assert error.value.error_code == "REFERENCE_REVIEW_REQUIRED"
+        assert shot.status == "generation_failed"
+
+
+def test_pending_keyframe_cannot_enter_any_video_provider():
+    test_pending_keyframe_is_rejected_before_fake_provider_receives_inputs()
+
+
+def test_approved_current_keyframe_is_the_only_keyframe_sent_to_fake_provider():
+    with TemporaryDirectory() as directory:
+        root = Path(directory)
+        keyframe = root / "approved.webp"
+        output = root / "video.mp4"
+        keyframe.write_bytes(b"approved")
+        output.write_bytes(b"real-video")
+        provider = _FakeVideoProvider(output)
+        agent = GenerationAgent(_settings(root), provider=provider)
+        asset = agent.reference_bank.register_file(
+            "film-a1b2c3d4", keyframe, kind="shot_keyframe", source="test", approved=True,
+            shot_number=1, revision=1, name="keyframe",
+        )
+        shot = _reference_shot(asset.path)
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr("movie_agent.agents.generation.asset_record", lambda *args, **kwargs: {"path": str(output), "tier": "source"})
+            agent.generate(
+                "film-a1b2c3d4", shot,
+                visual_bible={"scene_lock": "home", "character_lock": "hero", "cinematography_lock": "camera"},
+            )
+        assert provider.references == [Path(asset.path)]
+        assert shot.status == "generated"
+        assert shot.media_assets["source"]["tier"] == "source"
+        assert shot.model == "fake-model"
+
+
+def test_approved_keyframe_enters_any_video_provider():
+    test_approved_current_keyframe_is_the_only_keyframe_sent_to_fake_provider()
+
+
+@pytest.mark.parametrize(
+    ("metadata", "asset_revision", "shot_revision"),
+    [
+        ({"stale": True}, 1, 1),
+        ({}, 2, 1),
+    ],
+)
+def test_stale_or_wrong_revision_keyframe_cannot_enter_provider(metadata, asset_revision, shot_revision):
+    with TemporaryDirectory() as directory:
+        root = Path(directory)
+        keyframe = root / "keyframe.webp"
+        keyframe.write_bytes(b"keyframe")
+        provider = _FakeVideoProvider(root / "video.mp4")
+        agent = GenerationAgent(_settings(root), provider=provider)
+        asset = agent.reference_bank.register_file(
+            "film-a1b2c3d4", keyframe, kind="shot_keyframe", source="test", approved=True,
+            shot_number=1, revision=asset_revision, name="keyframe", metadata=metadata,
+        )
+        shot = _reference_shot(asset.path, revision=shot_revision)
+        with pytest.raises(VideoGenerationError) as error:
+            agent.generate(
+                "film-a1b2c3d4", shot,
+                visual_bible={"scene_lock": "home", "character_lock": "hero", "cinematography_lock": "camera"},
+            )
+        assert error.value.error_code == "REFERENCE_REVIEW_REQUIRED"
+        assert provider.references == []
+
+
+def test_fake_provider_persists_provider_neutral_metadata_without_manifest():
+    with TemporaryDirectory() as directory:
+        root = Path(directory)
+        output = root / "video.mp4"
+        output.write_bytes(b"real-video")
+        agent = GenerationAgent(_settings(root), provider=_FakeVideoProvider(output))
+        shot = Shot(
+            1, 6, "medium", "image", "action", "sound", "T2V", "delta", "shot.mp4",
+            scene_id="home", character_ids=["hero"],
+        )
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr("movie_agent.agents.generation.asset_record", lambda *args, **kwargs: kwargs)
+            agent.generate(
+                "film-a1b2c3d4", shot,
+                visual_bible={"scene_lock": "home", "character_lock": "hero", "cinematography_lock": "camera"},
+            )
+        record = shot.media_assets["source"]
+        assert record["renderer_contract_status"] == "PROVIDER_REPORTED"
+        assert record["renderer_verification_status"] == "PROVIDER_REPORTED"
+        assert isinstance(record["external_input_digests"], dict)
+
+
+def test_provider_capability_rejects_unsupported_generation_mode():
+    with TemporaryDirectory() as directory:
+        root = Path(directory)
+        provider = _FakeVideoProvider(root / "video.mp4")
+        agent = GenerationAgent(_settings(root), provider=provider)
+        shot = Shot(1, 6, "medium", "image", "action", "sound", "I2V", "delta", "shot.mp4")
+        with pytest.raises(VideoGenerationError) as error:
+            agent.generate("film-a1b2c3d4", shot, visual_bible={"cinematography_lock": "camera"})
+        assert error.value.error_code == "VIDEO_GENERATION_MODE_UNSUPPORTED"

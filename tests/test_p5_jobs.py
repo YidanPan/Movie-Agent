@@ -153,6 +153,97 @@ def test_new_process_marks_a_stale_running_job_recoverable_and_keeps_resume_hist
         assert snapshot["events"][0]["completed"] == 1
 
 
+def test_job_ledger_pagination_cursor_advances_by_returned_page():
+    with TemporaryDirectory() as temporary_directory:
+        ledger = JobLedger(Path(temporary_directory) / "projects", max_events=120)
+        job = ledger.start("film-1234abcd", kind="generation", stage="generation")
+        for number in range(100):
+            ledger.append("film-1234abcd", job["job_id"], {"type": "progress", "completed": number + 1, "total": 100})
+
+        cursor = 0
+        collected = []
+        while True:
+            page = ledger.snapshot("film-1234abcd", after=cursor, limit=17)
+            collected.extend(event["event_id"] for event in page["events"])
+            if not page["has_more"]:
+                break
+            assert page["next_cursor"] > cursor
+            cursor = page["next_cursor"]
+        assert collected == list(range(1, 101))
+
+
+def test_restarted_active_job_is_persistently_recoverable_and_does_not_consume_capacity():
+    with TemporaryDirectory() as temporary_directory:
+        root = Path(temporary_directory) / "projects"
+        first = JobLedger(root)
+        job = first.start("film-1234abcd", kind="generation", stage="generation")
+        restarted = JobLedger(root)
+        assert restarted.summary("film-1234abcd")["status"] == "recoverable_failed"
+        assert restarted.snapshot("film-1234abcd")["job"]["status"] == "recoverable_failed"
+        assert restarted.runtime_state("film-1234abcd") == {"active_jobs": []}
+        assert restarted.active_count() == 0
+        assert restarted.find_job(job["job_id"])["status"] == "recoverable_failed"
+        replacement = restarted.start("film-1234abcd", kind="generation", stage="generation")
+        assert replacement["job_id"] != job["job_id"]
+
+
+def test_job_history_keeps_completed_evaluator_lookup_after_a_new_job():
+    with TemporaryDirectory() as temporary_directory:
+        ledger = JobLedger(Path(temporary_directory) / "projects")
+        first = ledger.start("film-1234abcd", kind="planning", stage="planning")
+        ledger.finish("film-1234abcd", first["job_id"])
+        second = ledger.start("film-1234abcd", kind="planning", stage="planning")
+        assert ledger.find_job(first["job_id"])["status"] == "succeeded"
+        assert ledger.find_job(second["job_id"])["status"] == "running"
+
+
+def test_remote_video_provider_is_required_and_not_ready_when_protocol_is_unavailable(monkeypatch):
+    import server
+
+    with TemporaryDirectory() as temporary_directory:
+        root = Path(temporary_directory)
+        settings = Settings(
+            "http://127.0.0.1:8188", 900, root / "workflows", 9071,
+            root / "projects", True, outputs_dir=root / "outputs",
+            video_generation_mode="remote", remote_video_api_base="https://provider.invalid",
+            remote_video_model="video-model", remote_video_api_key="secret",
+        )
+        monkeypatch.setattr(server, "settings", settings)
+        checks = server.runtime_checks()
+        assert checks["video_provider"]["provider"] == "remote"
+        assert checks["video_provider"]["required"] is True
+        assert checks["video_provider"]["ok"] is False
+        assert server.runtime_ready(checks) is False
+
+
+def test_serialized_project_restores_guarded_audio_preview_url_after_sanitization(monkeypatch):
+    import server
+
+    with TemporaryDirectory() as temporary_directory:
+        root = Path(temporary_directory)
+        orchestrator = make_orchestrator(root)
+        project = orchestrator.create_project("A night watchman follows a signal beyond the moon.", 48, "film sci-fi")
+        audio = root / "voice.wav"
+        audio.write_bytes(b"audio")
+        project.audio_tracks = {"voice": {"media_path": str(audio), "status": "READY"}}
+        monkeypatch.setattr(server, "orchestrator", orchestrator)
+        monkeypatch.setattr(server, "settings", orchestrator.settings)
+        monkeypatch.setattr(server, "job_ledger", JobLedger(root / "projects"))
+        serialized = server.serialized_project(project)
+        track = serialized["audio_tracks"]["voice"]
+        assert "media_path" not in track
+        assert track["preview_url"] == f"/api/projects/{project.project_id}/audio/tracks/voice"
+
+
+def test_progress_events_do_not_embed_full_project_snapshots():
+    import server
+
+    source = Path(server.__file__).read_text(encoding="utf-8")
+    assert '"type": "render_progress"' in source
+    assert '"type": "edit_progress"' in source
+    assert '"project": snapshot' not in source
+
+
 def test_job_route_and_project_payload_expose_the_same_safe_contract(monkeypatch):
     from fastapi.testclient import TestClient
     import server

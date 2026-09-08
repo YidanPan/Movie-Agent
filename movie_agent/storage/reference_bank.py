@@ -162,7 +162,10 @@ class ReferenceBankStore:
         reference_id = f"ref-{len(bank.assets) + 1:04d}"
         safe_name = self._slug_pattern.sub("-", name or f"{kind}-{reference_id}").strip("-.") or reference_id
         suffix = source_path.suffix.lower() or ".webp"
-        target = self.project_dir(project_id) / f"{safe_name}{suffix}"
+        # Reference records are historical evidence.  Include the stable
+        # record id and revision in the stored filename so a later asset with
+        # the same display name can never replace its bytes.
+        target = self.project_dir(project_id) / f"{safe_name}-{reference_id}-r{current_revision}{suffix}"
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source_path, target)
         resolved_character_ids = [str(item).strip() for item in (character_ids or []) if str(item).strip()]
@@ -398,3 +401,53 @@ class ReferenceBankStore:
             "cinematography": [Path(asset.path) for asset in cinematography[:1]],
             "reference_flags": reference_flags,
         }
+
+    def approved_generation_inputs(
+        self,
+        project_id: str,
+        shot: Any,
+        previous_shot: Any | None = None,
+        *,
+        context: ResolvedShotContext | None = None,
+        require_keyframe: bool = False,
+    ) -> dict[str, list[Path]]:
+        """Resolve every real-generation input through one approval gate.
+
+        Character/scene/prop references are already filtered by
+        ``generation_reference_paths``.  A shot keyframe is additionally
+        matched to the persisted Reference Bank record, current shot revision,
+        and shot number; a file existing on disk is never sufficient.
+        """
+
+        inputs = self.generation_reference_paths(project_id, shot, previous_shot, context=context)
+        shot_number = int(getattr(shot, "number", 0) or 0)
+        shot_revision = max(1, int(getattr(shot, "revision", 1) or 1))
+        keyframe_value = str((getattr(shot, "media_generation", {}) or {}).get("keyframe_path") or "").strip()
+        keyframe_path = Path(keyframe_value) if keyframe_value else None
+        if keyframe_path is None:
+            if require_keyframe:
+                raise ValueError(
+                    f"REFERENCE_REVIEW_REQUIRED: Shot {shot_number} requires an approved current keyframe."
+                )
+            return inputs
+
+        bank = self.load(project_id)
+        matching = next(
+            (
+                asset
+                for asset in bank.assets
+                if Path(asset.path).resolve() == keyframe_path.resolve()
+                and asset.approved
+                and not bool((asset.metadata or {}).get("stale"))
+                and Path(asset.path).is_file()
+                and int(asset.revision or 1) == shot_revision
+                and int(asset.shot_number or 0) == shot_number
+            ),
+            None,
+        )
+        if matching is None:
+            raise ValueError(
+                f"REFERENCE_REVIEW_REQUIRED: Shot {shot_number} keyframe is pending, stale, or from another revision."
+            )
+        inputs["keyframe"] = [Path(matching.path)]
+        return inputs

@@ -5,7 +5,12 @@ from unittest.mock import patch
 
 from movie_agent.config import Settings
 from movie_agent.services.media_generation import MediaTaskResult
-from movie_agent.services.reference_generation import ReferenceImageRequest, generate_reference_image
+from movie_agent.services.reference_generation import (
+    ReferenceImageRequest,
+    generate_reference_image,
+    resolve_image_conditioning_inputs,
+)
+from movie_agent.storage.reference_bank import ReferenceBankStore
 
 
 class _FakeProvider:
@@ -53,6 +58,31 @@ class ReferenceGenerationTests(unittest.TestCase):
             settings = Settings("http://127.0.0.1:8188", 900, root / "workflows", 9071, root / "projects", True, outputs_dir=root / "outputs")
             with self.assertRaisesRegex(RuntimeError, "IMAGE_GENERATION_MODE=modelscope"):
                 generate_reference_image(settings, "film-test", ReferenceImageRequest(kind="scene", name="home", prompt="locked room"))
+
+    def test_shot_keyframe_conditioning_defers_local_paths_without_fake_urls(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            settings = Settings(
+                "http://127.0.0.1:8188", 900, root / "workflows", 9071,
+                root / "projects", True, outputs_dir=root / "outputs",
+            )
+            reference = root / "hero.webp"
+            reference.write_bytes(b"approved-reference")
+            ReferenceBankStore(settings.outputs_dir).register_file(
+                "film-test", reference, kind="character", source="test", approved=True,
+                character_id="hero", character_ids=["hero"],
+            )
+            resolved = resolve_image_conditioning_inputs(
+                settings,
+                "film-test",
+                ReferenceImageRequest(
+                    kind="shot_keyframe", name="shot-01", prompt="shot", character_id="hero"
+                ),
+            )
+            self.assertEqual(resolved.status, "DEFERRED_UNSUPPORTED_BY_PROVIDER")
+            self.assertEqual(len(resolved.approved_paths), 1)
+            self.assertEqual(resolved.reference_urls, ())
+            self.assertNotIn("localhost", str(resolved.metadata()))
 
 
 if __name__ == "__main__":

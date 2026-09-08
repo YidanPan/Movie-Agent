@@ -44,7 +44,7 @@ def test_shot_edit_marks_assets_stale_and_preserves_history():
         assert updated.video_asset_history[-1]["assets"][0]["key"] == "final_master"
         assert updated.final_output_placeholder is None
         assert updated.invalidation_events[-1]["source"] == "shot"
-        assert updated.status == "ready_for_comfyui_render"
+        assert updated.status == "render_ready"
 
 
 def test_timeline_edit_keeps_source_media_but_invalidates_cuts():
