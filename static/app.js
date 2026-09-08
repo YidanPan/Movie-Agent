@@ -452,6 +452,8 @@ const state = {
   exportOptions: { container: "mp4", resolution: "1080p", aspect: "16:9", subtitle_mode: "burned" },
   finalVideoUrl: null,
   finalVideoProbeRun: 0,
+  finalMediaIdentity: null,
+  roughCutMediaIdentity: null,
   videoQuality: null,
   previewQualityMode: "auto",
   editProgressStep: 0,
@@ -2228,6 +2230,29 @@ function subtitleModeLabel(mode) {
 
 const finalVideoCandidate = (project) => MovieAgentModules.deliver.finalVideoCandidate(project);
 
+function screeningMediaIdentity(project, kind, url) {
+  const record = kind === "final"
+    ? (project?.video_quality?.final_master || project?.video_assets?.final_master || {})
+    : (project?.video_quality?.working_proxy || project?.video_assets?.working_proxy || {});
+  const revision = record?.revision || record?.generation_input_hash || record?.created_at || "";
+  return [project?.project_id || "", kind, url || "", revision].join("|");
+}
+
+function clearScreeningMedia(media) {
+  if (!media || (!media.getAttribute("src") && !media.dataset.mediaIdentity)) return;
+  media.removeAttribute("src");
+  delete media.dataset.mediaIdentity;
+  media.load();
+}
+
+function setScreeningMediaSource(media, url, identity) {
+  if (!media || !url) return;
+  if (media.getAttribute("src") === url && media.dataset.mediaIdentity === identity) return;
+  media.src = url;
+  media.dataset.mediaIdentity = identity;
+  media.load();
+}
+
 function renderDeliverSummary(project) {
   const shots = project?.storyboard || [];
   const approved = shots.filter(isShotReady).length;
@@ -3187,23 +3212,47 @@ function syncShotTimelinePlayhead(currentTime) {
 
 async function renderScreening(project) {
   const probeRun = ++state.finalVideoProbeRun;
-  state.hasFinalVideo = false;
-  state.finalVideoUrl = null;
+  const status = String(project?.status || "");
+  const editingOrRough = ["editing_rough_cut", "rough_cut_ready"].includes(status);
+  const finalStatus = status.startsWith("completed");
+  const candidate = finalStatus ? finalVideoCandidate(project) : "";
+  const roughCutUrl = editingOrRough
+    ? `/api/projects/${encodeURIComponent(project.project_id)}/rough-cut`
+    : "";
+  const finalIdentity = screeningMediaIdentity(project, "final", candidate);
+  const roughIdentity = screeningMediaIdentity(project, "rough", roughCutUrl);
+  const finalIsStable = Boolean(
+    candidate
+    && state.hasFinalVideo
+    && state.finalMediaIdentity === finalIdentity
+    && els.finalVideo?.getAttribute("src") === candidate
+  );
+  const roughIsStable = Boolean(
+    roughCutUrl
+    && state.roughCutMediaIdentity === roughIdentity
+    && els.roughCutVideo?.getAttribute("src") === roughCutUrl
+  );
+  if (!finalIsStable) {
+    state.hasFinalVideo = false;
+    state.finalVideoUrl = null;
+    state.finalMediaIdentity = null;
+    clearScreeningMedia(els.finalVideo);
+    clearScreeningMedia(els.finalVideoAfter);
+  }
+  if (!roughIsStable) {
+    state.roughCutMediaIdentity = null;
+    clearScreeningMedia(els.roughCutVideo);
+  }
+  if (roughIsStable) els.roughCutStage?.classList.add("has-media");
+  if (finalIsStable) setScreeningMediaSource(els.finalVideoAfter, candidate, finalIdentity);
   // Reset the mutually exclusive Deliver surfaces before probing media. This
   // prevents a previous project's player from flashing while a new HEAD check
-  // is in flight.
+  // is in flight, while stable media keeps its playback position and state.
   els.deliverSummary?.classList.remove("hidden");
   els.screen?.classList.remove("hidden");
   els.finalNotGenerated?.classList.remove("hidden");
   els.roughCutStage?.classList.add("hidden");
-  els.finalVideo?.removeAttribute("src");
-  els.finalVideo?.load();
-  els.finalVideoAfter?.removeAttribute("src");
-  els.finalVideoAfter?.load();
-  els.roughCutVideo?.removeAttribute("src");
-  els.roughCutVideo?.load();
   els.roughCutStage?.classList.remove("has-media");
-  const status = String(project?.status || "");
   const stateInfo = deliverStatus(project);
   if (els.deliverStateTitle) els.deliverStateTitle.textContent = stateInfo.title;
   if (els.deliverStateCopy) els.deliverStateCopy.textContent = stateInfo.copy;
@@ -3218,37 +3267,35 @@ async function renderScreening(project) {
   if (els.deliverWorkProgress) els.deliverWorkProgress.classList.toggle("hidden", !["editing", "rough", "ready"].includes(stateInfo.key));
   renderDeliverProgress(project);
   if (els.subtitleMode) els.subtitleMode.value = project?.subtitle_mode || project?.script?.subtitle_mode || "burned";
-  const editingOrRough = ["editing_rough_cut", "rough_cut_ready"].includes(status);
-  if (editingOrRough) {
+  if (editingOrRough && !roughIsStable) {
     try {
       const response = await fetch(`/api/projects/${encodeURIComponent(project.project_id)}/rough-cut`, { method: "HEAD" });
-      if (response.ok && els.roughCutVideo && probeRun === state.finalVideoProbeRun) {
-        const roughCutUrl = `/api/projects/${encodeURIComponent(project.project_id)}/rough-cut`;
-        els.roughCutVideo.src = roughCutUrl;
+      if (probeRun !== state.finalVideoProbeRun) return;
+      if (response.ok && els.roughCutVideo) {
+        setScreeningMediaSource(els.roughCutVideo, roughCutUrl, roughIdentity);
+        state.roughCutMediaIdentity = roughIdentity;
         els.roughCutStage?.classList.add("has-media");
         MovieAgentModules.motion.triggerDarkroomDevelopment?.(els.roughCutStage, { key: roughCutUrl });
         renderMediaQuality(project, "proxy");
       }
     } catch { /* mock mode may only expose rough-cut metadata */ }
   }
-  const finalStatus = status.startsWith("completed");
-  if (finalStatus) {
-    const candidate = finalVideoCandidate(project);
+  if (finalStatus && !finalIsStable) {
     try {
       const response = await fetch(candidate, { method: "HEAD" });
-      if (response.ok && probeRun === state.finalVideoProbeRun) {
+      if (probeRun !== state.finalVideoProbeRun) return;
+      if (response.ok) {
         state.hasFinalVideo = true;
         state.finalVideoUrl = candidate;
-        if (els.finalVideo) els.finalVideo.src = candidate;
-        if (els.finalVideoAfter) {
-          els.finalVideoAfter.src = candidate;
-          els.finalVideoAfter.load();
-        }
+        state.finalMediaIdentity = finalIdentity;
+        setScreeningMediaSource(els.finalVideo, candidate, finalIdentity);
+        setScreeningMediaSource(els.finalVideoAfter, candidate, finalIdentity);
         MovieAgentModules.motion.triggerDarkroomDevelopment?.(els.screen, { key: candidate });
         renderMediaQuality(project, "screening");
       }
     } catch { /* final media is optional in mock mode */ }
   }
+  if (probeRun !== state.finalVideoProbeRun) return;
   const resolvedState = deliverStatus(project);
   if (els.deliverStateTitle) els.deliverStateTitle.textContent = resolvedState.title;
   if (els.deliverStateCopy) els.deliverStateCopy.textContent = resolvedState.copy;
