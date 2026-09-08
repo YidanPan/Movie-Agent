@@ -429,6 +429,9 @@ class GenerationAgent:
                 shot.media_generation["provider_task_id"] = task_id
             if status:
                 shot.media_generation["generation_status"] = status
+            if status == "SUBMITTED" and not shot.media_generation.get("submitted_at"):
+                shot.media_generation["submitted_at"] = utc_now()
+            shot.media_generation["last_progress_at"] = utc_now()
             if event.get("poll") is not None:
                 shot.media_generation["poll"] = event.get("poll")
             if event.get("max_polls") is not None:
@@ -447,6 +450,20 @@ class GenerationAgent:
             "negative_prompt": negative_prompt,
             "target_resolution": target_resolution,
             "aspect": "16:9",
+        }
+        shot.media_generation["request"] = {
+            "contract_version": "1",
+            "provider": provider_name,
+            "model": str(getattr(self.provider, "model", "") or provider_name),
+            "generation_mode": str(shot.generation_mode or "").upper(),
+            "duration_seconds": int(shot.source_duration_seconds or shot.duration_seconds),
+            "target_resolution": target_resolution,
+            "aspect": "16:9",
+            "seed": seed,
+            "negative_prompt": negative_prompt,
+            "reference_roles": sorted(submitted_reference_inputs),
+            "generation_input_hash": shot.generation_input_hash,
+            "master_fps": int(getattr(self.settings, "project_master_fps", 24) or 24),
         }
         try:
             # Keep the long-standing test/deployment injection point valid
