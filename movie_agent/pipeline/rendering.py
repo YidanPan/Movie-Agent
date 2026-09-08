@@ -261,6 +261,52 @@ class RenderPipeline:
         self._save(project)
         return project
 
+    def run_mock_production(
+        self,
+        project: Any,
+        event_callback: Callable[[dict[str, Any]], None] | None = None,
+    ) -> Any:
+        """Advance the mock renderer through the same resumable shot contract."""
+
+        def emit(event: dict[str, Any]) -> None:
+            if event_callback is not None:
+                event_callback(event)
+
+        if project.status == "previs_review_required":
+            raise ValueError("PREVIS_REVIEW_REQUIRED: approve the storyboard before mock production can advance.")
+        clear_failure(project)
+        project.status = "generating_video_mock"
+        project.logs.append("Generation Agent: Starting mock shot task queue submission.")
+        emit({"type": "agent_start", "agent": "generation"})
+        for shot in project.storyboard:
+            project.logs.append(self.generation_agent.generate_mock(shot))
+            emit({"type": "shot_update", "shot": shot.to_dict()})
+            project.logs.append(self.reviewer.review_mock(shot))
+            emit({"type": "shot_update", "shot": shot.to_dict()})
+            self._save(project)
+        emit({"type": "agent_done", "agent": "generation"})
+        project.status = "ready_for_ai_edit"
+        project.logs.append(f"Generation Agent: {len(project.storyboard)}/{len(project.storyboard)} SHOTS READY; stage advanced to DELIVER.")
+        project.logs.append("Editor Agent: Awaiting user dialogue lock before starting AI Edit Rough Cut.")
+        self._save(project)
+        return project
+
+    def approve_shot(self, project: Any, shot_number: int) -> Any:
+        """Record explicit human approval for a generated shot revision."""
+
+        if self.settings is None:
+            raise RuntimeError("RenderPipeline requires settings for Shot approval.")
+        if not 1 <= shot_number <= len(project.storyboard):
+            raise ValueError(f"Shot number must be between 1 and {len(project.storyboard)}.")
+        ensure_action_ready(project, self.settings, "APPROVE_SHOT", shot_number=shot_number)
+        shot = project.storyboard[shot_number - 1]
+        project.logs.append(self.reviewer.approve_manual(shot, project_id=project.project_id))
+        project.status = "ready_for_ai_edit" if shots_ready(project) else "awaiting_visual_review"
+        if project.status == "ready_for_ai_edit":
+            project.logs.append("QC Agent: All current shot revisions are explicitly approved; SHOTS READY.")
+        self._save(project)
+        return project
+
 
 def shot_render_context(project: Any, shot_number: int) -> dict[str, Any]:
     """Build the renderer context for one shot without doing any I/O."""

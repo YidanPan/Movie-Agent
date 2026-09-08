@@ -156,34 +156,8 @@ class MovieOrchestrator:
         project_id: str,
         event_callback: Callable[[dict], None] | None = None,
     ) -> MovieProject:
-        """Simulate the state flow that will later call ComfyUI and FFmpeg."""
-
-        def emit(event: dict) -> None:
-            if event_callback is not None:
-                event_callback(event)
-
         project = self.store.load(project_id)
-        if project.status == "previs_review_required":
-            raise ValueError("PREVIS_REVIEW_REQUIRED: approve the storyboard before mock production can advance.")
-        clear_failure(project)
-        project.status = "generating_video_mock"
-        project.logs.append("Generation Agent: Starting mock shot task queue submission.")
-        emit({"type": "agent_start", "agent": "generation"})
-        for shot in project.storyboard:
-            project.logs.append(self.generation_agent.generate_mock(shot))
-            emit({"type": "shot_update", "shot": shot.to_dict()})
-            project.logs.append(self.reviewer.review_mock(shot))
-            emit({"type": "shot_update", "shot": shot.to_dict()})
-            # Keep the mock path resumable too: a refresh during the staged
-            # reveal should not discard completed shot states.
-            self.store.save(project)
-        emit({"type": "agent_done", "agent": "generation"})
-
-        project.status = "ready_for_ai_edit"
-        project.logs.append(f"Generation Agent: {len(project.storyboard)}/{len(project.storyboard)} SHOTS READY; stage advanced to DELIVER.")
-        project.logs.append("Editor Agent: Awaiting user dialogue lock before starting AI Edit Rough Cut.")
-        self.store.save(project)
-        return project
+        return self.render_pipeline.run_mock_production(project, event_callback)
 
     def render_project(
         self,
@@ -237,18 +211,7 @@ class MovieOrchestrator:
         """Record an explicit human visual approval for one generated shot."""
 
         project = self.store.load(project_id)
-        if not 1 <= shot_number <= len(project.storyboard):
-            raise ValueError(f"Shot number must be between 1 and {len(project.storyboard)}.")
-        ensure_action_ready(project, self.settings, "APPROVE_SHOT", shot_number=shot_number)
-        shot = project.storyboard[shot_number - 1]
-        project.logs.append(self.reviewer.approve_manual(shot, project_id=project.project_id))
-        if self._shots_ready(project):
-            project.status = "ready_for_ai_edit"
-            project.logs.append("QC Agent: All current shot revisions are explicitly approved; SHOTS READY.")
-        else:
-            project.status = "awaiting_visual_review"
-        self.store.save(project)
-        return project
+        return self.render_pipeline.approve_shot(project, shot_number)
 
     @staticmethod
     def _require_dialogue_locked(project: MovieProject) -> None:
