@@ -325,8 +325,8 @@ def test_final_cut_workspace_owns_responsive_two_column_layout():
     assert 'id="final-look-fine-tune"' in INDEX
     assert 'id="final-look-fine-tune" open' not in INDEX
     deliver = (ROOT / "static" / "css" / "deliver.css").read_text(encoding="utf-8")
-    assert "grid-template-columns: minmax(0, 1fr) minmax(320px, 360px);" in deliver
-    assert "@media (max-width: 1099px)" in deliver
+    assert "grid-template-columns: minmax(0, 1fr) minmax(340px, 380px);" in deliver
+    assert "@media (max-width: 1179px)" in deliver
     assert "grid-template-columns: 1fr;" in deliver
     assert ".final-preview {" in deliver
     assert ".final-player-stage {" in deliver

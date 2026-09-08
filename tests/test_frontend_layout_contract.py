@@ -29,8 +29,8 @@ def test_quality_metadata_is_a_normal_flow_sibling_of_the_stage():
 
 
 def test_deliver_responsive_contract_keeps_progress_and_finish_controls_readable():
-    assert "grid-template-columns: minmax(0, 1fr) minmax(320px, 360px);" in DELIVER
-    assert "@media (max-width: 1099px)" in DELIVER
+    assert "grid-template-columns: minmax(0, 1fr) minmax(340px, 380px);" in DELIVER
+    assert "@media (max-width: 1179px)" in DELIVER
     assert "grid-template-columns: repeat(2, minmax(0, 1fr));" in DELIVER
     assert "@media (max-width: 699px)" in DELIVER
     assert "grid-template-columns: 1fr;" in DELIVER
@@ -75,16 +75,19 @@ def test_visible_layout_repair_uses_balanced_bible_width_and_drops_legacy_spec_h
     assert "min-height: 0;" in spec_rule
 
 
-def test_crew_cards_clip_their_boundary_without_clipping_content_slots():
+def test_crew_cards_keep_content_in_normal_flow_without_boundary_clipping():
     crew = (ROOT / "static" / "css" / "crew.css").read_text(encoding="utf-8")
     card_start = crew.index(".crew-flow .crew-card {")
     card_rule = crew[card_start:crew.index("}", card_start)]
     assert "height: auto;" in card_rule
-    assert "overflow: clip;" in card_rule
-    for selector in (".crew-card-main", ".crew-summary", ".crew-artifact-preview"):
+    assert "overflow: visible;" in card_rule
+    for selector in (".crew-card-main", ".crew-summary"):
         start = crew.index(selector)
         rule = crew[start:crew.index("}", start)]
-        assert "overflow: visible;" not in rule
+        assert "overflow: visible;" in rule
+    preview_start = crew.index(".crew-card .crew-artifact-preview")
+    preview_rule = crew[preview_start:crew.index("}", preview_start)]
+    assert "overflow: clip;" in preview_rule
     assert "text-overflow: ellipsis;" in crew
 
 

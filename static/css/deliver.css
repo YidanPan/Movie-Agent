@@ -546,7 +546,7 @@ body[data-design="archive-console"] .deliver-room {
    one predictable grid; JavaScript must not move them into a second grid. */
 body[data-design="archive-console"] .final-cut-workspace {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(320px, 360px);
+  grid-template-columns: minmax(0, 1fr) minmax(340px, 380px);
   align-items: start;
   gap: 28px;
   width: 100%;
@@ -699,7 +699,7 @@ body[data-design="archive-console"] .final-player-hud {
 
 body[data-design="archive-console"] .final-player-hud span:last-child { color: var(--amber); }
 
-@media (max-width: 1099px) {
+@media (max-width: 1179px) {
   body[data-design="archive-console"] .final-cut-workspace {
     grid-template-columns: 1fr;
     gap: 20px;
