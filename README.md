@@ -77,6 +77,19 @@ MODELSCOPE_MODEL=Qwen/Qwen3-30B-A3B-Instruct-2507
 
 当前 Spark 已验证的 MiniMax-H3 工作流是 **T2V**。系统在真实渲染模式会只接受 T2V 分镜；I2V / R2V 要等对应工作流接入后再开放，避免把不受支持的镜头提交给错误的节点图。
 
+## 视频 Provider 架构
+
+视频生成通过统一的 `VideoGenerationProvider` contract 接入：
+
+```text
+GenerationAgent
+    ├── MockVideoProvider       # 仅状态演示，不创建假视频
+    ├── ComfyUIVideoProvider    # Spark 本地、已验证的 workflow
+    └── RemoteVideoProvider     # 预留的远程异步接口，未配置时 fail-closed
+```
+
+`VIDEO_GENERATION_MODE=mock` 不产生 MP4；`comfyui` 才会调用本机 ComfyUI。远程 provider 需要显式配置 `REMOTE_VIDEO_API_BASE`、`REMOTE_VIDEO_MODEL` 和 `REMOTE_VIDEO_API_KEY`，未配置时不会静默回退到 mock 或调用任何付费服务。主部署是 Docker + FastAPI `server.py` + 单个 Uvicorn worker，Gradio `app.py` 仅作为兼容入口。
+
 ## 视频质检与原创性审核
 
 规划阶段先执行结构检查、固定 IP 关键词过滤，并在启用 ModelScope 文本创作模式时进行语义版权复核：高风险提案会在渲染前被阻断，中风险会记录明确的改写建议。

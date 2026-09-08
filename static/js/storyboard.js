@@ -1,7 +1,16 @@
 /** Film-strip helpers kept independent from DOM rendering. */
 export const shotDuration = (shot = {}) => Math.max(0, Number(shot.duration_seconds || shot.desired_duration || 0));
-export const shotReady = (shot = {}) => String(shot.status || "").startsWith("approved") && shot.stale !== true;
-export const shotPreviewable = (shot = {}) => ["generated_comfyui", "awaiting_visual_review", "approved_comfyui"].includes(String(shot.status || "")) && shot.stale !== true;
+const canonicalShotStatus = (shot = {}) => ({
+  generating_comfyui: "generating",
+  generated_comfyui: "generated",
+  approved_comfyui: "approved",
+  generating_mock: "generating",
+  approved_mock: "approved",
+}[String(shot.status || "").toLowerCase()] || String(shot.status || "").toLowerCase());
+export const shotReady = (shot = {}) => canonicalShotStatus(shot) === "approved"
+  && shot.stale !== true
+  && !["AWAITING_VISUAL_REVIEW", "PASSED_MANUAL_REVIEW_REQUIRED"].includes(String(shot.qc_status || "").toUpperCase());
+export const shotPreviewable = (shot = {}) => ["generated", "awaiting_visual_review", "approved"].includes(canonicalShotStatus(shot)) && shot.stale !== true;
 
 const SCENE_AMBIENTS = [
   { test: /hospital|clinic|ward|fluorescent|medical|医院|病房|诊所/i, ambientRgb: "92 155 171", accentRgb: "109 194 204", intensity: 0.045, label: "COOL CYAN" },
@@ -164,7 +173,7 @@ export const shotCapabilities = (shot = {}, project = {}) => {
     ? Object.keys(shot.last_error).length > 0
     : Boolean(shot.last_error);
   const isStale = shot.stale === true || qcStatus.includes("STALE");
-  const isGenerating = status === "generating_mock" || status === "generating_comfyui";
+  const isGenerating = ["generating", "generating_mock", "generating_comfyui"].includes(canonicalShotStatus(shot));
   const isFailed = status === "generation_failed" || hasLastError;
   const review = reviewDomains(shot, project);
   const needsReview = status === "awaiting_visual_review"
@@ -225,8 +234,8 @@ export const shotStateInfo = (shot = {}, project = {}) => {
     const label = domain === "planning" ? "STORY REVIEW" : domain === "reference" ? "REFERENCE REVIEW" : domain === "media" ? "MEDIA REVIEW" : domain === "audio" ? "AUDIO TIMING REVIEW" : driftFlags.some((flag) => flag.includes("CHARACTER")) ? "CHARACTER REVIEW" : driftFlags.some((flag) => flag.includes("SCENE")) ? "SCENE REVIEW" : driftFlags.some((flag) => flag.includes("STYLE")) ? "STYLE REVIEW" : "VISUAL REVIEW";
     return { key: "review", symbol: "!", label };
   }
-  if (["approved_mock", "approved_comfyui"].includes(status)) return { key: "complete", symbol: "✓", label: "QC PASS" };
-  if (["generating_mock", "generating_comfyui", "generated_comfyui"].includes(status)) return { key: "active", symbol: "●", label: "ACTIVE" };
+  if (["approved", "approved_mock", "approved_comfyui"].includes(canonicalShotStatus(shot))) return { key: "complete", symbol: "✓", label: "QC PASS" };
+  if (["generating", "generating_mock", "generating_comfyui", "generated"].includes(canonicalShotStatus(shot))) return { key: "active", symbol: "●", label: "ACTIVE" };
   return { key: "queued", symbol: "○", label: "QUEUED" };
 };
 

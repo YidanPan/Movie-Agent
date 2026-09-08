@@ -34,6 +34,7 @@ from movie_agent.services.media_quality import best_master_path, probe_media, ex
 from movie_agent.services.voice import ContinuousVoiceService, mark_voice_alignment_stale
 from movie_agent.services.state_ledger import rebuild_state_ledger_from_shot, build_state_ledger, validate_state_delta_or_raise
 from movie_agent.services.change_impact import SHOT_EDITABLE_FIELDS, TIMING_FIELDS, resolve_change_impact
+from movie_agent.state import shot_ready
 from movie_agent.services.final_look import ensure_final_look, normalise_final_look, reset_final_look
 from movie_agent.services.errors import clear_failure, error_info, record_failure
 from movie_agent.services.revisions import (
@@ -62,6 +63,16 @@ def _failure_stage(error: BaseException) -> str:
 
     text = str(error).lower()
     return "quality" if any(token in text for token in ("quality", "consistency", "copyright", "drift")) else "generation"
+
+
+def _render_ready_status(settings: Settings) -> str:
+    """Keep legacy persisted labels for old providers, generic for remote."""
+
+    return "render_ready" if str(settings.video_generation_mode or "mock").lower() == "remote" else "ready_for_comfyui_render"
+
+
+def _rendering_status(settings: Settings) -> str:
+    return "rendering" if str(settings.video_generation_mode or "mock").lower() == "remote" else "rendering_comfyui"
 
 
 class MovieOrchestrator:
@@ -99,6 +110,7 @@ class MovieOrchestrator:
         duration: int,
         visual_style: str,
         event_callback: Callable[[dict], None] | None = None,
+        project_id: str | None = None,
     ) -> MovieProject:
         def emit(event: dict) -> None:
             if event_callback is not None:
@@ -110,7 +122,9 @@ class MovieOrchestrator:
         if not 30 <= duration <= 80:
             raise ValueError("Current MVP supports 30-80 second target duration.")
 
-        project_id = f"film-{uuid4().hex[:8]}"
+        project_id = str(project_id or f"film-{uuid4().hex[:8]}")
+        if not project_id.startswith("film-"):
+            raise ValueError("Project ID must start with film-.")
         emit(
             {
                 "type": "project",
@@ -464,9 +478,11 @@ class MovieOrchestrator:
             )
             self.store.save(project)
             return project
-        if self.settings.video_generation_mode == "comfyui":
-            project.status = "ready_for_comfyui_render"
-            project.logs.append("Generation Agent: Project is ready. Click 'Spark Real Generate' to submit per-shot tasks.")
+        if self.settings.video_generation_mode != "mock":
+            project.status = _render_ready_status(self.settings)
+            project.logs.append(
+                "Generation Agent: Project is ready. Submit per-shot tasks through the selected video provider."
+            )
             self.store.save(project)
             return project
         return self.run_mock_production(project_id, event_callback)
@@ -510,8 +526,8 @@ class MovieOrchestrator:
         project_id: str,
         progress_callback: Callable[[int, int, str], None] | None = None,
     ) -> MovieProject:
-        if self.settings.video_generation_mode != "comfyui":
-            raise ValueError("Current mode is mock. Set VIDEO_GENERATION_MODE=comfyui in Spark's .env before rendering.")
+        if self.settings.video_generation_mode == "mock":
+            raise ValueError("Current mode is mock. Select an explicitly configured video provider before rendering.")
         project = self.store.load(project_id)
         if project.status == "previs_review_required":
             raise ValueError("PREVIS_REVIEW_REQUIRED: approve the storyboard before rendering.")
@@ -535,18 +551,20 @@ class MovieOrchestrator:
         if unsupported_modes:
             modes = ", ".join(unsupported_modes)
             raise ValueError(
-                f"Spark's verified workflow only supports T2V; project still has {modes} shots. "
+                f"The selected video provider only supports T2V; project still has {modes} shots. "
                 "Please re-plan those shots before submitting for real generation."
             )
-        project.status = "rendering_comfyui"
+        project.status = _rendering_status(self.settings)
         self._invalidate_edit_outputs(project, reason="render_started", source="shot_media")
-        project.logs.append("Generation Agent: Submitting Spark ComfyUI per-shot tasks.")
+        project.logs.append(
+            f"Generation Agent: Submitting per-shot tasks through the {self.settings.video_generation_mode} provider."
+        )
         self.store.save(project)
         total_shots = len(project.storyboard)
         for index, _shot in enumerate(project.storyboard, start=1):
             render_context = shot_render_context(project, index)
             shot = render_context["shot"]
-            if shot.status == "approved_comfyui" and not shot.stale and Path(shot.output_placeholder).is_file():
+            if shot_ready(shot) and Path(shot.output_placeholder).is_file():
                 project.logs.append(f"Generation Agent: Shot {shot.number} already complete; skipping on resume.")
                 if progress_callback:
                     progress_callback(index, total_shots, f"Shot {shot.number} already complete; skipping")
@@ -612,8 +630,8 @@ class MovieOrchestrator:
 
     def render_shot(self, project_id: str, shot_number: int) -> MovieProject:
         """Regenerate one shot from the Inspector without assembling the full film."""
-        if self.settings.video_generation_mode != "comfyui":
-            raise ValueError("Current mode is mock. Set VIDEO_GENERATION_MODE=comfyui in Spark's .env before generating shots.")
+        if self.settings.video_generation_mode == "mock":
+            raise ValueError("Current mode is mock. Select an explicitly configured video provider before generating shots.")
         project = self.store.load(project_id)
         clear_failure(project)
         if not 1 <= shot_number <= len(project.storyboard):
@@ -629,13 +647,13 @@ class MovieOrchestrator:
         ensure_continuity_lock(project)
         if shot.generation_mode != "T2V":
             raise ValueError(
-                f"Shot {shot.number} is marked as {shot.generation_mode}, but the current MiniMax-H3 workflow only supports T2V."
+                f"Shot {shot.number} is marked as {shot.generation_mode}, but the selected video provider only supports T2V."
             )
 
         if not shot.stale:
             mark_shot_stale(shot, f"shot_{shot_number}_render_requested")
         shot.status = "replanned"
-        project.status = "rendering_comfyui"
+        project.status = _rendering_status(self.settings)
         self._invalidate_edit_outputs(project, reason=f"shot_{shot_number}_render_started", source="shot_media")
         project.logs.append(f"Generation Agent: Inspector submitted shot {shot_number} for single-shot regeneration.")
         self.store.save(project)
@@ -701,8 +719,8 @@ class MovieOrchestrator:
         project.status = "planned_text_ai" if self.using_creative_llm else "planned_mock"
         project.logs.append("Planning QC: PREVIS explicitly approved; Script Supervisor resumed.")
         self.store.save(project)
-        if self.settings.video_generation_mode == "comfyui":
-            project.status = "ready_for_comfyui_render"
+        if self.settings.video_generation_mode != "mock":
+            project.status = _render_ready_status(self.settings)
             self.store.save(project)
         return project
 
@@ -733,12 +751,7 @@ class MovieOrchestrator:
         """Return true only for currently approved, non-stale shot revisions."""
 
         shots = list(getattr(project, "storyboard", []) or [])
-        return bool(shots) and all(
-            str(getattr(shot, "status", "")).startswith("approved")
-            and not bool(getattr(shot, "stale", False))
-            and str(getattr(shot, "qc_status", "")).upper() not in {"AWAITING_VISUAL_REVIEW", "PASSED_MANUAL_REVIEW_REQUIRED"}
-            for shot in shots
-        )
+        return bool(shots) and all(shot_ready(shot) for shot in shots)
 
     @staticmethod
     def _invalidate_edit_outputs(
@@ -866,7 +879,7 @@ class MovieOrchestrator:
         mark_voice_alignment_stale(project, "shot_timeline_changed")
         ensure_audio_design(project)
         self._invalidate_edit_outputs(project, reason="shot_timeline_changed", source="shot_timing")
-        project.status = "ready_for_ai_edit" if self._shots_ready(project) else "ready_for_comfyui_render"
+        project.status = "ready_for_ai_edit" if self._shots_ready(project) else _render_ready_status(self.settings)
         project.logs.append(
             f"Editor Agent: Shot {shot_number} timing updated to {shot.duration_seconds}s ({mode.upper()}); downstream cut invalidated."
         )
@@ -966,7 +979,7 @@ class MovieOrchestrator:
                 workflow_identity=self.settings.comfy_workflow_template or "verified-comfyui-workflow",
                 workflow_path=self.settings.workflows_dir / self.settings.comfy_workflow_template,
             )
-        project.status = "ready_for_ai_edit" if self._shots_ready(project) else "ready_for_comfyui_render"
+        project.status = "ready_for_ai_edit" if self._shots_ready(project) else _render_ready_status(self.settings)
         project.logs.append(
             f"Script Supervisor: Applied atomic Shot {shot_number} update ({', '.join(impact['fields'])}); downstream production marked stale."
         )
@@ -1084,7 +1097,7 @@ class MovieOrchestrator:
         if not self._shots_ready(project):
             raise ValueError("All shots must pass QC before Resolution Normalize can run.")
         self.editor.normalize_resolution(project, resolution)
-        if project.status not in {"ready_for_ai_edit", "ready_for_comfyui_render"}:
+        if project.status not in {"ready_for_ai_edit", "ready_for_comfyui_render", "render_ready"}:
             project.status = "ready_for_ai_edit"
         self.store.save(project)
         return project
@@ -1279,9 +1292,9 @@ class MovieOrchestrator:
         project.mix_state["status"] = "FINAL MASTER GENERATION"
         self.store.save(project)
         try:
-            if self.settings.video_generation_mode == "comfyui":
+            if self.settings.video_generation_mode != "mock":
                 project.logs.append(self.editor.assemble(project, project.subtitle_mode))
-                project.status = "completed_comfyui"
+                project.status = "completed_comfyui" if self.settings.video_generation_mode == "comfyui" else "completed"
             else:
                 project.logs.append(self.editor.assemble_mock(project))
                 project.status = "completed_text_ai_video_mock" if self.using_creative_llm else "completed_mock"
@@ -1440,7 +1453,7 @@ class MovieOrchestrator:
             source="shot",
             shot=revised_shot,
         )
-        project.status = "ready_for_ai_edit" if self._shots_ready(project) else "ready_for_comfyui_render"
+        project.status = "ready_for_ai_edit" if self._shots_ready(project) else _render_ready_status(self.settings)
         project.logs.append(f"Storyboard Agent: Shot {shot_number} re-planned; duration and narrative position preserved.")
         project.logs.extend(project.quality_report)
         self.store.save(project)

@@ -1,0 +1,185 @@
+"""Small, asynchronous evaluator API built on the existing production core."""
+
+from __future__ import annotations
+
+import threading
+from typing import Any
+from uuid import uuid4
+
+from fastapi import APIRouter, Header, HTTPException, Request, status
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field, ValidationError, field_validator
+
+from movie_agent.services.errors import error_info
+from movie_agent.services.media_quality import best_master_path, best_screening_path
+
+
+router = APIRouter(prefix="/api/v1", tags=["evaluator"])
+
+
+class EvaluatorGeneratePayload(BaseModel):
+    idea: str = Field(min_length=10, max_length=2_000)
+    duration: int = Field(ge=30, le=80)
+    visual_style: str = Field(min_length=2, max_length=80)
+
+    @field_validator("idea", "visual_style")
+    @classmethod
+    def strip_text(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Must not be empty.")
+        return value
+
+
+def _runtime() -> tuple[Any, Any, Any, Any]:
+    """Resolve server globals lazily so TestClient patches and startup stay safe."""
+
+    import server
+
+    return server.orchestrator, server.job_ledger, server.settings, server.serialized_project
+
+
+def _authorize(settings: Any, authorization: str | None) -> None:
+    expected = str(getattr(settings, "evaluator_api_token", "") or "").strip()
+    if not expected:
+        return
+    scheme, _, token = str(authorization or "").partition(" ")
+    if scheme.lower() != "bearer" or token.strip() != expected:
+        raise HTTPException(status_code=401, detail="Evaluator authorization required.")
+
+
+def _public_job(ledger: Any, job_id: str) -> dict[str, Any]:
+    job = ledger.find_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found.")
+    return {
+        "job_id": job["job_id"],
+        "project_id": job["project_id"],
+        "status": job["status"],
+        "stage": job["stage"],
+        "progress": job.get("progress") or {"completed": 0, "total": 0},
+        "updated_at": job.get("updated_at"),
+        "error": job.get("error"),
+    }
+
+
+@router.post("/generate", status_code=202)
+async def evaluator_generate(
+    request: Request,
+    authorization: str | None = Header(default=None),
+) -> JSONResponse:
+    orchestrator, ledger, settings, _ = _runtime()
+    _authorize(settings, authorization)
+    try:
+        payload = EvaluatorGeneratePayload.model_validate(await request.json())
+    except (ValidationError, ValueError) as error:
+        if isinstance(error, ValidationError):
+            first = error.errors()[0]
+            return JSONResponse(
+                {"error": f"Invalid submission: {first.get('msg', 'invalid')}"}, status_code=400
+            )
+        return JSONResponse({"error": "Request must be valid JSON."}, status_code=400)
+    if ledger.active_count() >= int(getattr(settings, "max_active_jobs", 2) or 2):
+        return JSONResponse(
+            {"error": "Evaluator job capacity has been reached.", "error_code": "JOB_CAPACITY_REACHED"},
+            status_code=429,
+        )
+    project_id = f"film-{uuid4().hex[:8]}"
+    idempotency_key = request.headers.get("idempotency-key") or f"evaluator:{project_id}"
+    try:
+        job = ledger.start(
+            project_id,
+            kind="planning",
+            stage="planning",
+            idempotency_key=idempotency_key,
+            mutates_project=True,
+        )
+    except Exception as error:  # pragma: no cover - ledger-specific failures are surfaced safely
+        return JSONResponse({"error": str(error), "error_code": "JOB_START_FAILED"}, status_code=409)
+
+    completed_agents = 0
+
+    def emit(event: dict[str, Any]) -> None:
+        nonlocal completed_agents
+        if str(event.get("type") or "") == "agent_done":
+            completed_agents += 1
+        ledger.append(
+            project_id,
+            job["job_id"],
+            {
+                "type": event.get("type", "planning"),
+                "agent": event.get("agent", "planning"),
+                "description": event.get("type", "planning progress"),
+                "completed": completed_agents,
+                "total": 7,
+            },
+        )
+        ledger.heartbeat(project_id, job["job_id"])
+
+    def worker() -> None:
+        try:
+            orchestrator.create_project(
+                payload.idea,
+                payload.duration,
+                payload.visual_style,
+                event_callback=emit,
+                project_id=project_id,
+            )
+            ledger.finish(project_id, job["job_id"], status="succeeded")
+        except Exception as error:  # noqa: BLE001 - persist a safe terminal state
+            ledger.finish(
+                project_id,
+                job["job_id"],
+                status="failed",
+                error=error_info(error, stage="planning"),
+            )
+
+    threading.Thread(target=worker, name=f"evaluator-{project_id}", daemon=True).start()
+    return JSONResponse(
+        {"project_id": project_id, "job_id": job["job_id"], "status": "running"}, status_code=202
+    )
+
+
+@router.get("/jobs/{job_id}")
+def evaluator_job(job_id: str, authorization: str | None = Header(default=None)) -> dict[str, Any]:
+    _, ledger, settings, _ = _runtime()
+    _authorize(settings, authorization)
+    return _public_job(ledger, job_id)
+
+
+@router.get("/projects/{project_id}")
+def evaluator_project(project_id: str, authorization: str | None = Header(default=None)) -> dict[str, Any]:
+    orchestrator, _, settings, serialize = _runtime()
+    _authorize(settings, authorization)
+    try:
+        return serialize(orchestrator.store.load(project_id))
+    except FileNotFoundError as error:
+        raise HTTPException(status_code=404, detail="Project not found.") from error
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@router.get("/projects/{project_id}/result")
+def evaluator_result(project_id: str, authorization: str | None = Header(default=None)) -> dict[str, Any]:
+    orchestrator, _, settings, _ = _runtime()
+    _authorize(settings, authorization)
+    try:
+        project = orchestrator.store.load(project_id)
+    except FileNotFoundError as error:
+        raise HTTPException(status_code=404, detail="Project not found.") from error
+    if not str(getattr(project, "status", "")).startswith("completed"):
+        return {"status": "not_ready", "project_id": project_id, "reason": "FINAL_MASTER_MISSING"}
+    master = best_master_path(project)
+    if not master or not master.is_file():
+        return {"status": "not_ready", "project_id": project_id, "reason": "FINAL_MASTER_MISSING"}
+    return {
+        "status": "completed",
+        "project_id": project_id,
+        "final_video_url": f"/api/projects/{project_id}/final-video",
+        "screening_preview_url": f"/api/projects/{project_id}/screening-preview" if best_screening_path(project) else None,
+        "subtitles_srt_url": f"/api/projects/{project_id}/subtitles.srt",
+        "subtitles_vtt_url": f"/api/projects/{project_id}/subtitles.vtt",
+    }
+
+
+__all__ = ["router"]

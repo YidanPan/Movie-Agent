@@ -46,6 +46,14 @@ class Settings:
     modelscope_image_model: str | None = None
     media_poll_seconds: float = 5.0
     media_max_polls: int = 120
+    remote_video_api_base: str = ""
+    remote_video_model: str = ""
+    remote_video_api_key: str | None = None
+    remote_video_timeout_seconds: int = 900
+    remote_video_poll_seconds: float = 5.0
+    evaluator_api_token: str | None = None
+    max_active_jobs: int = 2
+    max_upload_mb: int = 50
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -83,4 +91,12 @@ class Settings:
             modelscope_image_model=os.getenv("MODELSCOPE_IMAGE_MODEL") or None,
             media_poll_seconds=max(0.5, float(os.getenv("MEDIA_POLL_SECONDS", "5"))),
             media_max_polls=max(1, int(os.getenv("MEDIA_MAX_POLLS", "120"))),
+            remote_video_api_base=os.getenv("REMOTE_VIDEO_API_BASE", "").strip(),
+            remote_video_model=os.getenv("REMOTE_VIDEO_MODEL", "").strip(),
+            remote_video_api_key=os.getenv("REMOTE_VIDEO_API_KEY") or None,
+            remote_video_timeout_seconds=max(10, int(os.getenv("REMOTE_VIDEO_TIMEOUT_SECONDS", "900"))),
+            remote_video_poll_seconds=max(0.5, float(os.getenv("REMOTE_VIDEO_POLL_SECONDS", "5"))),
+            evaluator_api_token=os.getenv("EVALUATOR_API_TOKEN") or None,
+            max_active_jobs=max(1, int(os.getenv("MAX_ACTIVE_JOBS", "2"))),
+            max_upload_mb=max(1, int(os.getenv("MAX_UPLOAD_MB", "50"))),
         )

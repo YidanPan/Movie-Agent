@@ -398,10 +398,13 @@ const SHOT_STATUS = {
   planned: "QUEUED",
   replanned: "STALE",
   generating_mock: "ACTIVE",
+  generating: "ACTIVE",
   generating_comfyui: "ACTIVE",
+  generated: "ACTIVE",
   generated_comfyui: "ACTIVE",
   awaiting_visual_review: "REVIEW",
   approved_mock: "QC PASS",
+  approved: "QC PASS",
   approved_comfyui: "QC PASS",
   generation_failed: "FAILED",
 };

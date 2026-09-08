@@ -103,6 +103,33 @@ class ReferenceBankStore:
         temporary.replace(path)
         return path
 
+    def get(self, project_id: str, reference_id: str) -> ReferenceAsset:
+        """Return one persisted reference or raise a stable not-found error."""
+
+        bank = self.load(project_id)
+        for asset in bank.assets:
+            if asset.reference_id == str(reference_id):
+                return asset
+        raise FileNotFoundError(f"Reference {reference_id} was not found.")
+
+    def set_approval(self, project_id: str, reference_id: str, approved: bool) -> ReferenceAsset:
+        """Persist an explicit human approval decision for one reference."""
+
+        bank = self.load(project_id)
+        for asset in bank.assets:
+            if asset.reference_id != str(reference_id):
+                continue
+            if approved:
+                if bool((asset.metadata or {}).get("stale")):
+                    raise ValueError("A stale reference cannot be approved.")
+                if not Path(asset.path).is_file():
+                    raise FileNotFoundError(f"Reference {reference_id} media is missing.")
+            asset.approved = bool(approved)
+            asset.metadata["review_status"] = "APPROVED" if approved else "REJECTED"
+            self.save(bank)
+            return asset
+        raise FileNotFoundError(f"Reference {reference_id} was not found.")
+
     def register_file(
         self,
         project_id: str,

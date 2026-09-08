@@ -109,6 +109,18 @@ def test_job_ledger_lease_expiry_is_recoverable_and_not_active():
         assert job["lease_expires_at"] != summary["lease_expires_at"]
 
 
+def test_long_running_job_heartbeat_extends_lease():
+    with TemporaryDirectory() as temporary_directory:
+        ledger = JobLedger(Path(temporary_directory) / "projects")
+        job = ledger.start("film-1234abcd", kind="generation", stage="generation", lease_seconds=30)
+        before = job["lease_expires_at"]
+        heartbeat = ledger.heartbeat("film-1234abcd", job["job_id"], lease_seconds=90)
+        assert heartbeat is not None
+        assert heartbeat["heartbeat_at"]
+        assert heartbeat["lease_expires_at"] != before
+        assert heartbeat["status"] == "running"
+
+
 def test_job_ledger_persists_target_scope_for_runtime_readiness():
     with TemporaryDirectory() as temporary_directory:
         ledger = JobLedger(Path(temporary_directory) / "projects")

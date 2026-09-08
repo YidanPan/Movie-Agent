@@ -21,7 +21,7 @@ from movie_agent.services.media_quality import (
     quality_snapshot,
 )
 from movie_agent.services.readiness import production_readiness
-from movie_agent.state import describe_status
+from movie_agent.state import describe_status, shot_ready
 
 
 _VALID_RESOLUTIONS = {"720p", "1080p"}
@@ -99,7 +99,7 @@ def _error_snapshot(target: Any, *, fallback_stage: str) -> dict[str, Any] | Non
 
 
 def _shot_ready(shot: Any) -> bool:
-    return str(getattr(shot, "status", "")).startswith("approved") and not bool(getattr(shot, "stale", False))
+    return shot_ready(shot)
 
 
 def _shot_diagnostics(shot: Any) -> dict[str, Any]:
@@ -178,9 +178,9 @@ def _next_actions(
         return ["APPROVE_PREVIS", "REVIEW_STORYBOARD"]
     if status in {"planned_mock", "planned_text_ai"}:
         return ["REVIEW_PREVIS", "START_RENDER"]
-    if status == "ready_for_comfyui_render":
+    if status in {"ready_for_comfyui_render", "render_ready"}:
         return ["START_RENDER"]
-    if status in {"generating_video_mock", "rendering_comfyui"}:
+    if status in {"generating_video_mock", "rendering_comfyui", "rendering"}:
         return ["RESUME_RENDER"]
     if status == "ready_for_ai_edit":
         return ["START_AI_EDIT"] if dialogue_locked else ["LOCK_DIALOGUE"]

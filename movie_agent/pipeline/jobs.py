@@ -417,6 +417,48 @@ class JobLedger:
                 self._write_locked(project_id, job)
             return self._public(job, include_events=False) if job else None
 
+    def active_count(self) -> int:
+        """Count active jobs across projects for the public evaluator cap."""
+
+        count = 0
+        with self._lock:
+            for path in self.root.glob("film-*/job.json"):
+                try:
+                    payload = json.loads(path.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+                    continue
+                if not isinstance(payload, dict) or str(payload.get("status") or "").lower() not in _ACTIVE:
+                    continue
+                if self._recover_expired_locked(payload):
+                    try:
+                        self._write_locked(str(payload.get("project_id") or ""), payload)
+                    except ValueError:
+                        continue
+                    continue
+                count += 1
+        return count
+
+    def find_job(self, job_id: str) -> dict[str, Any] | None:
+        """Find a public job snapshot without exposing the ledger path."""
+
+        requested = str(job_id or "").strip()
+        if not re.fullmatch(r"job-[0-9a-f]{12}", requested):
+            return None
+        with self._lock:
+            for path in self.root.glob("film-*/job.json"):
+                try:
+                    payload = json.loads(path.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+                    continue
+                if isinstance(payload, dict) and str(payload.get("job_id") or "") == requested:
+                    if self._recover_expired_locked(payload):
+                        try:
+                            self._write_locked(str(payload.get("project_id") or ""), payload)
+                        except ValueError:
+                            return None
+                    return self._public(payload, include_events=False)
+        return None
+
     def heartbeat(self, project_id: str, job_id: str, *, lease_seconds: int = _DEFAULT_LEASE_SECONDS) -> dict[str, Any] | None:
         """Extend a live operation lease and persist its heartbeat."""
 

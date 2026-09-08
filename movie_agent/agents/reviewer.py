@@ -13,6 +13,7 @@ from movie_agent.services.llm import ModelScopeLLM, build_vision_llm
 from movie_agent.services.revisions import ensure_shot_metadata
 from movie_agent.services.shot_context import ResolvedShotContext, resolve_shot_context
 from movie_agent.storage.reference_bank import ReferenceBankStore
+from movie_agent.state import canonical_shot_status
 
 
 VISUAL_QC_FLAGS = {
@@ -118,7 +119,7 @@ class ReviewerAgent:
         story_world: dict[str, Any] | None = None,
         context: ResolvedShotContext | None = None,
     ) -> str:
-        if shot.status != "generated_comfyui":
+        if canonical_shot_status(shot.status) != "generated":
             raise RuntimeError(f"Shot {shot.number} has not been generated yet; cannot enter quality review.")
         video_path = Path(shot.output_placeholder)
         ensure_shot_metadata(shot, provider="comfyui", model="verified-comfyui-workflow", seed=shot.seed or shot.generation_seed)

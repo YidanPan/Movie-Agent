@@ -237,11 +237,11 @@ def _reference_blockers(project: Any, settings: Any) -> list[ProductionBlocker]:
                     "MISSING_PROP_REFERENCE": "A current approved prop reference is missing.",
                     "MISSING_PREVIOUS_ENDING_REFERENCE": "The previous approved shot ending reference is missing.",
                 }[code],
-                severity="BLOCKING" if required and video_mode == "comfyui" else "WARNING",
+                severity="BLOCKING" if required and video_mode != "mock" else "WARNING",
                 shot_number=int(getattr(shot, "number", 0) or 0) or None,
                 next_action="OPEN_REFERENCE_BANK",
                 blocking_stage="RENDER",
-                blocks_actions=("START_RENDER", "RENDER_SHOT") if required and video_mode == "comfyui" else (),
+                blocks_actions=("START_RENDER", "RENDER_SHOT") if required and video_mode != "mock" else (),
                 applies_to_actions=("START_RENDER", "RENDER_SHOT"),
                 resolves_by_actions=("OPEN_REFERENCE_BANK", "REVIEW_VISUAL_BIBLE"),
             ))

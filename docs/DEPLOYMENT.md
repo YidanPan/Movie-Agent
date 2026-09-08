@@ -6,7 +6,13 @@
 
 ## 2. 创建创空间
 
-在魔搭创空间新建 Gradio 应用，并导入仓库。入口文件为 `app.py`，依赖文件为 `requirements.txt`。
+主部署使用 Docker Studio，运行 FastAPI `server.py`；Gradio `app.py` 仅作为 fallback / compatibility 入口。Docker 启动命令为：
+
+```bash
+uvicorn server:app --host 0.0.0.0 --port ${PORT:-7860} --workers 1
+```
+
+依赖文件仍为 `requirements.txt`。
 
 ### 单实例 Job Ledger
 

@@ -15,14 +15,14 @@
                                                        │
                         ┌──────────────────────────────┴─────────────────────────────┐
                         ▼                                                            ▼
-             当前：mock 生成与剪辑                                      后续：ComfyUI + H3 + FFmpeg
+             当前：mock 生成与剪辑                                      可选：Provider + FFmpeg
 ```
 
 ## 状态边界
 
 - 文本创作可以用 `MODEL_PROVIDER=mock` 或 `MODEL_PROVIDER=modelscope`。
 - 项目状态保存在 `projects/<project_id>/project.json`，目录默认不进入 Git。
-- 视频生成接口已保留在 `movie_agent/services/comfyui.py`；只有经过人工验证并导出的 ComfyUI API 工作流 JSON 才能进入 `workflows/`。
+- 视频生成由 `movie_agent/services/video_generation.py` 的 `VideoGenerationProvider` contract 统一接入。ComfyUI 只是一个 adapter；只有经过人工验证并导出的 ComfyUI API 工作流 JSON 才能进入 `workflows/`。
 - 任何模型、媒体、密钥、项目输出均不提交到 Git。
 
 ## 可复现约束
@@ -31,3 +31,18 @@
 2. 不在代码中写入 API Key、服务器地址或密码。
 3. Mock 模式始终可用，用于评审演示、单元测试和无 GPU 环境。
 4. 真实视频模式将逐镜生成、质检、重试，最后由 FFmpeg 拼接。
+
+## Provider boundary
+
+```text
+GenerationAgent
+      ↓
+VideoGenerationProvider
+      ├── MockVideoProvider
+      ├── ComfyUIVideoProvider
+      └── RemoteVideoProvider
+```
+
+镜头状态采用 provider-neutral 的 `generated` / `awaiting_visual_review` /
+`approved` 语义，同时读取旧项目中的 `*_comfyui` 别名。只有 approved 且非
+stale 的当前 revision 才能进入 AI Edit；generated 媒体可以先播放并等待人工审片。

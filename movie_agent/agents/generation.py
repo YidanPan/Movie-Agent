@@ -11,6 +11,7 @@ from typing import Any
 
 from movie_agent.config import Settings
 from movie_agent.models import Shot
+from movie_agent.state import shot_ready
 from movie_agent.services.comfyui import ComfyUIClient, ComfyUIError, WorkflowOverrides, load_verified_workflow
 from movie_agent.services.media_quality import asset_record
 from movie_agent.services.continuity import derive_shot_seed
@@ -18,6 +19,12 @@ from movie_agent.services.errors import clear_failure, error_info, record_failur
 from movie_agent.services.render_input import compile_renderer_input
 from movie_agent.services.revisions import ensure_shot_metadata, hash_shot_prompt, utc_now
 from movie_agent.services.shot_context import ResolvedShotContext, resolve_shot_context
+from movie_agent.services.video_generation import (
+    ComfyUIVideoProvider,
+    VideoGenerationError,
+    VideoGenerationProvider,
+    build_video_provider,
+)
 from movie_agent.storage.reference_bank import ReferenceBankStore
 
 
@@ -118,9 +125,27 @@ def build_continuity_prompt(
 
 
 class GenerationAgent:
-    def __init__(self, settings: Settings, client: ComfyUIClient | None = None) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        client: ComfyUIClient | None = None,
+        provider: VideoGenerationProvider | None = None,
+    ) -> None:
         self.settings = settings
-        self.client = client or ComfyUIClient(settings.comfy_base_url, settings.comfy_timeout_seconds)
+        # ``client`` remains a compatibility injection for existing Spark
+        # tests and deployments; production code talks only to the provider.
+        if provider is not None:
+            self.provider = provider
+        elif client is not None:
+            self.provider = ComfyUIVideoProvider(
+                settings,
+                client=client,
+                workflow_loader=load_verified_workflow,
+                video_resolver=self._resolve_video,
+            )
+        else:
+            self.provider = build_video_provider(settings)
+        self.client = getattr(self.provider, "client", client)
         self.reference_bank = ReferenceBankStore(settings.outputs_dir)
 
     def generate_mock(self, shot: Shot) -> str:
@@ -157,24 +182,30 @@ class GenerationAgent:
         """Submit one planned shot and copy its MP4 into the project output folder."""
         if shot.generation_mode != "T2V":
             error = ComfyUIError(
-                f"Shot {shot.number} is marked as {shot.generation_mode}, but the current MiniMax-H3 workflow only supports T2V."
+                f"Shot {shot.number} is marked as {shot.generation_mode}, but the selected video provider only supports T2V."
             )
             record_failure(shot, error, stage="generation")
             shot.status = "generation_failed"
             shot.qc_status = "FAILED"
             raise error
         existing_output = Path(shot.output_placeholder)
-        if shot.status == "approved_comfyui" and not shot.stale and existing_output.is_file():
+        if shot_ready(shot) and existing_output.is_file():
             return f"Generation Agent: Shot {shot.number} already has an approved result; skipping duplicate generation."
+        provider_name = str(getattr(self.provider, "name", "unknown") or "unknown").lower()
+        is_comfyui = provider_name == "comfyui"
         template_path = self.settings.workflows_dir / self.settings.comfy_workflow_template
-        if not template_path.is_file():
+        if is_comfyui and not template_path.is_file():
             error = ComfyUIError(f"Verified workflow not found: {template_path}.")
             record_failure(shot, error, stage="generation")
             shot.status = "generation_failed"
             shot.qc_status = "FAILED"
             raise error
-        if not self.client.is_available():
-            error = ComfyUIError("ComfyUI service is unavailable; please check the local Spark service.")
+        if not self.provider.is_available():
+            error = VideoGenerationError(
+                "The selected video provider is unavailable or not configured.",
+                code="VIDEO_PROVIDER_NOT_CONFIGURED",
+                provider=str(getattr(self.provider, "name", "unknown")),
+            )
             record_failure(shot, error, stage="generation")
             shot.status = "generation_failed"
             shot.qc_status = "FAILED"
@@ -188,7 +219,7 @@ class GenerationAgent:
         if any(context.missing_locks.values()):
             raise ValueError(f"VISUAL_BIBLE_REVIEW_REQUIRED: missing locks {context.missing_locks}")
         clear_failure(shot)
-        shot.status = "generating_comfyui"
+        shot.status = "generating_comfyui" if is_comfyui else "generating"
         shot.stale = False
         shot.qc_status = "PENDING"
         shot.attempts += 1
@@ -197,7 +228,7 @@ class GenerationAgent:
         seed = derive_shot_seed(project_id, reference_seed, shot.number)
         reference_inputs = self.reference_bank.generation_reference_paths(project_id, shot, previous_shot, context=context)
         reference_flags = list(reference_inputs.get("reference_flags") or [])
-        reference_images = self._prepare_workflow_references(template_path, shot)
+        reference_images = self._prepare_workflow_references(template_path, shot, project_id=project_id)
         external_input_digests = self._reference_digests(reference_inputs)
         keyframe_path = Path(str((shot.media_generation or {}).get("keyframe_path") or ""))
         if keyframe_path.is_file():
@@ -215,7 +246,7 @@ class GenerationAgent:
             "prompt": str(shot.prompt or ""),
             "negative_prompt": negative_prompt,
             "seed": seed,
-            "provider": "comfyui",
+            "provider": provider_name,
             "generation_status": "SUBMITTING",
             "retry_count": int(getattr(shot, "retry_count", 0) or 0),
             "qa_score": None,
@@ -243,54 +274,75 @@ class GenerationAgent:
         shot.generation_seed = seed
         shot.seed = seed
         shot.compiled_generation_prompt = continuity_prompt
-        workflow = load_verified_workflow(
-            template_path,
-            # Generate at the native duration. Editorial timing operations are
-            # applied later in the AI Edit sequence and must not break the
-            # shared visual continuity lock.
-            WorkflowOverrides(
-                prompt=continuity_prompt,
-                seed=seed,
-                duration_seconds=shot.source_duration_seconds or shot.duration_seconds,
-                reference_images=tuple(reference_images),
-            ),
-        )
-        manifest = compile_renderer_input(
-            project=SimpleNamespace(
-                project_id=project_id,
-                visual_bible=visual_context,
-                story_world=story_world or {},
-            ),
-            shot=shot,
-            previous_shot=previous_shot,
-            context=context,
-            workflow_path=template_path,
-            compiled_prompt=continuity_prompt,
-            derived_seed=seed,
-            submitted_workflow=workflow,
-            workflow_identity=self.settings.comfy_workflow_template or "verified-comfyui-workflow",
-            film_language=film_language,
-            external_input_digests=external_input_digests,
-        )
-        shot.generation_input_hash = manifest.fingerprint()
-        shot.qc_details["renderer_manifest"] = manifest.audit_dict()
+        workflow: dict[str, Any] = {}
+        manifest = None
+        if is_comfyui:
+            workflow = load_verified_workflow(
+                template_path,
+                # Generate at the native duration. Editorial timing operations are
+                # applied later in the AI Edit sequence and must not break the
+                # shared visual continuity lock.
+                WorkflowOverrides(
+                    prompt=continuity_prompt,
+                    seed=seed,
+                    duration_seconds=shot.source_duration_seconds or shot.duration_seconds,
+                    reference_images=tuple(reference_images),
+                ),
+            )
+            manifest = compile_renderer_input(
+                project=SimpleNamespace(
+                    project_id=project_id,
+                    visual_bible=visual_context,
+                    story_world=story_world or {},
+                ),
+                shot=shot,
+                previous_shot=previous_shot,
+                context=context,
+                workflow_path=template_path,
+                compiled_prompt=continuity_prompt,
+                derived_seed=seed,
+                submitted_workflow=workflow,
+                workflow_identity=self.settings.comfy_workflow_template or "verified-comfyui-workflow",
+                film_language=film_language,
+                external_input_digests=external_input_digests,
+            )
+            shot.generation_input_hash = manifest.fingerprint()
+            shot.qc_details["renderer_manifest"] = manifest.audit_dict()
         ensure_shot_metadata(
             shot,
-            provider="comfyui",
-            model=self.settings.comfy_workflow_template or "verified-comfyui-workflow",
+            provider=provider_name,
+            model=(self.settings.comfy_workflow_template if is_comfyui else provider_name) or provider_name,
             seed=seed,
         )
         try:
-            prompt_id = self.client.submit(workflow)
+            # Keep the long-standing test/deployment injection point valid
+            # while the ComfyUI details live behind the provider adapter.
+            if hasattr(self.provider, "video_resolver"):
+                self.provider.video_resolver = self._resolve_video  # type: ignore[attr-defined]
+            provider_result = self.provider.generate(
+                prompt=continuity_prompt,
+                seed=seed,
+                duration_seconds=shot.source_duration_seconds or shot.duration_seconds,
+                reference_images=[
+                    Path(path)
+                    for key in ("character", "scene", "prop", "previous_frame", "palette", "cinematography")
+                    for path in reference_inputs.get(key, [])
+                    if Path(path).is_file()
+                ] + ([keyframe_path] if keyframe_path.is_file() else []),
+                output_dir=self.settings.outputs_dir / project_id / "shots" / "source",
+                metadata={
+                    "workflow": workflow if is_comfyui else None,
+                    "workflow_path": str(template_path),
+                    "output_filename": f"shot-{shot.number:02d}.mp4",
+                    "model": (self.settings.comfy_workflow_template if is_comfyui else provider_name) or provider_name,
+                },
+            )
+            prompt_id = provider_result.task_id
             shot.media_generation["provider_task_id"] = prompt_id
             shot.media_generation["generation_status"] = "RUNNING"
-            result = self.client.wait_for_completion(prompt_id)
-            source = self._resolve_video(result)
-            destination_dir = self.settings.outputs_dir / project_id / "shots" / "source"
-            destination_dir.mkdir(parents=True, exist_ok=True)
-            destination = destination_dir / f"shot-{shot.number:02d}.mp4"
-            shutil.copy2(source, destination)
-        except (ComfyUIError, OSError) as error:
+            destination = Path(provider_result.video_path)
+            source = Path(str(provider_result.metadata.get("source_path") or destination))
+        except (ComfyUIError, VideoGenerationError, OSError) as error:
             shot.media_generation["generation_status"] = "FAILED"
             shot.media_generation["error"] = str(error)[:300]
             record_failure(shot, error, stage="generation")
@@ -309,25 +361,26 @@ class GenerationAgent:
         # A regenerated source invalidates any normalized per-shot master;
         # the previous record remains in ``asset_history`` for comparison.
         shot.media_assets.pop("final_master", None)
+        manifest_data = manifest.audit_dict() if manifest is not None else {}
         shot.media_assets["source"] = asset_record(
             destination,
             tier="source",
             ffprobe_bin=self.settings.ffprobe_bin,
             target_resolution=target_resolution,
-            source="comfyui_original",
+            source=f"{provider_name}_original",
             revision=shot.revision,
             prompt_hash=shot.prompt_hash or hash_shot_prompt(shot),
             generation_input_hash=shot.generation_input_hash,
-            provider="comfyui",
-            model=self.settings.comfy_workflow_template or "verified-comfyui-workflow",
+            provider=provider_name,
+            model=(self.settings.comfy_workflow_template if is_comfyui else provider_name) or provider_name,
             seed=shot.seed,
-            workflow_template_digest=manifest.workflow_template_digest,
-            submitted_workflow_digest=manifest.submitted_workflow_digest,
-            compiled_prompt_digest=manifest.compiled_prompt_digest,
-            derived_seed=manifest.derived_seed,
-            source_duration_seconds=manifest.source_duration_seconds,
-            renderer_manifest_version=manifest.to_dict()["renderer_manifest_version"],
-            renderer_contract_status=manifest.contract_status,
+            workflow_template_digest=manifest_data.get("workflow_template_digest", ""),
+            submitted_workflow_digest=manifest_data.get("submitted_workflow_digest", ""),
+            compiled_prompt_digest=manifest_data.get("compiled_prompt_digest", ""),
+            derived_seed=manifest_data.get("derived_seed", seed),
+            source_duration_seconds=manifest_data.get("source_duration_seconds", int(shot.source_duration_seconds or shot.duration_seconds)),
+            renderer_manifest_version=manifest_data.get("renderer_manifest_version", ""),
+            renderer_contract_status=manifest_data.get("contract_status", "READY" if not is_comfyui else ""),
             renderer_verification_status="VERIFIED",
             external_input_digests=manifest.external_input_digests,
             created_at=utc_now(),
@@ -338,11 +391,11 @@ class GenerationAgent:
         shot.source_fps = source_record.get("source_fps")
         shot.source_duration = source_record.get("source_duration")
         shot.stale = False
-        shot.status = "generated_comfyui"
+        shot.status = "generated_comfyui" if is_comfyui else "generated"
         shot.media_generation["generation_status"] = shot.status
-        return f"Generation Agent: Shot {shot.number} completed (ComfyUI task {prompt_id})."
+        return f"Generation Agent: Shot {shot.number} completed ({provider_name} task {prompt_id or 'completed'})."
 
-    def _prepare_workflow_references(self, template_path: Path, shot: Shot) -> list[str]:
+    def _prepare_workflow_references(self, template_path: Path, shot: Shot, *, project_id: str = "") -> list[str]:
         """Upload only manifest-declared I2V inputs to the active ComfyUI."""
 
         try:
@@ -357,6 +410,19 @@ class GenerationAgent:
         if not keyframe.is_file():
             raise ComfyUIError(
                 f"Shot {shot.number} uses a reference workflow but has no persisted keyframe_path; complete Phase B first."
+            )
+        bank = self.reference_bank.load(project_id) if project_id else None
+        approved_current = any(
+            Path(asset.path).resolve() == keyframe.resolve()
+            and asset.approved
+            and not bool((asset.metadata or {}).get("stale"))
+            and int(asset.revision or 1) == int(getattr(shot, "revision", 1) or 1)
+            and (asset.shot_number is None or int(asset.shot_number) == int(getattr(shot, "number", 0) or 0))
+            for asset in (bank.assets if bank is not None else [])
+        )
+        if not approved_current:
+            raise ComfyUIError(
+                f"Shot {shot.number} reference keyframe is pending visual review; approve the current reference before real generation."
             )
         uploader = getattr(self.client, "upload_image", None)
         if not callable(uploader):

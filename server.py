@@ -11,6 +11,7 @@ complete three-act experience.
 from __future__ import annotations
 
 import asyncio
+from contextlib import contextmanager
 import hashlib
 import json
 import mimetypes
@@ -35,10 +36,13 @@ from movie_agent.services.media_quality import best_master_path, best_screening_
 from movie_agent.pipeline.diagnostics import delivery_preflight, diagnostics_snapshot
 from movie_agent.services.readiness import PRODUCTION_ACTION_CONTRACT, PRODUCTION_ACTIONS, ProductionBlockedError, ensure_action_ready, production_readiness
 from movie_agent.pipeline.jobs import JobAlreadyRunning, JobLedger
+from movie_agent.state import shot_previewable
 from movie_agent.services.cache_cleanup import clean_working_cache, storage_summary
 from movie_agent.services.reference_generation import ReferenceImageRequest, generate_reference_image
+from movie_agent.storage.reference_bank import ReferenceBankStore
 from movie_agent.services.state_ledger import validate_state_delta_shape
 from movie_agent.services.change_impact import SHOT_EDITABLE_FIELDS
+from movie_agent.api.evaluator import router as evaluator_router
 
 settings = Settings.from_env()
 orchestrator = MovieOrchestrator(settings)
@@ -49,6 +53,7 @@ STATIC_DIR = Path(__file__).parent / "static"
 # long ComfyUI job for one film must not block an unrelated project's edit.
 project_locks: dict[str, threading.Lock] = {}
 project_locks_guard = threading.Lock()
+JOB_HEARTBEAT_INTERVAL_SECONDS = 45
 
 
 def project_lock(project_id: str) -> threading.Lock:
@@ -59,6 +64,7 @@ def project_lock(project_id: str) -> threading.Lock:
         return project_locks.setdefault(key, threading.Lock())
 
 app = FastAPI(title="Movie-Agent · AI Film Studio")
+app.include_router(evaluator_router)
 
 
 def _directory_ready(path: Path) -> bool:
@@ -327,7 +333,7 @@ def serialized_project(project) -> dict[str, Any]:
     for key, track in (payload.get("audio_tracks") or {}).items():
         if isinstance(track, dict) and track.get("media_path") and Path(str(track["media_path"])).is_file():
             track.setdefault("preview_url", f"/api/projects/{project.project_id}/audio/tracks/{key}")
-    payload["video_quality"] = quality_snapshot(project, settings.ffprobe_bin)
+    payload["video_quality"] = _sanitize_public_payload(quality_snapshot(project, settings.ffprobe_bin))
     payload["screening_preview_url"] = f"/api/projects/{project.project_id}/screening-preview"
     # Diagnostics contain only status, counts, redacted errors and media
     # availability.  Paths and prompts remain inside the project payload's
@@ -360,7 +366,25 @@ def serialized_project(project) -> dict[str, Any]:
     return payload
 
 
-_INTERNAL_PATH_KEYS = {"path", "media_path", "raw_media_path", "root", "absolute_path", "output_placeholder"}
+_INTERNAL_PATH_KEYS = {
+    "path",
+    "media_path",
+    "raw_media_path",
+    "root",
+    "absolute_path",
+    "output_placeholder",
+    "video_path",
+    "image_path",
+    "keyframe_path",
+    "ending_frame_path",
+    "source_path",
+    "character_references",
+    "scene_reference",
+    "previous_shot_reference",
+    "reference_inputs",
+    "renderer_manifest",
+    "workflow_path",
+}
 
 
 def _sanitize_public_payload(value: Any) -> Any:
@@ -470,6 +494,14 @@ def run_with_sse(
 
     queue: asyncio.Queue = asyncio.Queue()
     loop = asyncio.get_running_loop()
+    heartbeat_stop = threading.Event()
+
+    def heartbeat_loop() -> None:
+        """Keep a live lease during provider calls that emit no progress."""
+
+        while not heartbeat_stop.wait(JOB_HEARTBEAT_INTERVAL_SECONDS):
+            if job_id and resolved_project_id:
+                job_ledger.heartbeat(resolved_project_id, job_id)
 
     def emit(payload: dict) -> None:
         """Persist a redacted event before handing it to the live stream."""
@@ -511,6 +543,7 @@ def run_with_sse(
                 }
         if job_id and resolved_project_id:
             persisted = job_ledger.append(resolved_project_id, job_id, event_payload)
+            job_ledger.heartbeat(resolved_project_id, job_id)
             event_payload["job_id"] = job_id
             if persisted:
                 event_payload["job_event_id"] = persisted["event_id"]
@@ -526,6 +559,12 @@ def run_with_sse(
             pass
 
     def worker() -> None:
+        heartbeat_thread = threading.Thread(
+            target=heartbeat_loop,
+            name=f"heartbeat-{resolved_project_id or 'pending'}",
+            daemon=True,
+        )
+        heartbeat_thread.start()
         try:
             work(emit)
             if job_id and resolved_project_id:
@@ -575,6 +614,8 @@ def run_with_sse(
                 if finished:
                     payload["job_status"] = finished["status"]
             emit(payload)
+        finally:
+            heartbeat_stop.set()
 
     threading.Thread(target=worker, daemon=True).start()
 
@@ -665,6 +706,24 @@ def get_project_diagnostics(project_id: str) -> dict:
     )
     snapshot["job"] = job_ledger.summary(project.project_id)
     return snapshot
+
+
+@contextmanager
+def keep_job_heartbeat(project_id: str, job_id: str):
+    """Renew a ledger lease around a blocking non-SSE operation."""
+
+    stop = threading.Event()
+
+    def pulse() -> None:
+        while not stop.wait(JOB_HEARTBEAT_INTERVAL_SECONDS):
+            job_ledger.heartbeat(project_id, job_id)
+
+    thread = threading.Thread(target=pulse, name=f"heartbeat-{job_id}", daemon=True)
+    thread.start()
+    try:
+        yield
+    finally:
+        stop.set()
 
 
 @app.get("/api/projects/{project_id}/delivery-preflight")
@@ -891,10 +950,11 @@ def _run_audio_track_action(project_id: str, track_key: str, action: str, reques
             )
             if started_job.get("idempotent_replay"):
                 return JSONResponse({"job": started_job, "idempotent_replay": True}, status_code=200)
-            if action == "REPLAN_AUDIO_TRACK":
-                project = orchestrator.replan_audio_track(project_id, track_key)
-            else:
-                project = orchestrator.render_audio_track(project_id, track_key)
+            with keep_job_heartbeat(project_id, started_job["job_id"]):
+                if action == "REPLAN_AUDIO_TRACK":
+                    project = orchestrator.replan_audio_track(project_id, track_key)
+                else:
+                    project = orchestrator.render_audio_track(project_id, track_key)
             job_ledger.finish(project_id, started_job["job_id"], status="succeeded")
     except FileNotFoundError:
         return project_not_found(project_id)
@@ -962,15 +1022,37 @@ async def upload_music(project_id: str, request: Request):
             filename = re.sub(r"[^\w.\- ]+", "_", filename).strip(" .") or "uploaded-score"
             if len(filename) > 120:
                 filename = filename[-120:]
-            body = await request.body()
-            if not body:
-                return JSONResponse({"error": "Upload file is empty."}, status_code=400)
-            if len(body) > 120 * 1024 * 1024:
-                return JSONResponse({"error": "Audio file must not exceed 120 MB."}, status_code=413)
+            if Path(filename).suffix.lower() not in {".mp3", ".wav", ".m4a", ".aac", ".flac"}:
+                return JSONResponse(
+                    {"error": "Audio upload must be .mp3, .wav, .m4a, .aac, or .flac."}, status_code=415
+                )
+            max_bytes = int(getattr(settings, "max_upload_mb", 50) or 50) * 1024 * 1024
+            declared_length = request.headers.get("content-length")
+            try:
+                if declared_length is not None and int(declared_length) > max_bytes:
+                    return JSONResponse({"error": f"Audio file must not exceed {max_bytes // (1024 * 1024)} MB."}, status_code=413)
+            except ValueError:
+                return JSONResponse({"error": "Content-Length must be a valid integer."}, status_code=400)
             audio_dir = settings.outputs_dir / project_id / "audio"
             audio_dir.mkdir(parents=True, exist_ok=True)
             target = audio_dir / filename
-            target.write_bytes(body)
+            temporary = target.with_name(f".{target.name}.uploading")
+            written = 0
+            try:
+                with temporary.open("wb") as handle:
+                    async for chunk in request.stream():
+                        written += len(chunk)
+                        if written > max_bytes:
+                            return JSONResponse({"error": f"Audio file must not exceed {max_bytes // (1024 * 1024)} MB."}, status_code=413)
+                        handle.write(chunk)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                if written == 0:
+                    return JSONResponse({"error": "Upload file is empty."}, status_code=400)
+                temporary.replace(target)
+            finally:
+                if temporary.exists():
+                    temporary.unlink()
             project = orchestrator.set_audio_design(
                 project_id,
                 music_mode="upload",
@@ -1026,12 +1108,17 @@ async def normalize_media_resolution(project_id: str, request: Request):
         if isinstance(error, ValidationError):
             return invalid_payload(error)
         return JSONResponse({"error": "Request must be valid JSON."}, status_code=400)
+    if payload.method == "ai_upscale":
+        return JSONResponse(
+            {
+                "error": "AI Upscale provider is not configured; use resolution_normalize for a conform only.",
+                "error_code": "AI_UPSCALE_PROVIDER_NOT_CONFIGURED",
+            },
+            status_code=501,
+        )
     try:
         with project_lock(project_id):
             project = orchestrator.normalize_resolution(project_id, payload.resolution)
-            if payload.method == "ai_upscale":
-                project.logs.append("Media Pipeline: AI Upscale requested; deterministic Resolution Normalize used until an upscaler is configured.")
-                orchestrator.store.save(project)
     except FileNotFoundError:
         return project_not_found(project_id)
     except ValueError as error:
@@ -1043,9 +1130,9 @@ async def normalize_media_resolution(project_id: str, request: Request):
 
 @app.post("/api/projects/{project_id}/render/stream")
 async def render_project_stream(project_id: str, request: Request) -> StreamingResponse:
-    if settings.video_generation_mode != "comfyui":
+    if settings.video_generation_mode == "mock":
         return JSONResponse(
-            {"error": "Currently in mock mode. Set VIDEO_GENERATION_MODE=comfyui in Spark's .env to enable rendering."},
+            {"error": "Currently in mock mode. Select an explicitly configured video provider to enable rendering."},
             status_code=400,
         )
     try:
@@ -1188,6 +1275,52 @@ async def generate_reference(project_id: str, request: Request):
     return JSONResponse({"job": started}, status_code=202)
 
 
+def _public_reference(asset: Any) -> dict[str, Any]:
+    stale = bool((getattr(asset, "metadata", {}) or {}).get("stale"))
+    return {
+        "reference_id": str(getattr(asset, "reference_id", "")),
+        "kind": str(getattr(asset, "kind", "")),
+        "source": str(getattr(asset, "source", "")),
+        "approved": bool(getattr(asset, "approved", False)) and not stale,
+        "review_status": "STALE" if stale else "APPROVED" if getattr(asset, "approved", False) else str((getattr(asset, "metadata", {}) or {}).get("review_status") or "PENDING_REVIEW"),
+        "shot_number": getattr(asset, "shot_number", None),
+        "revision": int(getattr(asset, "revision", 1) or 1),
+        "created_at": str(getattr(asset, "created_at", "") or ""),
+        "character_ids": list(getattr(asset, "character_ids", []) or []),
+        "scene_id": str(getattr(asset, "scene_id", "") or ""),
+        "role": str(getattr(asset, "role", "") or ""),
+    }
+
+
+@app.get("/api/projects/{project_id}/references")
+def list_references(project_id: str) -> dict[str, Any]:
+    _load_project_or_http(project_id)
+    bank = ReferenceBankStore(settings.outputs_dir).load(project_id)
+    return {"project_id": project_id, "references": [_public_reference(asset) for asset in bank.assets]}
+
+
+@app.post("/api/projects/{project_id}/references/{reference_id}/approve")
+def approve_reference(project_id: str, reference_id: str) -> dict[str, Any]:
+    _load_project_or_http(project_id)
+    try:
+        asset = ReferenceBankStore(settings.outputs_dir).set_approval(project_id, reference_id, True)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Reference not found.")
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    return {"project_id": project_id, "reference": _public_reference(asset)}
+
+
+@app.post("/api/projects/{project_id}/references/{reference_id}/reject")
+def reject_reference(project_id: str, reference_id: str) -> dict[str, Any]:
+    _load_project_or_http(project_id)
+    try:
+        asset = ReferenceBankStore(settings.outputs_dir).set_approval(project_id, reference_id, False)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Reference not found.")
+    return {"project_id": project_id, "reference": _public_reference(asset)}
+
+
 @app.post("/api/projects/{project_id}/shots/{shot_number}/regenerate")
 def regenerate_shot(project_id: str, shot_number: int):
     try:
@@ -1223,9 +1356,9 @@ async def update_shot(project_id: str, shot_number: int, request: Request):
 
 @app.post("/api/projects/{project_id}/shots/{shot_number}/render")
 def render_single_shot(project_id: str, shot_number: int, request: Request):
-    if settings.video_generation_mode != "comfyui":
+    if settings.video_generation_mode == "mock":
         return JSONResponse(
-            {"error": "Currently in mock mode. Set VIDEO_GENERATION_MODE=comfyui in Spark's .env to enable shot generation."},
+            {"error": "Currently in mock mode. Select an explicitly configured video provider to enable shot generation."},
             status_code=400,
         )
     started_job = None
@@ -1297,7 +1430,8 @@ def generate_final_master(project_id: str, request: Request):
             )
             if started_job.get("idempotent_replay"):
                 return JSONResponse({"job": started_job, "idempotent_replay": True}, status_code=200)
-            project = orchestrator.generate_final_master(project_id)
+            with keep_job_heartbeat(project_id, started_job["job_id"]):
+                project = orchestrator.generate_final_master(project_id)
             job_ledger.finish(project_id, started_job["job_id"], status="succeeded")
     except FileNotFoundError:
         return project_not_found(project_id)
@@ -1499,20 +1633,10 @@ def _resolve_screening_preview(project_id: str) -> Path:
     return _guard_project_media(project_id, path, "Screening Preview has not been rendered yet.")
 
 
-SHOT_PREVIEWABLE_STATUSES = frozenset({
-    "generated_comfyui",
-    "awaiting_visual_review",
-    "approved_comfyui",
-})
-
-
 def _shot_previewable(shot: Any) -> bool:
     """A generated shot may be viewed before it is approved for the edit."""
 
-    return (
-        str(getattr(shot, "status", "")) in SHOT_PREVIEWABLE_STATUSES
-        and not bool(getattr(shot, "stale", False))
-    )
+    return shot_previewable(shot)
 
 
 def _resolve_shot_video(project_id: str, shot_number: int) -> Path:
@@ -1637,7 +1761,8 @@ async def export_video(project_id: str, request: Request):
             )
             if started_job.get("idempotent_replay"):
                 return JSONResponse({"job": started_job, "idempotent_replay": True}, status_code=200)
-            path = orchestrator.editor.export_variant(project, **payload.model_dump())
+            with keep_job_heartbeat(project_id, started_job["job_id"]):
+                path = orchestrator.editor.export_variant(project, **payload.model_dump())
             job_ledger.finish(project_id, started_job["job_id"], status="succeeded")
     except FileNotFoundError:
         return project_not_found(project_id)

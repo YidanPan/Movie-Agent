@@ -12,6 +12,46 @@ from enum import Enum
 from typing import Any
 
 
+# Persisted projects before the provider abstraction used provider names in
+# their shot status.  New callers should use the generic values below, while
+# these aliases remain part of the backwards-compatible read contract.
+SHOT_STATUS_ALIASES: dict[str, str] = {
+    "generating_comfyui": "generating",
+    "generated_comfyui": "generated",
+    "approved_comfyui": "approved",
+    "generating_mock": "generating",
+    "approved_mock": "approved",
+}
+SHOT_PREVIEWABLE_STATUSES = frozenset({"generated", "awaiting_visual_review", "approved"})
+SHOT_READY_STATUSES = frozenset({"approved"})
+
+
+def canonical_shot_status(status: str | None) -> str:
+    """Return a provider-neutral shot status without rewriting persistence."""
+
+    value = str(status or "planned").strip().lower()
+    return SHOT_STATUS_ALIASES.get(value, value)
+
+
+def shot_previewable(shot: Any) -> bool:
+    """A real, current generated shot can be reviewed before approval."""
+
+    return canonical_shot_status(getattr(shot, "status", "")) in SHOT_PREVIEWABLE_STATUSES and not bool(
+        getattr(shot, "stale", False)
+    )
+
+
+def shot_ready(shot: Any) -> bool:
+    """Only an approved, current revision may enter AI Edit or delivery."""
+
+    return canonical_shot_status(getattr(shot, "status", "")) in SHOT_READY_STATUSES and not bool(
+        getattr(shot, "stale", False)
+    ) and str(getattr(shot, "qc_status", "") or "").upper() not in {
+        "AWAITING_VISUAL_REVIEW",
+        "PASSED_MANUAL_REVIEW_REQUIRED",
+    }
+
+
 class ProjectState(str, Enum):
     PLANNING = "planning"
     PREVIS_READY = "previs_ready"
