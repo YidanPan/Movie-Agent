@@ -72,6 +72,18 @@ class JobAlreadyRunning(RuntimeError):
         super().__init__("A production job is already running for this project.")
 
 
+class JobIdempotencyConflict(RuntimeError):
+    """Raised when a key is reused for a different input fingerprint."""
+
+    error_code = "IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_INPUT"
+
+    def __init__(self, snapshot: dict[str, Any], *, expected_input_hash: str, stored_input_hash: str):
+        self.snapshot = snapshot
+        self.expected_input_hash = expected_input_hash
+        self.stored_input_hash = stored_input_hash
+        super().__init__("This idempotency key was already used for a different input.")
+
+
 class JobCapacityReached(RuntimeError):
     """Raised when the bounded worker capacity is already occupied."""
 
@@ -92,6 +104,7 @@ class JobLedger:
 
     _registry_guard = threading.Lock()
     _registry: dict[str, threading.RLock] = {}
+    _active_registry: dict[str, set[str]] = {}
 
     def __init__(self, projects_root: Path, *, max_events: int = 120) -> None:
         self.root = Path(projects_root)
@@ -99,7 +112,7 @@ class JobLedger:
         key = str(self.root.resolve())
         with self._registry_guard:
             self._lock = self._registry.setdefault(key, threading.RLock())
-        self._active: set[str] = set()
+            self._active = self._active_registry.setdefault(key, set())
 
     def _path(self, project_id: str) -> Path:
         value = str(project_id or "")
@@ -266,6 +279,14 @@ class JobLedger:
                 self._reconcile_process_state_locked(project_id, current)
             requested_key = _safe_text(idempotency_key, 180)
             if current and requested_key and requested_key == _safe_text(current.get("idempotency_key"), 180):
+                stored_hash = _safe_text(current.get("expected_input_hash"), 128)
+                requested_hash = _safe_text(expected_input_hash, 128)
+                if stored_hash != requested_hash:
+                    raise JobIdempotencyConflict(
+                        self._public(current, include_events=False),
+                        expected_input_hash=requested_hash,
+                        stored_input_hash=stored_hash,
+                    )
                 replay = self._public(current, include_events=False)
                 replay["idempotent_replay"] = True
                 return replay
@@ -489,7 +510,14 @@ class JobLedger:
                 continue
             if not isinstance(payload, dict) or str(payload.get("status") or "").lower() not in _ACTIVE:
                 continue
-            count += 1
+            project_id = str(payload.get("project_id") or "")
+            try:
+                if self._reconcile_process_state_locked(project_id, payload):
+                    if str(payload.get("status") or "").lower() not in _ACTIVE:
+                        continue
+                count += 1
+            except ValueError:
+                continue
         return count
 
     def find_job(self, job_id: str) -> dict[str, Any] | None:
@@ -639,4 +667,4 @@ class JobLedger:
             thread.join(timeout=max(1.0, min(5.0, float(interval_seconds))))
 
 
-__all__ = ["JobAlreadyRunning", "JobCapacityReached", "JobLedger"]
+__all__ = ["JobAlreadyRunning", "JobCapacityReached", "JobIdempotencyConflict", "JobLedger"]

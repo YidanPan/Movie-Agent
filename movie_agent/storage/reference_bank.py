@@ -482,6 +482,11 @@ class ReferenceBankStore:
             None,
         )
         if matching is None:
+            if not require_keyframe:
+                flags = list(inputs.get("reference_flags") or [])
+                flags.append("KEYFRAME_PENDING_OR_STALE_OMITTED")
+                inputs["reference_flags"] = flags
+                return inputs
             raise ValueError(
                 f"REFERENCE_REVIEW_REQUIRED: Shot {shot_number} keyframe is pending, stale, or from another revision."
             )

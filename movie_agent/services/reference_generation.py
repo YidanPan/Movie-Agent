@@ -9,6 +9,7 @@ approved bank.
 
 from __future__ import annotations
 
+import hashlib
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -33,6 +34,7 @@ class ReferenceImageRequest:
     shot_number: int | None = None
     revision: int = 1
     seed: int | None = None
+    reference_seed: str | int | None = None
 
 
 def reference_request_fingerprint(request: ReferenceImageRequest, *, resolved_revision: int | None = None) -> str:
@@ -49,6 +51,64 @@ def reference_request_fingerprint(request: ReferenceImageRequest, *, resolved_re
         "shot_number": request.shot_number,
         "revision": int(resolved_revision or request.revision or 1),
         "seed": request.seed,
+        "reference_seed": str(request.reference_seed or "42"),
+    })
+
+
+def _selected_visual_locks(visual_bible: dict[str, Any] | None, request: ReferenceImageRequest) -> dict[str, Any]:
+    """Select only visual locks that can affect this reference request."""
+
+    bible = visual_bible or {}
+    selected: dict[str, Any] = {
+        "reference_seed": str(bible.get("reference_seed") or request.reference_seed or "42"),
+        "cinematography_lock": bible.get("cinematography_lock") or bible.get("style_card") or "",
+    }
+    character_ids = {str(item).strip() for item in request.character_ids if str(item).strip()}
+    if request.character_id:
+        character_ids.add(str(request.character_id).strip())
+    characters = bible.get("characters")
+    if isinstance(characters, dict):
+        selected["characters"] = {key: characters[key] for key in sorted(character_ids) if key in characters}
+    elif isinstance(characters, list):
+        selected["characters"] = [
+            item for item in characters
+            if isinstance(item, dict) and str(item.get("character_id") or item.get("id") or "") in character_ids
+        ]
+    if request.scene_id:
+        scenes = bible.get("scenes")
+        if isinstance(scenes, dict):
+            selected["scenes"] = {request.scene_id: scenes[request.scene_id]} if request.scene_id in scenes else {}
+        elif isinstance(scenes, list):
+            selected["scenes"] = [
+                item for item in scenes
+                if isinstance(item, dict) and str(item.get("scene_id") or item.get("id") or "") == request.scene_id
+            ]
+        selected["scene_lock"] = bible.get("scene_lock") or ""
+    return selected
+
+
+def reference_input_fingerprint(
+    settings: Settings,
+    project_id: str,
+    request: ReferenceImageRequest,
+    *,
+    visual_bible: dict[str, Any] | None = None,
+    resolved_revision: int | None = None,
+) -> str:
+    """Hash relevant reference inputs, including selected lock and file bytes."""
+
+    conditioning = resolve_image_conditioning_inputs(settings, project_id, request)
+    digests: dict[str, str] = {}
+    for index, path in enumerate(conditioning.approved_paths):
+        digest = hashlib.sha256()
+        with Path(path).open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        digests[str(index)] = digest.hexdigest()
+    return canonical_digest({
+        "request": reference_request_fingerprint(request, resolved_revision=resolved_revision),
+        "visual_locks": _selected_visual_locks(visual_bible, request),
+        "conditioning_digests": digests,
     })
 
 
@@ -140,7 +200,7 @@ def generate_reference_image(
     conditioning = resolve_image_conditioning_inputs(settings, project_id, request)
     seed = request.seed
     if seed is None and request.shot_number is not None:
-        seed = derive_shot_seed(project_id, getattr(settings, "modelscope_image_model", None) or "42", request.shot_number)
+        seed = derive_shot_seed(project_id, request.reference_seed or "42", request.shot_number)
     submitted = provider.submit(
         request.prompt,
         negative_prompt=request.negative_prompt,
@@ -188,6 +248,7 @@ __all__ = [
     "ImageConditioningInputs",
     "ReferenceImageRequest",
     "generate_reference_image",
+    "reference_input_fingerprint",
     "reference_request_fingerprint",
     "resolve_image_conditioning_inputs",
 ]

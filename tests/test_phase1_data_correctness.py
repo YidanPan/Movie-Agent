@@ -145,7 +145,7 @@ class PhaseOneDataCorrectnessTests(unittest.TestCase):
                 {"state_delta": {"protagonist": {"emotion": "shocked"}}},
             )
             self.assertEqual(updated.storyboard[0].state_delta["protagonist"]["emotion"], "shocked")
-            self.assertFalse(updated.storyboard[0].stale)
+            self.assertTrue(updated.storyboard[0].stale)
             self.assertEqual(updated.continuity_state_ledger["shots"]["1"]["after"]["protagonist"]["emotion"], "shocked")
 
     def test_editable_field_contract_matches_api_payload(self) -> None:

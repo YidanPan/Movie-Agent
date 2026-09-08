@@ -88,6 +88,7 @@ def hash_shot_prompt(shot: Any) -> str:
         "prompt": str(getattr(shot, "prompt", "") or ""),
         "image_description": str(getattr(shot, "image_description", "") or ""),
         "action": str(getattr(shot, "action", "") or ""),
+        "narrative_purpose": str(getattr(shot, "narrative_purpose", "") or ""),
         "framing": str(getattr(shot, "framing", "") or ""),
         "sound_design": str(getattr(shot, "sound_design", "") or ""),
         "generation_mode": str(getattr(shot, "generation_mode", "") or ""),
@@ -257,7 +258,10 @@ def reconcile_generation_fingerprints(
                     str((getattr(project, "visual_bible", {}) or {}).get("reference_seed") or "42"),
                     number,
                 )
-            prompt = str(getattr(shot, "compiled_generation_prompt", "") or "") or build_continuity_prompt(
+            # ``compiled_generation_prompt`` is an audit record of the last
+            # render, never the current expected input. Recompile after every
+            # project/shot change so reconciliation cannot miss drift.
+            prompt = build_continuity_prompt(
                 shot,
                 getattr(project, "visual_bible", {}) or {},
                 previous,

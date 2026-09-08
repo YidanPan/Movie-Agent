@@ -7,7 +7,7 @@ rendering, editing and state contracts can be moved independently over time.
 
 from .editing import EditPipeline, edit_output_exists, editing_snapshot
 from .diagnostics import delivery_preflight, diagnostics_snapshot
-from .jobs import JobAlreadyRunning, JobLedger
+from .jobs import JobAlreadyRunning, JobIdempotencyConflict, JobLedger
 from .planning import PlanningPipeline, planning_snapshot
 from .rendering import RenderPipeline, shot_render_context
 from movie_agent.services.readiness import (
@@ -37,6 +37,7 @@ __all__ = [
     "delivery_preflight",
     "diagnostics_snapshot",
     "JobAlreadyRunning",
+    "JobIdempotencyConflict",
     "JobLedger",
     "planning_snapshot",
     "PlanningPipeline",

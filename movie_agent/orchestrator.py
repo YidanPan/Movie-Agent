@@ -33,7 +33,7 @@ from movie_agent.services.music import FileMusicProvider
 from movie_agent.services.media_quality import best_master_path, probe_media, export_dimensions
 from movie_agent.services.voice import ContinuousVoiceService, mark_voice_alignment_stale
 from movie_agent.services.state_ledger import rebuild_state_ledger_from_shot, build_state_ledger, validate_state_delta_or_raise
-from movie_agent.services.change_impact import SHOT_EDITABLE_FIELDS, TIMING_FIELDS, resolve_change_impact
+from movie_agent.services.change_impact import RENDERER_INPUT_FIELDS, SHOT_EDITABLE_FIELDS, TIMING_FIELDS, resolve_change_impact
 from movie_agent.state import shot_ready
 from movie_agent.services.final_look import ensure_final_look, normalise_final_look, reset_final_look
 from movie_agent.services.errors import clear_failure, error_info, record_failure
@@ -961,8 +961,9 @@ class MovieOrchestrator:
             project.brief["target_duration"] = f"{project.duration_seconds} seconds"
             project.script = align_script_to_shots(project.script, project.storyboard, allow_silent=True)
             mark_voice_alignment_stale(project, "shot_timeline_changed")
-        visual_or_narrative = bool(impact["visual"] or impact["narrative"])
-        if impact["visual"]:
+        renderer_input_changed = bool(set(impact["fields"]) & RENDERER_INPUT_FIELDS)
+        visual_or_narrative = renderer_input_changed
+        if renderer_input_changed:
             mark_shot_stale(shot, "shot_fields_changed")
         if "state_delta" in incoming or impact["narrative"]:
             rebuild_state_ledger_from_shot(project, shot_number)
@@ -973,10 +974,10 @@ class MovieOrchestrator:
             shot=shot if visual_or_narrative else None,
         )
         edit_event["impact"] = impact
-        # A state-delta update rebuilds continuity state, but does not by
-        # itself alter the renderer-facing visual prompt. Keep the current
-        # shot usable until an actual visual field changes.
-        if impact["visual"]:
+        # The compiled renderer prompt includes continuity state and sound
+        # design, so every renderer-facing field must invalidate current
+        # media even when it is not classified as a purely visual edit.
+        if renderer_input_changed:
             reconcile_generation_fingerprints(
                 project,
                 workflow_identity=self.settings.comfy_workflow_template or "verified-comfyui-workflow",

@@ -7,8 +7,10 @@ NARRATIVE_FIELDS = {
     "environment_reaction", "character_reaction", "ending_state", "action", "scene_id", "character_ids",
     "prop_ids", "transition_hook", "transition_type",
     "state_delta",
+    "emotional_shift",
 }
 SPEECH_FIELDS = {"speech_policy", "sound_design"}
+RENDERER_INPUT_FIELDS = frozenset(VISUAL_FIELDS | NARRATIVE_FIELDS | {"sound_design"})
 SHOT_EDITABLE_FIELDS = frozenset(
     TIMING_FIELDS
     | VISUAL_FIELDS
@@ -29,6 +31,7 @@ def resolve_change_impact(fields: set[str]) -> dict[str, object]:
     narrative = bool(fields & NARRATIVE_FIELDS)
     timing = bool(fields & TIMING_FIELDS)
     speech = bool(fields & SPEECH_FIELDS)
+    renderer = bool(fields & RENDERER_INPUT_FIELDS)
     if visual or narrative:
         downstream = ["storyboard_review", "script_supervisor", "shot_media", "qc", "voice", "subtitles", "edit"]
     elif timing:
@@ -43,6 +46,7 @@ def resolve_change_impact(fields: set[str]) -> dict[str, object]:
         "visual": visual,
         "narrative": narrative,
         "speech": speech,
+        "renderer": renderer,
         "downstream": downstream,
     }
 
@@ -51,6 +55,7 @@ __all__ = [
     "TIMING_FIELDS",
     "VISUAL_FIELDS",
     "NARRATIVE_FIELDS",
+    "RENDERER_INPUT_FIELDS",
     "SPEECH_FIELDS",
     "SHOT_EDITABLE_FIELDS",
     "resolve_change_impact",

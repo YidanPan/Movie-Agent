@@ -209,28 +209,30 @@ def _reference_shot(path: str, *, revision: int = 1) -> Shot:
     )
 
 
-def test_pending_keyframe_is_rejected_before_fake_provider_receives_inputs():
+def test_optional_pending_keyframe_is_omitted_before_fake_provider_receives_inputs():
     with TemporaryDirectory() as directory:
         root = Path(directory)
         pending = root / "pending.webp"
+        output = root / "video.mp4"
         pending.write_bytes(b"pending")
-        agent = GenerationAgent(_settings(root), provider=_FakeVideoProvider(root / "video.mp4"))
+        output.write_bytes(b"real-video")
+        provider = _FakeVideoProvider(output)
+        agent = GenerationAgent(_settings(root), provider=provider)
         asset = agent.reference_bank.register_file(
             "film-a1b2c3d4", pending, kind="shot_keyframe", source="test", approved=False,
             shot_number=1, revision=1, name="keyframe",
         )
         shot = _reference_shot(asset.path)
-        with pytest.raises(VideoGenerationError) as error:
-            agent.generate(
-                "film-a1b2c3d4", shot,
-                visual_bible={"scene_lock": "home", "character_lock": "hero", "cinematography_lock": "camera"},
-            )
-        assert error.value.error_code == "REFERENCE_REVIEW_REQUIRED"
-        assert shot.status == "generation_failed"
+        agent.generate(
+            "film-a1b2c3d4", shot,
+            visual_bible={"scene_lock": "home", "character_lock": "hero", "cinematography_lock": "camera"},
+        )
+        assert provider.references == []
+        assert shot.status == "generated"
 
 
 def test_pending_keyframe_cannot_enter_any_video_provider():
-    test_pending_keyframe_is_rejected_before_fake_provider_receives_inputs()
+    test_optional_pending_keyframe_is_omitted_before_fake_provider_receives_inputs()
 
 
 def test_approved_current_keyframe_is_the_only_keyframe_sent_to_fake_provider():
@@ -270,7 +272,7 @@ def test_approved_keyframe_enters_any_video_provider():
         ({}, 2, 1),
     ],
 )
-def test_stale_or_wrong_revision_keyframe_cannot_enter_provider(metadata, asset_revision, shot_revision):
+def test_stale_or_wrong_revision_keyframe_is_omitted_for_optional_t2v(metadata, asset_revision, shot_revision):
     with TemporaryDirectory() as directory:
         root = Path(directory)
         keyframe = root / "keyframe.webp"
@@ -282,12 +284,10 @@ def test_stale_or_wrong_revision_keyframe_cannot_enter_provider(metadata, asset_
             shot_number=1, revision=asset_revision, name="keyframe", metadata=metadata,
         )
         shot = _reference_shot(asset.path, revision=shot_revision)
-        with pytest.raises(VideoGenerationError) as error:
-            agent.generate(
-                "film-a1b2c3d4", shot,
-                visual_bible={"scene_lock": "home", "character_lock": "hero", "cinematography_lock": "camera"},
-            )
-        assert error.value.error_code == "REFERENCE_REVIEW_REQUIRED"
+        agent.generate(
+            "film-a1b2c3d4", shot,
+            visual_bible={"scene_lock": "home", "character_lock": "hero", "cinematography_lock": "camera"},
+        )
         assert provider.references == []
 
 

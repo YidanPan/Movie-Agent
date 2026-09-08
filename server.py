@@ -36,11 +36,15 @@ from movie_agent.services.subtitles import render_srt, render_vtt, script_subtit
 from movie_agent.services.media_quality import best_master_path, best_screening_path, quality_snapshot
 from movie_agent.pipeline.diagnostics import delivery_preflight, diagnostics_snapshot
 from movie_agent.services.readiness import PRODUCTION_ACTION_CONTRACT, PRODUCTION_ACTIONS, ProductionBlockedError, ensure_action_ready, production_readiness
-from movie_agent.pipeline.jobs import JobAlreadyRunning, JobCapacityReached, JobLedger
+from movie_agent.pipeline.jobs import JobAlreadyRunning, JobCapacityReached, JobIdempotencyConflict, JobLedger
 from movie_agent.state import shot_previewable
 from movie_agent.services.video_generation import build_video_provider
 from movie_agent.services.cache_cleanup import clean_working_cache, storage_summary
-from movie_agent.services.reference_generation import ReferenceImageRequest, generate_reference_image, reference_request_fingerprint
+from movie_agent.services.reference_generation import (
+    ReferenceImageRequest,
+    generate_reference_image,
+    reference_input_fingerprint,
+)
 from movie_agent.storage.reference_bank import ReferenceBankStore
 from movie_agent.services.state_ledger import validate_state_delta_shape
 from movie_agent.services.change_impact import SHOT_EDITABLE_FIELDS
@@ -64,6 +68,19 @@ def project_lock(project_id: str) -> threading.Lock:
     key = str(project_id)
     with project_locks_guard:
         return project_locks.setdefault(key, threading.Lock())
+
+
+def _job_idempotency_conflict_response(error: JobIdempotencyConflict) -> JSONResponse:
+    """Expose the durable conflict without returning raw input payloads."""
+
+    return JSONResponse(
+        {
+            "error": str(error),
+            "error_code": error.error_code,
+            "job": error.snapshot,
+        },
+        status_code=409,
+    )
 
 app = FastAPI(title="Movie-Agent · AI Film Studio")
 app.include_router(evaluator_router)
@@ -511,6 +528,8 @@ def run_with_sse(
                 expected_input_hash=fence.get("expected_input_hash"),
                 max_active_jobs=int(getattr(settings, "max_active_jobs", 2) or 2),
             )
+        except JobIdempotencyConflict as conflict:
+            return _job_idempotency_conflict_response(conflict)
         except JobAlreadyRunning as conflict:
             return JSONResponse(
                 {
@@ -570,6 +589,14 @@ def run_with_sse(
                     event_payload = {"type": "job_replay", "job": started}
                 else:
                     job_id = started["job_id"]
+            except JobIdempotencyConflict as conflict:
+                event_payload = {
+                    "type": "error",
+                    "error_code": conflict.error_code,
+                    "error_message": str(conflict),
+                    "stage": stage,
+                    "job": conflict.snapshot,
+                }
             except JobAlreadyRunning as conflict:
                 # A create stream can only reach this branch if a client
                 # submitted the same newly-created project twice.  Surface the
@@ -1001,6 +1028,8 @@ def _run_audio_track_action(project_id: str, track_key: str, action: str, reques
             job_ledger.finish(project_id, started_job["job_id"], status="succeeded")
     except FileNotFoundError:
         return project_not_found(project_id)
+    except JobIdempotencyConflict as error:
+        return _job_idempotency_conflict_response(error)
     except JobAlreadyRunning as error:
         return JSONResponse({"error": str(error), "error_code": "JOB_ALREADY_RUNNING", "job": error.snapshot}, status_code=409)
     except JobCapacityReached as error:
@@ -1249,9 +1278,19 @@ async def generate_reference(project_id: str, request: Request):
                 shot_number=payload.shot_number,
                 revision=resolved_revision,
                 seed=payload.seed,
+                reference_seed=str(project.visual_bible.get("reference_seed") or "42"),
             )
-            input_fingerprint = reference_request_fingerprint(reference_request, resolved_revision=resolved_revision)
-            project_revision = str(project.updated_at or "")
+            input_fingerprint = reference_input_fingerprint(
+                settings,
+                project_id,
+                reference_request,
+                visual_bible=project.visual_bible,
+                resolved_revision=resolved_revision,
+            )
+            # This is the relevant input fence, not the whole project's
+            # updated_at. Unrelated edits such as music or Final Look must not
+            # invalidate an in-flight character/scene reference task.
+            project_revision = input_fingerprint
     except FileNotFoundError:
         return project_not_found(project_id)
     except ValueError as error:
@@ -1269,6 +1308,8 @@ async def generate_reference(project_id: str, request: Request):
             expected_input_hash=input_fingerprint,
             max_active_jobs=int(getattr(settings, "max_active_jobs", 2) or 2),
         )
+    except JobIdempotencyConflict as error:
+        return _job_idempotency_conflict_response(error)
     except JobAlreadyRunning as error:
         return JSONResponse({"error": str(error), "error_code": "JOB_ALREADY_RUNNING", "job": error.snapshot}, status_code=409)
     except JobCapacityReached as error:
@@ -1295,8 +1336,18 @@ async def generate_reference(project_id: str, request: Request):
                 asset = generate_reference_image(settings, project_id, reference_request, on_progress=on_progress)
                 with project_lock(project_id):
                     project = orchestrator.store.load(project_id)
-                    current_revision = str(project.updated_at or "")
-                    stale = current_revision != project_revision or (
+                    current_fingerprint = reference_input_fingerprint(
+                        settings,
+                        project_id,
+                        reference_request,
+                        visual_bible=project.visual_bible,
+                        resolved_revision=(
+                            int(project.storyboard[payload.shot_number - 1].revision or 1)
+                            if payload.kind == "shot_keyframe" and payload.shot_number is not None
+                            else resolved_revision
+                        ),
+                    )
+                    stale = current_fingerprint != project_revision or (
                         payload.kind == "shot_keyframe"
                         and payload.shot_number is not None
                         and int(project.storyboard[payload.shot_number - 1].revision or 1) != resolved_revision
@@ -1452,6 +1503,8 @@ def render_single_shot(project_id: str, shot_number: int, request: Request):
             job_ledger.finish(project_id, started_job["job_id"], status="succeeded")
     except FileNotFoundError:
         return project_not_found(project_id)
+    except JobIdempotencyConflict as error:
+        return _job_idempotency_conflict_response(error)
     except JobAlreadyRunning as error:
         return JSONResponse({"error": str(error), "error_code": "JOB_ALREADY_RUNNING", "job": error.snapshot}, status_code=409)
     except JobCapacityReached as error:
@@ -1502,6 +1555,8 @@ def generate_final_master(project_id: str, request: Request):
             job_ledger.finish(project_id, started_job["job_id"], status="succeeded")
     except FileNotFoundError:
         return project_not_found(project_id)
+    except JobIdempotencyConflict as error:
+        return _job_idempotency_conflict_response(error)
     except JobAlreadyRunning as error:
         return JSONResponse({"error": str(error), "error_code": "JOB_ALREADY_RUNNING", "job": error.snapshot}, status_code=409)
     except JobCapacityReached as error:
@@ -1836,6 +1891,8 @@ async def export_video(project_id: str, request: Request):
             job_ledger.finish(project_id, started_job["job_id"], status="succeeded")
     except FileNotFoundError:
         return project_not_found(project_id)
+    except JobIdempotencyConflict as error:
+        return _job_idempotency_conflict_response(error)
     except JobAlreadyRunning as error:
         return JSONResponse({"error": str(error), "error_code": "JOB_ALREADY_RUNNING", "job": error.snapshot}, status_code=409)
     except JobCapacityReached as error:

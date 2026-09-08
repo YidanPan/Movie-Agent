@@ -101,6 +101,10 @@ def test_job_ledger_lease_expiry_is_recoverable_and_not_active():
         payload = json.loads(path.read_text(encoding="utf-8"))
         payload["lease_expires_at"] = "2000-01-01T00:00:00Z"
         path.write_text(json.dumps(payload), encoding="utf-8")
+        # Simulate a genuinely new process: the shared in-process registry is
+        # empty, so the persisted running job is recoverable rather than live.
+        with JobLedger._registry_guard:
+            JobLedger._active_registry[str(root.resolve())].clear()
         restarted = JobLedger(root)
         summary = restarted.summary("film-1234abcd")
         assert summary["status"] == "recoverable_failed"
@@ -146,6 +150,8 @@ def test_new_process_marks_a_stale_running_job_recoverable_and_keeps_resume_hist
         job = first.start("film-1234abcd", kind="generation", stage="generation")
         first.append("film-1234abcd", job["job_id"], {"type": "render_progress", "completed": 1, "total": 6})
 
+        with JobLedger._registry_guard:
+            JobLedger._active_registry[str((root / "projects").resolve())].clear()
         restarted = JobLedger(root / "projects")
         snapshot = restarted.snapshot("film-1234abcd", after=0)
         assert snapshot["job"]["status"] == "recoverable_failed"
@@ -177,6 +183,8 @@ def test_restarted_active_job_is_persistently_recoverable_and_does_not_consume_c
         root = Path(temporary_directory) / "projects"
         first = JobLedger(root)
         job = first.start("film-1234abcd", kind="generation", stage="generation")
+        with JobLedger._registry_guard:
+            JobLedger._active_registry[str(root.resolve())].clear()
         restarted = JobLedger(root)
         assert restarted.summary("film-1234abcd")["status"] == "recoverable_failed"
         assert restarted.snapshot("film-1234abcd")["job"]["status"] == "recoverable_failed"
