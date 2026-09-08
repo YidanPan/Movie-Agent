@@ -51,6 +51,14 @@ class Settings:
     remote_video_api_key: str | None = None
     remote_video_timeout_seconds: int = 900
     remote_video_poll_seconds: float = 5.0
+    # Remote video uses separate budgets for the short submit HTTP exchange
+    # and the long-running provider task.  ``remote_video_timeout_seconds`` is
+    # retained as a backwards-compatible task-timeout alias.
+    remote_video_request_timeout_seconds: int = 60
+    remote_video_task_timeout_seconds: int = 900
+    remote_video_poll_retries: int = 3
+    video_generation_max_retries: int = 2
+    project_master_fps: int = 24
     evaluator_api_token: str | None = None
     max_active_jobs: int = 2
     max_upload_mb: int = 50
@@ -96,6 +104,24 @@ class Settings:
             remote_video_api_key=os.getenv("REMOTE_VIDEO_API_KEY") or None,
             remote_video_timeout_seconds=max(10, int(os.getenv("REMOTE_VIDEO_TIMEOUT_SECONDS", "900"))),
             remote_video_poll_seconds=max(0.5, float(os.getenv("REMOTE_VIDEO_POLL_SECONDS", "5"))),
+            remote_video_request_timeout_seconds=max(
+                1, int(os.getenv("REMOTE_VIDEO_REQUEST_TIMEOUT_SECONDS", "60"))
+            ),
+            remote_video_task_timeout_seconds=max(
+                10,
+                int(
+                    os.getenv(
+                        "REMOTE_VIDEO_TASK_TIMEOUT_SECONDS",
+                        os.getenv("REMOTE_VIDEO_TIMEOUT_SECONDS", "900"),
+                    )
+                ),
+            ),
+            remote_video_poll_retries=max(0, int(os.getenv("REMOTE_VIDEO_POLL_RETRIES", "3"))),
+            video_generation_max_retries=max(
+                1,
+                int(os.getenv("VIDEO_GENERATION_MAX_RETRIES", os.getenv("COMFY_MAX_RETRIES", "2"))),
+            ),
+            project_master_fps=max(1, int(os.getenv("PROJECT_MASTER_FPS", "24"))),
             evaluator_api_token=os.getenv("EVALUATOR_API_TOKEN") or None,
             max_active_jobs=max(1, int(os.getenv("MAX_ACTIVE_JOBS", "2"))),
             max_upload_mb=max(1, int(os.getenv("MAX_UPLOAD_MB", "50"))),

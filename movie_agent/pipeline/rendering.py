@@ -94,6 +94,7 @@ class RenderPipeline:
             film_language=project.film_language,
             story_world=getattr(project, "story_world", {}) or {},
             context=context,
+            project=project,
         )
         review = self.reviewer.review_generated(
             shot,
@@ -136,13 +137,23 @@ class RenderPipeline:
             storyboard=project.storyboard,
             continuity_lock=project.continuity_lock,
         )
+        provider = getattr(self.generation_agent, "provider", None)
+        supported_modes = {
+            str(item).upper()
+            for item in (getattr(provider, "supported_modes", frozenset({"T2V"})) or frozenset())
+        }
         unsupported_modes = sorted(
-            {shot.generation_mode for shot in project.storyboard if shot.generation_mode != "T2V"}
+            {
+                str(shot.generation_mode or "").upper()
+                for shot in project.storyboard
+                if str(shot.generation_mode or "").upper() not in supported_modes
+            }
         )
         if unsupported_modes:
             modes = ", ".join(unsupported_modes)
             raise ValueError(
-                f"The selected video provider only supports T2V; project still has {modes} shots. "
+                f"The selected video provider supports {', '.join(sorted(supported_modes)) or 'no generation modes'}; "
+                f"project still has {modes} shots. "
                 "Please re-plan those shots before submitting for real generation."
             )
         project.status = "rendering"
@@ -152,6 +163,17 @@ class RenderPipeline:
         )
         self._save(project)
         total_shots = len(project.storyboard)
+        max_retries = max(
+            1,
+            int(
+                getattr(
+                    self.settings,
+                    "video_generation_max_retries",
+                    getattr(self.settings, "comfy_max_retries", 2),
+                )
+                or 1
+            ),
+        )
         for index, _shot in enumerate(project.storyboard, start=1):
             render_context = shot_render_context(project, index)
             shot = render_context["shot"]
@@ -162,7 +184,7 @@ class RenderPipeline:
                 continue
             last_error: Exception | None = None
             previous_shot = render_context["previous_shot"]
-            for attempt in range(1, self.settings.comfy_max_retries + 1):
+            for attempt in range(1, max_retries + 1):
                 try:
                     project.logs.append(self.render_shot(project, shot, previous_shot=previous_shot))
                     self._save(project)
@@ -182,7 +204,7 @@ class RenderPipeline:
                     record_failure(project, error, stage=stage)
                     failure_message = error_info(error, stage=stage)["error_message"]
                     project.logs.append(
-                        f"Generation Agent: Shot {shot.number} attempt {attempt}/{self.settings.comfy_max_retries} failed: {failure_message}"
+                        f"Generation Agent: Shot {shot.number} attempt {attempt}/{max_retries} failed: {failure_message}"
                     )
                     self._save(project)
             if last_error is not None:
@@ -224,9 +246,15 @@ class RenderPipeline:
         render_context = shot_render_context(project, shot_number)
         shot = render_context["shot"]
         ensure_continuity_lock(project)
-        if shot.generation_mode != "T2V":
+        provider = getattr(self.generation_agent, "provider", None)
+        supported_modes = {
+            str(item).upper()
+            for item in (getattr(provider, "supported_modes", frozenset({"T2V"})) or frozenset())
+        }
+        if str(shot.generation_mode or "").upper() not in supported_modes:
             raise ValueError(
-                f"Shot {shot.number} is marked as {shot.generation_mode}, but the selected video provider only supports T2V."
+                f"Shot {shot.number} is marked as {shot.generation_mode}, but the selected video provider supports "
+                f"{', '.join(sorted(supported_modes)) or 'no generation modes'}."
             )
         if not shot.stale:
             mark_shot_stale(shot, f"shot_{shot_number}_render_requested")

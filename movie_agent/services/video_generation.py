@@ -30,10 +30,22 @@ from movie_agent.services.comfyui import (
 class VideoGenerationError(RuntimeError):
     """A safe, provider-neutral video generation failure."""
 
-    def __init__(self, message: str, *, code: str = "VIDEO_GENERATION_FAILED", provider: str = "") -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str = "VIDEO_GENERATION_FAILED",
+        provider: str = "",
+        recoverable: bool | None = None,
+        status_code: int | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> None:
         super().__init__(message)
         self.error_code = code
         self.provider = provider
+        self.recoverable = recoverable
+        self.status_code = status_code
+        self.headers = dict(headers or {})
 
 
 @dataclass(frozen=True)
@@ -58,6 +70,39 @@ class HTTPResponse:
     status_code: int
     headers: dict[str, str]
     body: bytes
+
+
+@dataclass(frozen=True)
+class NormalizedVideoRequest:
+    """Canonical provider request used for both audit and submission.
+
+    The provider receives exactly the values represented here.  Keeping this
+    contract separate from the user-facing Shot prevents a retry from
+    silently changing duration, ratio, or resolution.
+    """
+
+    model: str
+    prompt: str
+    negative_prompt: str
+    duration: int
+    resolution: str
+    ratio: str
+    seed: int | None
+
+    def payload(self) -> dict[str, Any]:
+        parameters: dict[str, Any] = {
+            "resolution": self.resolution,
+            "ratio": self.ratio,
+            "prompt_extend": False,
+            "watermark": False,
+            "duration": self.duration,
+        }
+        if self.seed is not None:
+            parameters["seed"] = self.seed
+        input_payload: dict[str, Any] = {"prompt": self.prompt}
+        if self.negative_prompt:
+            input_payload["negative_prompt"] = self.negative_prompt
+        return {"model": self.model, "input": input_payload, "parameters": parameters}
 
 
 class HTTPTransport(Protocol):
@@ -322,8 +367,26 @@ class DashScopeVideoProvider:
         self.base_url = str(getattr(settings, "remote_video_api_base", "") or "").strip().rstrip("/")
         self.model = str(getattr(settings, "remote_video_model", "") or "").strip()
         self.api_key = str(getattr(settings, "remote_video_api_key", "") or "").strip()
-        self.timeout_seconds = max(10.0, float(getattr(settings, "remote_video_timeout_seconds", 900) or 900))
+        legacy_timeout = float(getattr(settings, "remote_video_timeout_seconds", 900) or 900)
+        self.request_timeout_seconds = max(
+            1.0,
+            float(
+                getattr(
+                    settings,
+                    "remote_video_request_timeout_seconds",
+                    min(60.0, legacy_timeout),
+                )
+                or min(60.0, legacy_timeout)
+            ),
+        )
+        self.task_timeout_seconds = max(
+            10.0,
+            float(getattr(settings, "remote_video_task_timeout_seconds", legacy_timeout) or legacy_timeout),
+        )
+        # Kept as a compatibility alias for callers and older diagnostics.
+        self.timeout_seconds = self.task_timeout_seconds
         self.poll_seconds = max(0.5, float(getattr(settings, "remote_video_poll_seconds", 5) or 5))
+        self.poll_retries = max(0, int(getattr(settings, "remote_video_poll_retries", 3) or 0))
         self.transport = transport or UrllibHTTPTransport()
         self.sleep_fn = sleep_fn
         self.media_validator = media_validator or self._default_media_validator
@@ -369,7 +432,15 @@ class DashScopeVideoProvider:
             return f"{code}: {message}"[:300]
         return (message or code or "Remote video service returned an error.")[:300]
 
-    def _request_json(self, method: str, path: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    def _request_json(
+        self,
+        method: str,
+        path: str,
+        payload: dict[str, Any] | None = None,
+        *,
+        operation: str = "request",
+        timeout: float | None = None,
+    ) -> dict[str, Any]:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8") if payload is not None else None
         headers = {
             "Accept": "application/json",
@@ -385,19 +456,51 @@ class DashScopeVideoProvider:
                 self._url(path),
                 headers=headers,
                 body=body,
-                timeout=self.timeout_seconds,
+                timeout=float(timeout or self.request_timeout_seconds),
             )
-        except VideoGenerationError:
+        except VideoGenerationError as error:
+            if operation == "submit" and error.error_code in {
+                "VIDEO_PROVIDER_NETWORK_ERROR",
+                "VIDEO_PROVIDER_TIMEOUT",
+            }:
+                raise VideoGenerationError(
+                    "The video submit outcome is unknown after the request was sent; "
+                    "the task must be reconciled before retrying.",
+                    code="VIDEO_PROVIDER_SUBMIT_OUTCOME_UNKNOWN",
+                    provider=self.name,
+                    recoverable=False,
+                ) from error
+            if operation != "submit" and error.error_code == "VIDEO_PROVIDER_NETWORK_ERROR":
+                raise VideoGenerationError(
+                    str(error),
+                    code=error.error_code,
+                    provider=self.name,
+                    recoverable=True,
+                ) from error
             raise
         except Exception as error:  # noqa: BLE001 - normalize provider boundary
             raise VideoGenerationError(
                 f"Remote video request failed: {error}",
-                code="VIDEO_PROVIDER_NETWORK_ERROR",
+                code=(
+                    "VIDEO_PROVIDER_SUBMIT_OUTCOME_UNKNOWN"
+                    if operation == "submit"
+                    else "VIDEO_PROVIDER_NETWORK_ERROR"
+                ),
                 provider=self.name,
+                recoverable=False if operation == "submit" else True,
             ) from error
         try:
             decoded = json.loads(response.body.decode("utf-8") or "{}")
         except (UnicodeDecodeError, ValueError) as error:
+            if not 200 <= response.status_code < 300:
+                raise VideoGenerationError(
+                    f"Remote video service returned an HTTP error (HTTP {response.status_code}).",
+                    code="VIDEO_PROVIDER_HTTP_ERROR",
+                    provider=self.name,
+                    recoverable=response.status_code in {408, 425, 429, 500, 502, 503, 504},
+                    status_code=response.status_code,
+                    headers=response.headers,
+                ) from error
             raise VideoGenerationError(
                 f"Remote video service returned invalid JSON (HTTP {response.status_code}).",
                 code="VIDEO_PROVIDER_INVALID_RESPONSE",
@@ -414,8 +517,85 @@ class DashScopeVideoProvider:
                 self._response_message(decoded),
                 code="VIDEO_PROVIDER_HTTP_ERROR",
                 provider=self.name,
+                recoverable=response.status_code in {408, 425, 429, 500, 502, 503, 504},
+                status_code=response.status_code,
+                headers=response.headers,
             )
         return decoded
+
+    def normalize_request(
+        self,
+        *,
+        prompt: str,
+        seed: int | None = None,
+        duration_seconds: float = 5,
+        reference_images: list[Path] | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> NormalizedVideoRequest:
+        """Validate and canonicalize one DashScope request without submitting it."""
+
+        if reference_images:
+            raise VideoGenerationError(
+                "Model Studio I2V requires a public or temporary reference URL; local reference files "
+                "are not uploaded by this provider yet.",
+                code="VIDEO_PROVIDER_REFERENCE_UNSUPPORTED",
+                provider=self.name,
+            )
+        metadata = metadata or {}
+        try:
+            raw_duration = float(duration_seconds or 5)
+        except (TypeError, ValueError) as error:
+            raise VideoGenerationError(
+                "Remote video duration must be an integer number of seconds.",
+                code="VIDEO_PROVIDER_DURATION_UNSUPPORTED",
+                provider=self.name,
+            ) from error
+        duration = int(round(raw_duration))
+        if raw_duration != duration or duration < 2 or duration > 15:
+            raise VideoGenerationError(
+                f"Remote video provider supports integer durations from 2 to 15 seconds; received {duration_seconds!r}.",
+                code="VIDEO_PROVIDER_DURATION_UNSUPPORTED",
+                provider=self.name,
+            )
+        resolution = str(metadata.get("target_resolution") or "1080p").strip().upper()
+        if resolution not in {"720P", "1080P"}:
+            raise VideoGenerationError(
+                f"Remote video provider does not support resolution {resolution or 'empty'!r}.",
+                code="VIDEO_PROVIDER_REQUEST_UNSUPPORTED",
+                provider=self.name,
+            )
+        ratio = str(metadata.get("aspect") or "16:9").strip()
+        if ratio not in {"16:9", "9:16", "1:1", "4:3", "3:4"}:
+            raise VideoGenerationError(
+                f"Remote video provider does not support aspect ratio {ratio!r}.",
+                code="VIDEO_PROVIDER_REQUEST_UNSUPPORTED",
+                provider=self.name,
+            )
+        normalized_seed = None
+        if seed is not None:
+            normalized_seed = int(seed)
+            if not 0 <= normalized_seed <= 2_147_483_647:
+                raise VideoGenerationError(
+                    "Remote video seed is outside the provider's supported integer range.",
+                    code="VIDEO_PROVIDER_REQUEST_UNSUPPORTED",
+                    provider=self.name,
+                )
+        negative_prompt = str(metadata.get("negative_prompt") or "").strip()
+        if len(negative_prompt) > 500:
+            raise VideoGenerationError(
+                "Remote video negative_prompt exceeds the provider's 500-character limit.",
+                code="VIDEO_PROVIDER_REQUEST_UNSUPPORTED",
+                provider=self.name,
+            )
+        return NormalizedVideoRequest(
+            model=self.model,
+            prompt=str(prompt or ""),
+            negative_prompt=negative_prompt,
+            duration=duration,
+            resolution=resolution,
+            ratio=ratio,
+            seed=normalized_seed,
+        )
 
     def submit(
         self,
@@ -427,40 +607,19 @@ class DashScopeVideoProvider:
         metadata: dict[str, Any] | None = None,
     ) -> str:
         self._require_configured()
-        if reference_images:
-            raise VideoGenerationError(
-                "Model Studio I2V requires a public or temporary reference URL; local reference files "
-                "are not uploaded by this provider yet.",
-                code="VIDEO_PROVIDER_REFERENCE_UNSUPPORTED",
-                provider=self.name,
-            )
-        metadata = metadata or {}
-        duration = max(2, min(15, int(round(float(duration_seconds or 5)))))
-        resolution = str(metadata.get("target_resolution") or "1080p").strip().upper()
-        if resolution not in {"720P", "1080P"}:
-            resolution = "1080P"
-        ratio = str(metadata.get("aspect") or "16:9").strip()
-        if ratio not in {"16:9", "9:16", "1:1", "4:3", "3:4"}:
-            ratio = "16:9"
-        parameters: dict[str, Any] = {
-            "resolution": resolution,
-            "ratio": ratio,
-            # The prompt is already compiled by Movie-Agent; do not rewrite it
-            # behind the user's back and invalidate continuity review.
-            "prompt_extend": False,
-            "watermark": False,
-            "duration": duration,
-        }
-        if seed is not None:
-            parameters["seed"] = max(0, min(2_147_483_647, int(seed)))
-        input_payload: dict[str, Any] = {"prompt": str(prompt or "")}
-        negative_prompt = str(metadata.get("negative_prompt") or "").strip()
-        if negative_prompt:
-            input_payload["negative_prompt"] = negative_prompt[:500]
+        normalized = self.normalize_request(
+            prompt=prompt,
+            seed=seed,
+            duration_seconds=duration_seconds,
+            reference_images=reference_images,
+            metadata=metadata,
+        )
         response = self._request_json(
             "POST",
             self._synthesis_path,
-            {"model": self.model, "input": input_payload, "parameters": parameters},
+            normalized.payload(),
+            operation="submit",
+            timeout=self.request_timeout_seconds,
         )
         output = response.get("output")
         task_id = output.get("task_id") if isinstance(output, dict) else None
@@ -480,7 +639,11 @@ class DashScopeVideoProvider:
                 code="VIDEO_PROVIDER_INVALID_RESPONSE",
                 provider=self.name,
             )
-        response = self._request_json("GET", f"/api/v1/tasks/{quote(task_id, safe='')}")
+        response = self._request_json(
+            "GET",
+            f"/api/v1/tasks/{quote(task_id, safe='')}",
+            timeout=self.request_timeout_seconds,
+        )
         output = response.get("output")
         if not isinstance(output, dict):
             raise VideoGenerationError(
@@ -515,7 +678,7 @@ class DashScopeVideoProvider:
                 # Signed result URLs do not need the API key. Avoid forwarding
                 # the bearer secret to an object-storage host.
                 headers={"Accept": "video/mp4"},
-                timeout=self.timeout_seconds,
+                timeout=self.request_timeout_seconds,
             )
         except VideoGenerationError:
             raise
@@ -582,24 +745,91 @@ class DashScopeVideoProvider:
         )
         if on_progress:
             on_progress({"status": "SUBMITTED", "provider": self.name, "task_id": task_id})
-        max_polls = max(1, int(ceil(self.timeout_seconds / self.poll_seconds)))
+        return self._complete_task(
+            task_id,
+            output_dir=output_dir,
+            filename=str(metadata.get("output_filename") or "shot.mp4"),
+            on_progress=on_progress,
+        )
+
+    def resume_task(
+        self,
+        task_id: str,
+        *,
+        output_dir: Path,
+        filename: str,
+        on_progress: ProgressCallback | None = None,
+    ) -> VideoGenerationResult:
+        """Resume polling an already submitted task without another POST."""
+
+        task_id = str(task_id or "").strip()
+        if not task_id:
+            raise VideoGenerationError(
+                "Cannot resume remote video generation without a task_id.",
+                code="VIDEO_PROVIDER_INVALID_RESPONSE",
+                provider=self.name,
+            )
+        if on_progress:
+            on_progress({"status": "RESUMING", "provider": self.name, "task_id": task_id})
+        return self._complete_task(
+            task_id,
+            output_dir=output_dir,
+            filename=filename or "shot.mp4",
+            on_progress=on_progress,
+        )
+
+    def _poll_with_retry(self, task_id: str) -> dict[str, Any]:
+        """Retry only transient polling failures; never re-submit the task."""
+
+        attempt = 0
+        while True:
+            try:
+                return self.poll(task_id)
+            except VideoGenerationError as error:
+                transient = bool(error.recoverable) and (
+                    error.status_code in {408, 425, 429, 500, 502, 503, 504}
+                    or error.error_code == "VIDEO_PROVIDER_NETWORK_ERROR"
+                )
+                if not transient or attempt >= self.poll_retries:
+                    raise
+                retry_after = 0.0
+                try:
+                    retry_after = float(error.headers.get("retry-after", "0") or 0)
+                except (TypeError, ValueError):
+                    retry_after = 0.0
+                delay = max(retry_after, self.poll_seconds * min(2 ** attempt, 8))
+                self.sleep_fn(delay)
+                attempt += 1
+
+    def _complete_task(
+        self,
+        task_id: str,
+        *,
+        output_dir: Path,
+        filename: str,
+        on_progress: ProgressCallback | None = None,
+    ) -> VideoGenerationResult:
+        deadline = time.monotonic() + self.task_timeout_seconds
+        poll_number = 0
         last_result: dict[str, Any] = {}
-        for poll_number in range(max_polls):
-            last_result = self.poll(task_id)
+        max_polls = max(1, int(ceil(self.task_timeout_seconds / self.poll_seconds)))
+        while poll_number < max_polls and time.monotonic() <= deadline:
+            poll_number += 1
+            last_result = self._poll_with_retry(task_id)
             status = str(last_result.get("task_status") or "UNKNOWN").upper()
             if on_progress:
                 on_progress({
                     "status": status,
                     "provider": self.name,
                     "task_id": task_id,
-                    "poll": poll_number + 1,
+                    "poll": poll_number,
                     "max_polls": max_polls,
                 })
             if status == "SUCCEEDED":
                 destination = self.download(
                     last_result,
                     output_dir,
-                    str(metadata.get("output_filename") or "shot.mp4"),
+                    filename,
                 )
                 validation = self.media_validator(destination)
                 if on_progress:
@@ -622,13 +852,15 @@ class DashScopeVideoProvider:
                     f"Remote video task {task_id} {status.lower()}: {detail}",
                     code="VIDEO_PROVIDER_TASK_FAILED" if status != "UNKNOWN" else "VIDEO_PROVIDER_TASK_EXPIRED",
                     provider=self.name,
+                    recoverable=False,
                 )
-            if poll_number + 1 < max_polls:
-                self.sleep_fn(self.poll_seconds)
+            if poll_number < max_polls and time.monotonic() < deadline:
+                self.sleep_fn(min(self.poll_seconds, max(0.0, deadline - time.monotonic())))
         raise VideoGenerationError(
             f"Remote video task {task_id} did not complete within the configured timeout.",
             code="VIDEO_PROVIDER_TIMEOUT",
             provider=self.name,
+            recoverable=True,
         )
 
 
@@ -655,6 +887,7 @@ __all__ = [
     "HTTPResponse",
     "HTTPTransport",
     "MockVideoProvider",
+    "NormalizedVideoRequest",
     "RemoteVideoProvider",
     "UrllibHTTPTransport",
     "VideoGenerationError",

@@ -7,7 +7,7 @@ import json
 import hashlib
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Callable
 
 from movie_agent.config import Settings
 from movie_agent.models import Shot
@@ -130,6 +130,7 @@ class GenerationAgent:
         settings: Settings,
         client: ComfyUIClient | None = None,
         provider: VideoGenerationProvider | None = None,
+        persist: Callable[[Any], None] | None = None,
     ) -> None:
         self.settings = settings
         # ``client`` remains a compatibility injection for existing Spark
@@ -147,6 +148,7 @@ class GenerationAgent:
             self.provider = build_video_provider(settings)
         self.client = getattr(self.provider, "client", client)
         self.reference_bank = ReferenceBankStore(settings.outputs_dir)
+        self.persist = persist
 
     def generate_mock(self, shot: Shot) -> str:
         ensure_shot_metadata(shot, provider="mock", model="mock-rule-engine")
@@ -178,6 +180,7 @@ class GenerationAgent:
         film_language: str = "en",
         story_world: dict[str, Any] | None = None,
         context: ResolvedShotContext | None = None,
+        project: Any | None = None,
     ) -> str:
         """Submit one planned shot and copy its MP4 into the project output folder."""
         provider_name = str(getattr(self.provider, "name", "unknown") or "unknown").lower()
@@ -198,6 +201,9 @@ class GenerationAgent:
         if shot_ready(shot) and existing_output.is_file():
             return f"Generation Agent: Shot {shot.number} already has an approved result; skipping duplicate generation."
         is_comfyui = provider_name == "comfyui"
+        existing_media_generation = dict(shot.media_generation or {})
+        existing_task_id = str(existing_media_generation.get("provider_task_id") or "").strip()
+        existing_task_status = str(existing_media_generation.get("generation_status") or "").upper()
         template_path = self.settings.workflows_dir / self.settings.comfy_workflow_template
         if is_comfyui and not template_path.is_file():
             error = VideoGenerationError(
@@ -300,7 +306,7 @@ class GenerationAgent:
             "copyrighted designs, subtitles, watermarks, language other than English"
         )
         shot.media_generation = {
-            **(shot.media_generation or {}),
+            **existing_media_generation,
             "shot_id": f"shot-{shot.number:02d}",
             "character_references": [str(path) for path in reference_inputs.get("character", [])],
             "scene_reference": [str(path) for path in reference_inputs.get("scene", [])],
@@ -399,32 +405,68 @@ class GenerationAgent:
             model=(self.settings.comfy_workflow_template if is_comfyui else provider_name) or provider_name,
             seed=seed,
         )
+
+        def on_provider_progress(event: dict[str, Any]) -> None:
+            """Persist remote lifecycle identity before polling can continue."""
+
+            status = str(event.get("status") or "").upper()
+            task_id = str(event.get("task_id") or "").strip()
+            if task_id:
+                shot.media_generation["provider_task_id"] = task_id
+            if status:
+                shot.media_generation["generation_status"] = status
+            if event.get("poll") is not None:
+                shot.media_generation["poll"] = event.get("poll")
+            if event.get("max_polls") is not None:
+                shot.media_generation["max_polls"] = event.get("max_polls")
+            if project is not None and self.persist is not None and task_id:
+                # A task id is the durable idempotency boundary.  Save it as
+                # soon as the provider reports it, before another poll or a
+                # process restart can lose the in-flight identity.
+                self.persist(project)
+
+        provider_metadata = {
+            "workflow": workflow if is_comfyui else None,
+            "workflow_path": str(template_path),
+            "output_filename": f"shot-{shot.number:02d}.mp4",
+            "model": (self.settings.comfy_workflow_template if is_comfyui else provider_name) or provider_name,
+            "negative_prompt": negative_prompt,
+            "target_resolution": target_resolution,
+            "aspect": "16:9",
+        }
         try:
             # Keep the long-standing test/deployment injection point valid
             # while the ComfyUI details live behind the provider adapter.
             if hasattr(self.provider, "video_resolver"):
                 self.provider.video_resolver = self._resolve_video  # type: ignore[attr-defined]
-            provider_result = self.provider.generate(
-                prompt=continuity_prompt,
-                seed=seed,
-                duration_seconds=shot.source_duration_seconds or shot.duration_seconds,
-                reference_images=[
+            provider_kwargs = {
+                "prompt": continuity_prompt,
+                "seed": seed,
+                "duration_seconds": shot.source_duration_seconds or shot.duration_seconds,
+                "reference_images": [
                     Path(path)
                     for key in ("character", "scene", "prop", "previous_frame", "palette", "cinematography", "keyframe")
                     for path in submitted_reference_inputs.get(key, [])
                     if Path(path).is_file()
                 ],
-                output_dir=self.settings.outputs_dir / project_id / "shots" / "source",
-                metadata={
-                    "workflow": workflow if is_comfyui else None,
-                    "workflow_path": str(template_path),
-                    "output_filename": f"shot-{shot.number:02d}.mp4",
-                    "model": (self.settings.comfy_workflow_template if is_comfyui else provider_name) or provider_name,
-                    "negative_prompt": negative_prompt,
-                    "target_resolution": target_resolution,
-                    "aspect": "16:9",
-                },
-            )
+                "output_dir": self.settings.outputs_dir / project_id / "shots" / "source",
+                "metadata": provider_metadata,
+                "on_progress": on_provider_progress,
+            }
+            resume = getattr(self.provider, "resume_task", None)
+            if (
+                callable(resume)
+                and existing_task_id
+                and existing_task_status in {"SUBMITTED", "PENDING", "RUNNING", "RESUMING"}
+            ):
+                provider_result = resume(
+                    existing_task_id,
+                    output_dir=provider_kwargs["output_dir"],
+                    filename=provider_metadata["output_filename"],
+                    on_progress=on_provider_progress,
+                )
+            else:
+                provider_result = self.provider.generate(**provider_kwargs)
             prompt_id = provider_result.task_id
             provider_model = str(getattr(provider_result, "model", "") or "").strip()
             shot.media_generation["provider_task_id"] = prompt_id

@@ -74,13 +74,16 @@ class MovieOrchestrator:
         self.using_creative_llm = creative_llm is not None
         self.director = DirectorAgent(creative_llm)
         self.writer = WriterAgent(creative_llm)
-        # V0.2 keeps video generation mocked and the current renderer
-        # manifest is T2V-only.  Do not let a text model select I2V/R2V before
-        # those providers and their renderer contracts are actually enabled.
-        supported_modes = {"T2V"}
-        self.storyboard_agent = StoryboardAgent(creative_llm, supported_modes)
+        self.generation_agent = GenerationAgent(settings, persist=self.store.save)
+        # Storyboard planning must reflect the active provider contract.  A
+        # provider that is T2V-only must not be represented as if I2V/R2V were
+        # available merely because the language model knows those terms.
+        supported_modes = {
+            str(item).upper()
+            for item in (getattr(self.generation_agent.provider, "supported_modes", frozenset()) or frozenset())
+        }
+        self.storyboard_agent = StoryboardAgent(creative_llm, supported_modes or {"T2V"})
         self.visual_bible_agent = VisualBibleAgent(creative_llm)
-        self.generation_agent = GenerationAgent(settings)
         self.reviewer = ReviewerAgent(settings)
         self.editor = EditorAgent(settings)
         self.voice_service = ContinuousVoiceService(settings)

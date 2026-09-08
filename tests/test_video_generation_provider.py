@@ -414,3 +414,107 @@ def test_provider_capability_rejects_unsupported_generation_mode():
         with pytest.raises(VideoGenerationError) as error:
             agent.generate("film-a1b2c3d4", shot, visual_bible={"cinematography_lock": "camera"})
         assert error.value.error_code == "VIDEO_GENERATION_MODE_UNSUPPORTED"
+
+
+def test_dashscope_normalized_request_rejects_silent_duration_clamp():
+    with TemporaryDirectory() as directory:
+        provider = DashScopeVideoProvider(_settings(Path(directory), "remote"))
+        with pytest.raises(VideoGenerationError) as error:
+            provider.normalize_request(prompt="shot", duration_seconds=16)
+        assert error.value.error_code == "VIDEO_PROVIDER_DURATION_UNSUPPORTED"
+
+
+def test_dashscope_poll_retries_transient_failure_without_resubmitting():
+    with TemporaryDirectory() as directory:
+        root = Path(directory)
+        settings = _settings(root, "remote")
+        settings = settings.__class__(
+            **{
+                **settings.__dict__,
+                "remote_video_api_base": "https://workspace.cn-beijing.maas.aliyuncs.com/api/v1",
+                "remote_video_model": "wan2.7-t2v",
+                "remote_video_api_key": "secret-only-in-test",
+                "remote_video_task_timeout_seconds": 10,
+                "remote_video_poll_seconds": 0.5,
+                "remote_video_poll_retries": 2,
+            }
+        )
+
+        def response(payload: dict, status_code: int = 200, headers: dict[str, str] | None = None) -> HTTPResponse:
+            return HTTPResponse(status_code, headers or {"content-type": "application/json"}, json.dumps(payload).encode())
+
+        class Transport:
+            def __init__(self):
+                self.calls = []
+                self.responses = [
+                    response({"output": {"task_id": "task-retry", "task_status": "PENDING"}}),
+                    response({}, 503, {"retry-after": "0"}),
+                    response({"output": {"task_id": "task-retry", "task_status": "SUCCEEDED", "video_url": "https://cdn.example/a.mp4"}}),
+                    HTTPResponse(200, {"content-type": "video/mp4"}, b"video"),
+                ]
+
+            def request(self, method, url, *, headers, body=None, timeout):
+                self.calls.append((method, url, body, timeout))
+                return self.responses.pop(0)
+
+        provider = DashScopeVideoProvider(
+            settings,
+            transport=Transport(),
+            sleep_fn=lambda _: None,
+            media_validator=lambda path: {"valid": path.read_bytes() == b"video"},
+        )
+        result = provider.generate(
+            prompt="shot",
+            seed=1,
+            duration_seconds=5,
+            reference_images=[],
+            output_dir=root / "outputs",
+            metadata={"output_filename": "shot.mp4"},
+        )
+        assert result.task_id == "task-retry"
+        assert [call[0] for call in provider.transport.calls] == ["POST", "GET", "GET", "GET"]
+
+
+def test_dashscope_resume_task_never_posts_a_second_generation_request():
+    with TemporaryDirectory() as directory:
+        root = Path(directory)
+        settings = _settings(root, "remote")
+        settings = settings.__class__(
+            **{
+                **settings.__dict__,
+                "remote_video_api_base": "https://workspace.cn-beijing.maas.aliyuncs.com/api/v1",
+                "remote_video_model": "wan2.7-t2v",
+                "remote_video_api_key": "secret-only-in-test",
+                "remote_video_task_timeout_seconds": 10,
+                "remote_video_poll_seconds": 0.5,
+            }
+        )
+
+        class Transport:
+            def __init__(self):
+                self.methods = []
+
+            def request(self, method, url, *, headers, body=None, timeout):
+                self.methods.append(method)
+                if "/tasks/" in url:
+                    return HTTPResponse(
+                        200,
+                        {"content-type": "application/json"},
+                        json.dumps({"output": {"task_id": "task-existing", "task_status": "SUCCEEDED", "video_url": "https://cdn.example/a.mp4"}}).encode(),
+                    )
+                return HTTPResponse(200, {"content-type": "video/mp4"}, b"video")
+
+        transport = Transport()
+        provider = DashScopeVideoProvider(
+            settings,
+            transport=transport,
+            sleep_fn=lambda _: None,
+            media_validator=lambda path: {"valid": path.read_bytes() == b"video"},
+        )
+        result = provider.resume_task(
+            "task-existing",
+            output_dir=root / "outputs",
+            filename="shot.mp4",
+        )
+        assert result.task_id == "task-existing"
+        assert transport.methods == ["GET", "GET"]
