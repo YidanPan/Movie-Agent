@@ -22,6 +22,7 @@ const els = {
   shutter: $(".shutter"),
   btnSound: $("#btn-sound"),
   themeToggle: $("#theme-toggle"),
+  runtimeBuild: $("#runtime-build"),
   themeWash: $("#theme-transition-wash"),
   themeColor: $("meta[name='theme-color']"),
   monitorTc: $("#monitor-tc"),
@@ -5503,6 +5504,10 @@ async function loadHealth() {
   try {
     const response = await fetch("/api/health");
     state.health = await response.json();
+    if (els.runtimeBuild) {
+      const build = String(state.health.build || "dev").trim() || "dev";
+      els.runtimeBuild.textContent = `BUILD ${build.toUpperCase()}`;
+    }
     els.engineLamp?.classList.remove("is-pending", "is-error");
     const text = state.health.text_mode === "modelscope" ? "ModelScope AI 文案" : "mock 文案";
     const video = state.health.video_mode !== "mock" ? "真实视频 Provider" : "mock 视频流程";

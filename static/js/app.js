@@ -33,5 +33,6 @@ window.dispatchEvent(new CustomEvent("movie-agent:modules-ready"));
 
 // Keep one browser entry point.  A classic script tag would execute before
 // this deferred module and race the registry initialization.
-await import("../app.js?v=ui-20260906-signature-motion");
+const build = window.__MOVIE_AGENT_BUILD__ || "dev";
+await import(`../app.js?v=${encodeURIComponent(build)}`);
 

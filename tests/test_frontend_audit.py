@@ -420,12 +420,12 @@ def test_frontend_domain_modules_own_migrated_logic_and_legacy_waits_for_them():
     assert "MovieAgentModules.theme.createThemeController" in APP
     assert "MovieAgentModules.api.requestJSON" in APP
     assert "document.addEventListener(\"DOMContentLoaded\", init" in APP
-    assert 'await import("../app.js?v=ui-20260906-signature-motion")' in (ROOT / "static" / "js" / "app.js").read_text(encoding="utf-8")
+    assert 'await import(`../app.js?v=${encodeURIComponent(build)}`)' in (ROOT / "static" / "js" / "app.js").read_text(encoding="utf-8")
     assert '<script src="/static/app.js?v=ui-20260905-p2"></script>' not in INDEX
 
 
 def test_signature_motion_is_state_driven_and_reduced_motion_safe():
-    assert 'motion.css?v=ui-20260906-signature-motion' in INDEX
+    assert 'motion.css?v=__MOVIE_AGENT_BUILD_VALUE__' in INDEX
     assert "MOTION_TOKENS" in MODULE_MOTION
     assert "triggerDarkroomDevelopment" in MODULE_MOTION
     assert "runSharedFrameTransition" in MODULE_MOTION
@@ -477,4 +477,4 @@ def test_disconnect_safe_job_ledger_is_visible_without_replacing_sse():
     assert "function scheduleJobPolling" in APP
     assert "/api/projects/${encodeURIComponent(requestedProject)}/job" in APP
     assert "RESUME AVAILABLE" in APP
-    assert "p5-20260904" in INDEX
+    assert INDEX.count("?v=__MOVIE_AGENT_BUILD_VALUE__") >= 14

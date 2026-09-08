@@ -1881,6 +1881,14 @@ main {
   line-height: 1.82;
 }
 
+.runtime-build {
+  margin-left: 2px;
+  white-space: nowrap;
+  color: var(--text-meta, var(--dim));
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+}
+
 .manual-panel .screenplay-body {
   padding: 13px 0 5px;
 }

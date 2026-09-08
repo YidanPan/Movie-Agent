@@ -25,7 +25,7 @@ from typing import Any, Literal
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Request, Response
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
@@ -55,6 +55,9 @@ orchestrator = MovieOrchestrator(settings)
 job_ledger = JobLedger(settings.projects_dir)
 
 STATIC_DIR = Path(__file__).parent / "static"
+# Resolved once at process startup so health reporting and asset URLs use the
+# same deployment identity without requiring Git to be available at runtime.
+BUILD_SHA = (os.getenv("APP_BUILD_SHA") or os.getenv("GIT_COMMIT_SHA") or "dev").strip() or "dev"
 # Rendering and media mutation is serialized per project, not globally.  A
 # long ComfyUI job for one film must not block an unrelated project's edit.
 project_locks: dict[str, threading.Lock] = {}
@@ -722,6 +725,7 @@ def health() -> dict:
     checks = runtime_checks()
     return {
         "status": "ok",
+        "build": BUILD_SHA,
         "ready": runtime_ready(checks),
         "checks": checks,
         "text_mode": "modelscope" if orchestrator.using_creative_llm else "mock",
@@ -1954,8 +1958,11 @@ def audio_track_preview(project_id: str, track_key: str):
 
 
 @app.get("/")
-def index() -> FileResponse:
-    return FileResponse(STATIC_DIR / "index.html")
+def index() -> HTMLResponse:
+    # Substitute the process build once at the HTML boundary. Static assets
+    # then share one cache key while the runtime remains independent of Git.
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    return HTMLResponse(html.replace("__MOVIE_AGENT_BUILD_VALUE__", BUILD_SHA))
 
 
 if STATIC_DIR.is_dir():
