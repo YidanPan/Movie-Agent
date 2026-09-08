@@ -26,7 +26,6 @@ from movie_agent.services.audio import (
     EDIT_AUDIO_STAGES,
     apply_audio_track_params,
     ensure_audio_design,
-    mark_audio_stage,
     replan_track,
 )
 from movie_agent.services.music import FileMusicProvider
@@ -104,7 +103,12 @@ class MovieOrchestrator:
             continuity_gate=self.continuity_gate,
             persist=self.store.save,
         )
-        self.edit_pipeline = EditPipeline(self.editor, self.voice_service)
+        self.edit_pipeline = EditPipeline(
+            self.editor,
+            self.voice_service,
+            settings=self.settings,
+            persist=self.store.save,
+        )
 
     def create_project(
         self,
@@ -846,17 +850,9 @@ class MovieOrchestrator:
         track_params: dict[str, dict[str, Any]] | None = None,
     ) -> MovieProject:
         project = self.store.load(project_id)
-        ensure_action_ready(project, self.settings, "START_AI_EDIT")
-        clear_failure(project)
-        self._require_dialogue_locked(project)
-        if not self._shots_ready(project):
-            raise ValueError("All shots must pass QC before AI Edit can start.")
-        # A completed cut can be sent back through AI Edit for a new rough cut
-        # without touching the locked dialogue or regenerating shots.
-        if str(project.status).startswith("completed"):
-            self._invalidate_edit_outputs(project, reason="recut_requested", source="rough_cut")
-        media_status, voice_result = self.edit_pipeline.prepare_media_and_audio(
+        return self.edit_pipeline.create_rough_cut(
             project,
+            progress_callback,
             music_mode=music_mode,
             smart_ducking=smart_ducking,
             music_asset_name=music_asset_name,
@@ -864,78 +860,6 @@ class MovieOrchestrator:
             track_enabled=track_enabled,
             track_params=track_params,
         )
-        project.logs.append(f"Media Pipeline: {media_status}.")
-        project.mix_state["media_mixed"] = False
-        project.mix_state["stage_status"] = {stage: "queued" for stage in EDIT_AUDIO_STAGES}
-        project.mix_state["active_stage"] = "picture_cut"
-        project.status = "editing_rough_cut"
-        project.logs.append(
-            f"Editor Agent: Starting AI Edit with locked dialogue book and subtitle track; sound mode is {project.music_mode.upper()}."
-        )
-        self.store.save(project)
-        mark_audio_stage(project, "picture_cut", "working")
-        self.store.save(project)
-        if progress_callback:
-            progress_callback("Picture Cut: Ordering shots and computing Trim / transitions.")
-        mark_audio_stage(project, "picture_cut", "done")
-        mark_audio_stage(project, "voice", "working")
-        self.store.save(project)
-        project.logs.append("Editor Agent: Shot order, Trim, and transitions complete.")
-        if progress_callback:
-            progress_callback("Voice: Wiring locked narration and Dialogue Book.")
-        if voice_result.media_path:
-            project.logs.append(
-                f"Voice Agent: Continuous English voice ready ({voice_result.duration_seconds:.2f}s measured; subtitle timing aligned)."
-            )
-        else:
-            project.logs.append(
-                f"Voice Agent: Continuous English voice pending provider ({voice_result.error or 'no media renderer configured'})."
-            )
-        self.store.save(project)
-        mark_audio_stage(project, "voice", "done")
-        mark_audio_stage(project, "music", "working")
-        self.store.save(project)
-        project.logs.append("Sound Design Agent: Voice track wired to locked dialogue book.")
-        if progress_callback:
-            progress_callback("Music: Generating Music Brief and Emotional Arc.")
-        mark_audio_stage(project, "music", "done")
-        mark_audio_stage(project, "sfx", "working")
-        self.store.save(project)
-        project.logs.append(
-            f"Sound Design Agent: Music Brief ready ({project.music_brief.get('bpm', 0)} BPM, peak {project.music_brief.get('peak_seconds', 0)}s)."
-        )
-        if progress_callback:
-            progress_callback("SFX: Placing action sound effects and ambience.")
-        mark_audio_stage(project, "sfx", "done")
-        mark_audio_stage(project, "subtitles", "working")
-        self.store.save(project)
-        project.logs.append("Sound Design Agent: SFX and Ambience tracks built from shot sound design cues.")
-        if progress_callback:
-            progress_callback("Subtitles: Wiring locked Subtitle Track.")
-        mark_audio_stage(project, "subtitles", "done")
-        mark_audio_stage(project, "mix", "working")
-        self.store.save(project)
-        project.logs.append(
-            "Editor Agent: Subtitle Track wired to the locked English Dialogue Book; awaiting final output mode."
-        )
-        if progress_callback:
-            progress_callback("Mix: Smart Ducking and four-track mixing in progress.")
-        mark_audio_stage(project, "mix", "done")
-        mark_audio_stage(project, "final_encode", "working")
-        project.mix_state["active_stage"] = "final_encode"
-        project.mix_state["status"] = "MIX COMPLETE · ROUGH CUT ENCODING"
-        project.logs.append(
-            f"Mix Agent: Smart Ducking {'ON' if project.smart_ducking.get('enabled') else 'OFF'}, Music duck {project.smart_ducking.get('amount_db', -8)} dB."
-        )
-        self.store.save(project)
-        project.logs.append(self.editor.create_rough_cut(project))
-        mark_audio_stage(project, "final_encode", "done")
-        project.mix_state["active_stage"] = "final_encode"
-        project.mix_state["status"] = "ROUGH CUT READY"
-        project.status = "rough_cut_ready"
-        project.logs.append("Editor Agent: Rough Cut complete. Preview sound design, re-edit, or approve final cut.")
-        self.store.save(project)
-        return project
 
     def normalize_resolution(self, project_id: str, resolution: str = "1080p") -> MovieProject:
         """Opt-in source normalization before AI Edit / Final Cut."""
