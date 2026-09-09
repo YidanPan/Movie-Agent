@@ -84,6 +84,9 @@ def test_normalized_cache_requires_current_revision_and_generation_hash(tmp_path
     assert len(calls) == 1
     assert shot.media_assets["final_master"]["generation_input_hash"] == "render-b"
     assert shot.media_assets["final_master"]["derivative_input_fingerprint"]
+    assert shot.media_assets["final_master"]["source_signature"]
+    assert shot.media_assets["final_master"]["input_revision"] == 2
+    assert shot.media_assets["final_master"]["input_generation_input_hash"] == "render-b"
 
     editor.normalize_resolution(project)
     assert len(calls) == 1
@@ -94,6 +97,10 @@ def test_normalized_cache_requires_current_revision_and_generation_hash(tmp_path
     shot.media_assets["source"]["generation_input_hash"] = "render-c"
     editor.normalize_resolution(project)
     assert len(calls) == 2
+
+    source.write_bytes(b"source replaced by a new generation")
+    editor.normalize_resolution(project)
+    assert len(calls) == 3
 
 
 def test_timing_cache_requires_persisted_fingerprint(tmp_path, monkeypatch):
@@ -118,6 +125,9 @@ def test_timing_cache_requires_persisted_fingerprint(tmp_path, monkeypatch):
     assert len(calls) == 1
     assert shot.media_assets["timing"]["tier"] == "timing_intermediate"
     assert shot.media_assets["timing"]["generation_input_hash"] == "render-a"
+    assert shot.media_assets["timing"]["source_signature"]
+    assert shot.media_assets["timing"]["input_revision"] == 1
+    assert shot.media_assets["timing"]["input_generation_input_hash"] == "render-a"
 
     assert editor._materialized_shot_paths(project) == [target]
     assert len(calls) == 1
@@ -149,3 +159,62 @@ def test_legacy_timing_file_without_identity_is_not_reused(tmp_path, monkeypatch
 
     assert len(calls) == 1
     assert shot.media_assets["timing"]["derivative_input_fingerprint"]
+
+
+def test_empty_generation_hash_never_becomes_a_cache_wildcard(tmp_path, monkeypatch):
+    project, editor = _editor_project(tmp_path)
+    shot, source = _prepare_source(project, tmp_path, generation_hash="")
+    shot.media_assets["source"]["generation_input_hash"] = ""
+    calls = []
+
+    def fake_run(command_prefix, output):
+        calls.append(list(command_prefix))
+        output.write_bytes(b"derivative")
+        return "test_mezzanine"
+
+    monkeypatch.setattr("movie_agent.agents.editor.asset_record", _fake_asset_record)
+    monkeypatch.setattr(editor, "_run_mezzanine", fake_run)
+
+    editor.normalize_resolution(project)
+    editor.normalize_resolution(project)
+
+    assert len(calls) == 2
+
+
+def test_malformed_timing_identity_is_a_cache_miss(tmp_path, monkeypatch):
+    project, editor = _editor_project(tmp_path)
+    shot, source = _prepare_source(project, tmp_path)
+    shot.source_duration_seconds = 4
+    shot.duration_seconds = 6
+    shot.timing_mode = "extend"
+    target = tmp_path / "outputs" / project.project_id / "timing" / "shot-01-extend-6s-mezzanine.mov"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(b"old derivative")
+    shot.media_assets["timing"] = {
+        "path": str(target),
+        "tier": "timing_intermediate",
+        "revision": "not-a-number",
+        "input_revision": 1,
+        "generation_input_hash": "render-a",
+        "input_generation_input_hash": "render-a",
+        "derivative_kind": "timing",
+        "derivative_input_fingerprint": "old-fingerprint",
+        "input_path": str(source),
+        "timing_mode": "extend",
+        "desired_duration": 6,
+        "native_duration": 4,
+        "source_signature": {"size": source.stat().st_size, "mtime_ns": source.stat().st_mtime_ns},
+        "stale": False,
+    }
+    calls = []
+
+    def fake_run(command_prefix, output):
+        calls.append(list(command_prefix))
+        output.write_bytes(b"new derivative")
+        return "test_mezzanine"
+
+    monkeypatch.setattr(editor, "_run_mezzanine", fake_run)
+    editor._materialized_shot_paths(project)
+
+    assert len(calls) == 1
+    assert shot.media_assets["timing"]["revision"] == 1

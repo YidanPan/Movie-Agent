@@ -102,6 +102,31 @@ class EditorAgent:
             return {}
         return {"size": int(stat.st_size), "mtime_ns": int(stat.st_mtime_ns)}
 
+    @staticmethod
+    def _record_int(record: dict[str, Any], key: str) -> int | None:
+        """Read an integer cache field without turning bad metadata into a crash."""
+
+        try:
+            return int(record.get(key))
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _normalization_source(shot: Any) -> tuple[Path, dict[str, Any] | None]:
+        """Resolve the current source, never falling back to an old derivative."""
+
+        media_assets = getattr(shot, "media_assets", {}) or {}
+        source_record = media_assets.get("source") if isinstance(media_assets, dict) else None
+        if isinstance(source_record, dict) and source_record.get("path"):
+            return Path(str(source_record["path"])), source_record
+        final_record = media_assets.get("final_master") if isinstance(media_assets, dict) else None
+        if isinstance(final_record, dict) and final_record.get("original_path"):
+            # The original path is still useful for regeneration, but a
+            # final-master record is not a source identity fallback. If the
+            # Shot has no generation hash, this deliberately remains a miss.
+            return Path(str(final_record["original_path"])), None
+        return Path(str(getattr(shot, "output_placeholder", ""))), None
+
     @classmethod
     def _derivative_fingerprint(
         cls,
@@ -171,14 +196,18 @@ class EditorAgent:
         )
         if not generation_hash:
             return False
+        source_signature = cls._path_signature(source)
         return (
             not bool(record.get("stale"))
             and str(record.get("tier") or "") == "final_master"
-            and int(record.get("revision", 0) or 0) == cls._shot_revision(shot)
+            and cls._record_int(record, "revision") == cls._shot_revision(shot)
+            and cls._record_int(record, "input_revision") == cls._shot_revision(shot)
             and str(record.get("generation_input_hash") or "") == generation_hash
+            and str(record.get("input_generation_input_hash") or "") == generation_hash
             and str(record.get("derivative_input_fingerprint") or "") == context["fingerprint"]
             and str(Path(str(record.get("path") or "")).resolve()) == str(output.resolve())
             and str(Path(str(record.get("original_path") or "")).resolve()) == str(source.resolve())
+            and record.get("source_signature") == source_signature
             and record.get("derivative_kind") == "resolution_normalize"
         )
 
@@ -213,17 +242,21 @@ class EditorAgent:
         )
         if not generation_hash:
             return False
+        source_signature = cls._path_signature(source)
         return (
             not bool(record.get("stale"))
             and str(record.get("tier") or "") == "timing_intermediate"
-            and int(record.get("revision", 0) or 0) == cls._shot_revision(shot)
+            and cls._record_int(record, "revision") == cls._shot_revision(shot)
+            and cls._record_int(record, "input_revision") == cls._shot_revision(shot)
             and str(record.get("generation_input_hash") or "") == generation_hash
+            and str(record.get("input_generation_input_hash") or "") == generation_hash
             and str(record.get("derivative_input_fingerprint") or "") == fingerprint
             and str(Path(str(record.get("path") or "")).resolve()) == str(output.resolve())
             and str(Path(str(record.get("input_path") or "")).resolve()) == str(source.resolve())
+            and record.get("source_signature") == source_signature
             and record.get("timing_mode") == str(mode)
-            and int(record.get("desired_duration", 0) or 0) == int(desired)
-            and int(record.get("native_duration", 0) or 0) == int(native)
+            and cls._record_int(record, "desired_duration") == int(desired)
+            and cls._record_int(record, "native_duration") == int(native)
         )
 
     def _run_mezzanine(self, command_prefix: list[str], output: Path) -> str:
@@ -362,8 +395,7 @@ class EditorAgent:
         normalized_dir.mkdir(parents=True, exist_ok=True)
         changed = 0
         for shot in project.storyboard:
-            source_record = (getattr(shot, "media_assets", {}) or {}).get("source")
-            source = Path(str(source_record.get("path"))) if isinstance(source_record, dict) and source_record.get("path") else Path(shot.output_placeholder)
+            source, source_record = self._normalization_source(shot)
             if not source.is_file():
                 continue
             native_resolution = None
@@ -414,6 +446,9 @@ class EditorAgent:
                     "derivative_input_fingerprint": normalization_context["fingerprint"],
                     "generation_input_hash": generation_hash,
                     "revision": self._shot_revision(shot),
+                    "input_revision": self._shot_revision(shot),
+                    "input_generation_input_hash": generation_hash,
+                    "source_signature": self._path_signature(source),
                     "stale": False,
                 }
                 shot.output_placeholder = str(output)
@@ -448,6 +483,7 @@ class EditorAgent:
             record["derivative_input_fingerprint"] = normalization_context["fingerprint"]
             record["input_revision"] = self._shot_revision(shot)
             record["input_generation_input_hash"] = generation_hash
+            record["source_signature"] = self._path_signature(source)
             record["target_fps"] = float(target_fps)
             record["asset_role"] = "edit_mezzanine"
             record["encode_profile"] = encode_profile
@@ -535,24 +571,14 @@ class EditorAgent:
             or (item.get("has_audio") and item.get("sample_rate") not in {None, 48000})
             for item in metadata
         )
-        def normalization_source(shot: Any) -> tuple[Path, dict[str, Any] | None]:
-            media_assets = getattr(shot, "media_assets", {}) or {}
-            source_record = media_assets.get("source") if isinstance(media_assets, dict) else None
-            if isinstance(source_record, dict) and source_record.get("path"):
-                return Path(str(source_record["path"])), source_record
-            final_record = media_assets.get("final_master") if isinstance(media_assets, dict) else None
-            if isinstance(final_record, dict) and final_record.get("original_path"):
-                return Path(str(final_record["original_path"])), source_record
-            return Path(str(getattr(shot, "output_placeholder", ""))), source_record
-
         normalized_cache_valid = all(
             self._normalized_cache_is_valid(
                 shot,
                 Path(str(((getattr(shot, "media_assets", {}) or {}).get("final_master") or {}).get("path") or "")),
                 resolution=str(project.target_resolution),
                 target_fps=project.target_fps or 24,
-                source=normalization_source(shot)[0],
-                source_record=normalization_source(shot)[1],
+                source=self._normalization_source(shot)[0],
+                source_record=self._normalization_source(shot)[1],
             )
             for shot in project.storyboard
         )
@@ -663,6 +689,7 @@ class EditorAgent:
                 "revision": self._shot_revision(shot),
                 "input_revision": self._shot_revision(shot),
                 "input_path": str(source),
+                "source_signature": self._path_signature(source),
                 "timing_mode": mode,
                 "desired_duration": desired,
                 "native_duration": native,
@@ -1040,6 +1067,51 @@ class EditorAgent:
         completed = subprocess.run(command, capture_output=True, text=True, check=False)
         return completed.returncode == 0 and final_cut.is_file()
 
+    @staticmethod
+    def _preserve_authoritative_cut(source: Path, destination: Path) -> Path:
+        """Copy the completed mixed cut without retaining a failed partial output."""
+
+        if not source.is_file():
+            raise RuntimeError("Cannot deliver Final Cut: the authoritative mixed Rough Cut is missing.")
+        if source.resolve() == destination.resolve():
+            return destination
+        destination.unlink(missing_ok=True)
+        try:
+            shutil.copy2(source, destination)
+        except OSError as exc:
+            destination.unlink(missing_ok=True)
+            raise RuntimeError(f"Cannot preserve authoritative Final Cut: {exc}") from exc
+        if not destination.is_file():
+            raise RuntimeError("Cannot deliver Final Cut: preserving the authoritative Rough Cut produced no file.")
+        return destination
+
+    @staticmethod
+    def _record_subtitle_delivery(
+        project: MovieProject,
+        *,
+        requested_mode: str,
+        delivered_mode: str,
+        status: str,
+        fallback: bool,
+        reason: str | None,
+        srt_path: Path,
+        vtt_path: Path,
+    ) -> None:
+        delivery = {
+            "requested_mode": requested_mode,
+            "delivered_mode": delivered_mode,
+            "status": status,
+            "fallback": bool(fallback),
+            "srt_path": str(srt_path),
+            "vtt_path": str(vtt_path),
+        }
+        if reason:
+            delivery["reason"] = reason
+        project.edit_plan = {
+            **(project.edit_plan or {}),
+            "subtitle_delivery": delivery,
+        }
+
     def create_rough_cut(self, project: MovieProject) -> str:
         """Build an editable Rough Cut, never a final delivery master."""
 
@@ -1075,18 +1147,22 @@ class EditorAgent:
         self._require_locked_dialogue(project)
         project.subtitle_mode = normalise_subtitle_mode(subtitle_mode or project.subtitle_mode)
         project.script["subtitle_mode"] = project.subtitle_mode
-        srt_path, _ = self.write_subtitle_exports(project)
+        srt_path, vtt_path = self.write_subtitle_exports(project)
         output_dir = self._output_dir(project)
         rough_path = output_dir / "rough-cut-mezzanine.mov"
         if not rough_path.is_file():
             self._concat_media(project, rough_path)
         self._mix_audio(project, rough_path)
         final_cut = output_dir / "final-cut-mezzanine.mov"
+        requested_mode = project.subtitle_mode
+        delivered_mode = "none"
+        subtitle_fallback = False
+        fallback_reason: str | None = None
 
-        if project.subtitle_mode == "burned":
+        if requested_mode == "burned":
             # Burn-in is best-effort because font packages differ between the
-            # local machine and Spark. A clean concat fallback still leaves
-            # the canonical SRT sidecar available for review.
+            # local machine and Spark. A clean copy of the authoritative mixed
+            # cut still leaves the canonical SRT/VTT sidecars available.
             try:
                 self._run_mezzanine(
                     [
@@ -1102,20 +1178,49 @@ class EditorAgent:
                     final_cut,
                 )
             except RuntimeError:
-                self._concat_media(project, final_cut)
-        elif project.subtitle_mode == "soft":
+                self._preserve_authoritative_cut(rough_path, final_cut)
+                subtitle_fallback = True
+                fallback_reason = "burn_in_failed"
+                project.logs.append(
+                    "Editor Agent: Burned subtitle render failed; preserved mixed Final Cut and delivered SRT/VTT sidecars."
+                )
+            else:
+                delivered_mode = "burned"
+        elif requested_mode == "soft":
             # Prefer a selectable MP4 subtitle stream while keeping canonical
             # SRT/VTT sidecars available for external players and delivery.
             if not self._mux_soft_subtitles(rough_path, srt_path, final_cut):
-                self._concat_media(project, final_cut)
+                self._preserve_authoritative_cut(rough_path, final_cut)
+                subtitle_fallback = True
+                fallback_reason = "soft_mux_failed"
+                project.logs.append(
+                    "Editor Agent: Soft subtitle mux failed; preserved mixed Final Cut and delivered SRT/VTT sidecars."
+                )
+            else:
+                delivered_mode = "soft"
         else:
             # none mode delivers the clean picture and retains exports for
             # users who want to add subtitles later.
-            shutil.copy2(rough_path, final_cut)
+            self._preserve_authoritative_cut(rough_path, final_cut)
+        self._record_subtitle_delivery(
+            project,
+            requested_mode=requested_mode,
+            delivered_mode=delivered_mode,
+            status="FALLBACK" if subtitle_fallback else "READY",
+            fallback=subtitle_fallback,
+            reason=fallback_reason,
+            srt_path=srt_path,
+            vtt_path=vtt_path,
+        )
         project.final_output_placeholder = str(final_cut)
         self._register_cut_assets(project, final_cut, include_master=True)
         project.edit_plan = {**(project.edit_plan or {}), "status": "final_approved", "approved": True}
-        return f"Editor Agent: Assembled {len(project.storyboard)} shots with FFmpeg (subtitle mode: {project.subtitle_mode})."
+        if subtitle_fallback:
+            return (
+                f"Editor Agent: Assembled {len(project.storyboard)} shots with FFmpeg "
+                f"(requested subtitle mode: {requested_mode}; delivered clean Final Cut + subtitle sidecars)."
+            )
+        return f"Editor Agent: Assembled {len(project.storyboard)} shots with FFmpeg (subtitle mode: {delivered_mode})."
 
     def apply_final_look(self, project: MovieProject, look: dict[str, Any], source_path: Path) -> Path | None:
         """Render an applied whole-film look when a real Final Cut exists."""
