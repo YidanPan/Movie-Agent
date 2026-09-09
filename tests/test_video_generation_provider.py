@@ -777,6 +777,8 @@ def test_generation_persists_exact_provider_fingerprint_with_task_identity():
         assert saved[0]["provider_task_request_fingerprint"] == shot.media_generation["request"]["provider_request_fingerprint"]
         assert saved[0]["provider_task_request_fingerprint"]
         assert saved[0]["provider_seed"] == shot.media_generation["request"]["provider_seed"]
+        assert shot.media_assets["source"]["provider_request_fingerprint"] == saved[0]["provider_task_request_fingerprint"]
+        assert shot.media_assets["source"]["generation_input_hash"] == shot.generation_input_hash
 
 
 def test_generation_resumes_same_exact_provider_request_without_second_submit():
@@ -802,6 +804,7 @@ def test_generation_resumes_same_exact_provider_request_without_second_submit():
             )
         assert provider.submits == 1
         assert provider.calls == ["resume:fake-task-1"]
+        assert shot.media_assets["source"]["provider_request_fingerprint"] == shot.media_generation["provider_task_request_fingerprint"]
 
 
 def test_generation_fails_closed_for_inflight_provider_fingerprint_mismatch():

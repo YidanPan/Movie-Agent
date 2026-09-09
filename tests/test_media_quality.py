@@ -29,6 +29,18 @@ class MediaQualityTests(unittest.TestCase):
             self.assertFalse(record["exists"])
             self.assertEqual(record["quality"], "QUALITY UNKNOWN")
 
+    def test_asset_record_keeps_optional_provider_request_fingerprint(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            path = Path(temporary_directory) / "missing.mp4"
+            with_fingerprint = asset_record(
+                path,
+                tier="source",
+                provider_request_fingerprint="abc123",
+            )
+            without_fingerprint = asset_record(path, tier="source")
+            self.assertEqual(with_fingerprint["provider_request_fingerprint"], "abc123")
+            self.assertEqual(without_fingerprint["provider_request_fingerprint"], "")
+
     def test_normalized_low_res_source_is_labeled_conform_not_upscaled(self) -> None:
         with TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)

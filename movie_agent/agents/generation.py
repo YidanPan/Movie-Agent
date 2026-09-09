@@ -734,6 +734,9 @@ class GenerationAgent:
             revision=shot.revision,
             prompt_hash=shot.prompt_hash or hash_shot_prompt(shot),
             generation_input_hash=shot.generation_input_hash,
+            provider_request_fingerprint=str(
+                shot.media_generation.get("provider_task_request_fingerprint") or ""
+            ),
             provider=provider_name,
             model=provider_model or (self.settings.comfy_workflow_template if is_comfyui else provider_name) or provider_name,
             seed=shot.seed,
