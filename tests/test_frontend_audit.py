@@ -290,14 +290,30 @@ def test_global_header_keeps_left_and_right_tracks_stable_when_pipeline_is_hidde
     assert 'class="sound-toggle mono type-control"' in INDEX
     assert 'class="theme-toggle mono type-control"' in INDEX
     assert 'class="rec-clock mono"' in INDEX
-    assert "grid-template-columns: minmax(190px, max-content) minmax(0, 1fr) 334px;" in CSS
+    assert "grid-template-columns: minmax(190px, max-content) minmax(0, 1fr) max-content;" in CSS
     assert ".header-left { justify-self: start" in CSS
-    assert ".header-center { justify-self: center" in CSS
-    assert ".header-right" in CSS and "justify-self: end" in CSS
+    assert ".header-center" in CSS and "justify-self: stretch" in CSS
+    assert "overflow: hidden;" in CSS
+    assert "max-width: 100%;" in CSS
+    assert "flex-wrap: nowrap;" in CSS
+    assert "body[data-design=\"archive-console\"] .header-center { display: none; }" in CSS
     assert "min-width: 72px" in CSS
     assert "min-width: 92px" in CSS
     assert "flex: 0 0 138px" in CSS
     assert 'body[data-view="landing"] .pipeline { visibility: hidden' in CSS
+
+
+def test_global_header_preserves_full_build_identity_without_rendering_a_long_sha():
+    assert "function formatRuntimeBuild(build)" in APP
+    assert "fullBuild.slice(0, 7).toUpperCase()" in APP
+    assert 'fullBuild.toLowerCase() === "dev"' in APP
+    assert "els.runtimeBuild.textContent = `BUILD ${shortBuild}`" in APP
+    assert 'els.runtimeBuild.title = `Build ${fullBuild}`' in APP
+    assert 'els.runtimeBuild.setAttribute("aria-label", `Build ${fullBuild}`)' in APP
+    assert "els.runtimeBuild.textContent = `BUILD ${build.toUpperCase()}`" not in APP
+    assert "@media (max-width: 1320px)" in CSS
+    assert "body[data-design=\"archive-console\"] .runtime-build { display: none; }" in CSS
+    assert "@media (max-width: 1199px)" in CSS
 
 
 def test_production_desk_monitor_is_embedded_hardware_with_collapsed_activity():

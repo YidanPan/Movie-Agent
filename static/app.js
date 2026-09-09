@@ -3534,6 +3534,14 @@ function updatePipelineForProject(project) {
   setPipeline(pipelineFromProject(project, state.hasFinalVideo));
 }
 
+function formatRuntimeBuild(build) {
+  const fullBuild = String(build || "dev").trim() || "dev";
+  const shortBuild = fullBuild.toLowerCase() === "dev"
+    ? "DEV"
+    : fullBuild.slice(0, 7).toUpperCase();
+  return { fullBuild, shortBuild };
+}
+
 function realVideoProviderReady() {
   const mode = String(state.health?.video_mode || "mock").toLowerCase();
   return mode !== "mock" && state.health?.checks?.video_provider?.ok === true;
@@ -5505,8 +5513,10 @@ async function loadHealth() {
     const response = await fetch("/api/health");
     state.health = await response.json();
     if (els.runtimeBuild) {
-      const build = String(state.health.build || "dev").trim() || "dev";
-      els.runtimeBuild.textContent = `BUILD ${build.toUpperCase()}`;
+      const { fullBuild, shortBuild } = formatRuntimeBuild(state.health.build);
+      els.runtimeBuild.textContent = `BUILD ${shortBuild}`;
+      els.runtimeBuild.title = `Build ${fullBuild}`;
+      els.runtimeBuild.setAttribute("aria-label", `Build ${fullBuild}`);
     }
     els.engineLamp?.classList.remove("is-pending", "is-error");
     const text = state.health.text_mode === "modelscope" ? "ModelScope AI 文案" : "mock 文案";
