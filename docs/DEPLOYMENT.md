@@ -19,21 +19,34 @@ uvicorn server:app --host 0.0.0.0 --port ${PORT:-7860} --workers 1
 比赛部署保持单进程账本策略，不启用 Redis / Celery。使用 FastAPI 入口时必须保持一个 Uvicorn worker：
 
 ```bash
-uvicorn server:app --host 0.0.0.0 --port 9071 --workers 1
+uvicorn server:app --host 0.0.0.0 --port ${PORT:-7860} --workers 1
 ```
 
 `JobLedger` 的跨请求保护依赖同一进程内的锁；多 worker 会让不同进程看到不一致的 process-local lock。产品化部署再评估 SQLite lease、file lock 或外部队列。
 
 ## 3. 添加 Secrets
 
-在创空间的环境变量 / Secrets 中设置：
+创空间可以先用完全离线的 mock 配置启动；只有明确启用真实文本或视频生成时才需要对应密钥。建议设置：
 
 ```text
-MODEL_PROVIDER=modelscope
-MODELSCOPE_API_KEY=<仅在创空间后台填写>
-MODELSCOPE_API_BASE=https://api-inference.modelscope.cn/v1
-MODELSCOPE_MODEL=Qwen/Qwen3-30B-A3B-Instruct-2507
+MODEL_PROVIDER=mock
+IMAGE_GENERATION_MODE=mock
+VIDEO_GENERATION_MODE=mock
+PROJECTS_DIR=/mnt/workspace/projects
+OUTPUTS_DIR=/mnt/workspace/outputs
 PORT=7860
+
+# 需要真实文本创作时再配置；不要提交真实值。
+# MODEL_PROVIDER=modelscope
+# MODELSCOPE_API_KEY=<仅在创空间后台填写>
+# MODELSCOPE_API_BASE=https://api-inference.modelscope.cn/v1
+# MODELSCOPE_MODEL=Qwen/Qwen3-30B-A3B-Instruct-2507
+
+# 需要真实 Wan 视频时再配置；不要提交真实值。
+# VIDEO_GENERATION_MODE=remote
+# REMOTE_VIDEO_API_BASE=<Beijing workspace API base>
+# REMOTE_VIDEO_MODEL=wan2.7-t2v
+# REMOTE_VIDEO_API_KEY=<仅在创空间后台填写>
 ```
 
 不要把 Key 填进 Git、README、网页日志或项目导出文件。

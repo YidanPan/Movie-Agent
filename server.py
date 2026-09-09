@@ -2,7 +2,7 @@
 
 Run locally or on Spark:
     python server.py
-Then visit http://127.0.0.1:9071 (port follows the PORT env variable).
+Then visit http://127.0.0.1:7860 (port follows the PORT env variable).
 
 The Gradio app.py remains a fallback entry point; this server delivers the
 complete three-act experience.
@@ -720,6 +720,7 @@ def run_with_sse(
     )
 
 
+@app.get("/health")
 @app.get("/api/health")
 def health() -> dict:
     checks = runtime_checks()

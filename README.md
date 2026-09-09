@@ -140,7 +140,7 @@ python -m pip install -r requirements.txt
 python server.py
 ```
 
-访问 `http://127.0.0.1:9071`。这是「黑场放映室」风格的三幕式界面：第一幕输入创意并开机，第二幕实时观看七位 Agent 剧组成员集结交付，第三幕在分镜墙审阅每个镜头、在制作手册编辑并锁定台词、在监视器看到 `SHOTS READY` 后启动 AI Edit，并在 Final Cut Screening Room 预览 Rough Cut、审片、跳转镜头、选择字幕模式、批准最终成片和导出档案。创作、渲染和粗剪过程通过 SSE 流式推送，进度与镜头状态实时刷新。
+访问 `http://127.0.0.1:7860`。这是「黑场放映室」风格的三幕式界面：第一幕输入创意并开机，第二幕实时观看七位 Agent 剧组成员集结交付，第三幕在分镜墙审阅每个镜头、在制作手册编辑并锁定台词、在监视器看到 `SHOTS READY` 后启动 AI Edit，并在 Final Cut Screening Room 预览 Rough Cut、审片、跳转镜头、选择字幕模式、批准最终成片和导出档案。创作、渲染和粗剪过程通过 SSE 流式推送，进度与镜头状态实时刷新。
 
 ### Gradio 简版（创空间保底）
 
@@ -148,9 +148,9 @@ python server.py
 python app.py
 ```
 
-创空间部署仍以 `app.py` 为入口（见 docs/DEPLOYMENT.md）；Gradio 保底页也提供台词本编辑/锁定、Rough Cut、字幕模式与 SRT/VTT 导出控制。本地演示、录屏与 Spark 真实生成建议使用 `python server.py`，后者提供完整的 SSE 片场交互。两者共享同一套 orchestrator、项目存档与导出逻辑。
+创空间 Docker 部署以 `server.py` 的 FastAPI 入口为主；`app.py` 仅保留为兼容入口。Gradio 保底页也提供台词本编辑/锁定、Rough Cut、字幕模式与 SRT/VTT 导出控制。本地演示、录屏与 Spark 真实生成建议使用 `python server.py`，后者提供完整的 SSE 片场交互。两者共享同一套 orchestrator、项目存档与导出逻辑。
 
-Windows 上启动后访问 `http://127.0.0.1:9071`。其他系统请按其终端语法激活 `.venv`。
+Windows 上启动后访问 `http://127.0.0.1:7860`。其他系统请按其终端语法激活 `.venv`。
 
 ## 部署与参赛
 
@@ -170,7 +170,7 @@ Windows 上启动后访问 `http://127.0.0.1:9071`。其他系统请按其终端
 | 视觉质检 | `MODELSCOPE_VISION_MODEL`、`VISION_KEYFRAMES_PER_SHOT` |
 | V0.3 图片参考/关键帧 | `IMAGE_GENERATION_MODE=modelscope`、`MODELSCOPE_IMAGE_MODEL`、`MEDIA_POLL_SECONDS`、`MEDIA_MAX_POLLS` |
 
-令牌只能放在 `.env` 或平台密文中，不能提交到 Git。默认服务端口是 `9071`，默认 ComfyUI 地址是 `http://127.0.0.1:8188`。
+令牌只能放在 `.env` 或平台密文中，不能提交到 Git。默认服务端口是 `7860`，默认 ComfyUI 地址是 `http://127.0.0.1:8188`。
 
 ## 项目结构
 
@@ -340,7 +340,7 @@ copy .env.example .env  # Windows; use cp on Linux/macOS
 python server.py
 ```
 
-Open `http://127.0.0.1:9071`. The FastAPI interface provides the cinematic three-act workspace, SSE progress updates, shot timeline, monitor, screenplay lock/editor, prominent `SHOTS READY → AI Edit` entry point, Rough Cut preview, Final Cut Screening Room, real-video metadata, shot jumping, export presets, subtitle mode selection, premiere flow, and project exports. The Gradio `app.py` fallback also exposes dialogue/subtitle editing and locking, Rough Cut, approval, subtitle mode, and SRT/VTT delivery controls for a Space deployment.
+Open `http://127.0.0.1:7860`. The FastAPI interface provides the cinematic three-act workspace, SSE progress updates, shot timeline, monitor, screenplay lock/editor, prominent `SHOTS READY → AI Edit` entry point, Rough Cut preview, Final Cut Screening Room, real-video metadata, shot jumping, export presets, subtitle mode selection, premiere flow, and project exports. The Gradio `app.py` fallback also exposes dialogue/subtitle editing and locking, Rough Cut, approval, subtitle mode, and SRT/VTT delivery controls for a Space deployment.
 
 ### Configuration and Compliance
 
