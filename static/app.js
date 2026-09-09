@@ -1579,7 +1579,7 @@ function renderTimeline(project) {
     segment.style.flexGrow = String(Math.max(1, shot.duration_seconds || 1));
     segment.title = `镜头 ${shot.number} · ${shot.duration_seconds} 秒 · ${shotStateInfo(shot).label}`;
     segment.setAttribute("aria-label", segment.title);
-    segment.innerHTML = `<span>${String(shot.number).padStart(2, "0")}</span><span class="timeline-mode">${timingModeLabel(shot)}</span><i class="timeline-resize-handle" title="拖动调整镜头时长" aria-label="拖动调整镜头时长"></i>`;
+    segment.innerHTML = `<span class="timeline-shot-no">${String(shot.number).padStart(2, "0")}</span><span class="timeline-mode">${timingModeLabel(shot)}</span><i class="timeline-resize-handle" title="拖动调整镜头时长" aria-label="拖动调整镜头时长"></i>`;
     segment.addEventListener("click", () => openDrawer(project, shot.number));
     const handle = segment.querySelector(".timeline-resize-handle");
     handle?.addEventListener("pointerdown", (event) => {

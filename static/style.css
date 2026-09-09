@@ -3119,8 +3119,12 @@ body[data-view="landing"] .pipeline { visibility: hidden; pointer-events: none; 
 
 .timeline-segment {
   position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   min-width: 14px;
-  padding: 0;
+  padding: 0 28px 0 12px;
   border: 0;
   border-radius: 3px;
   background: var(--line);
@@ -3129,14 +3133,27 @@ body[data-view="landing"] .pipeline { visibility: hidden; pointer-events: none; 
 }
 
 .timeline-segment span {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
+  position: static;
+  inset: auto;
+  display: block;
   font-style: normal;
   font-size: 0.58rem;
   letter-spacing: 0.1em;
   color: var(--dim);
+}
+
+.timeline-segment > .timeline-shot-no {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.timeline-segment > .timeline-mode {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .timeline-segment:hover, .timeline-segment:focus-visible { transform: translateY(-2px); box-shadow: 0 6px 14px rgba(0, 0, 0, 0.4); }

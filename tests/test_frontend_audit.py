@@ -213,6 +213,17 @@ def test_sound_console_timeline_is_media_synced_and_semantically_sized():
     assert "{ length: 48 }" in APP
 
 
+def test_edit_timeline_labels_have_separate_flexible_regions():
+    assert 'class="timeline-shot-no"' in APP
+    assert 'class="timeline-mode"' in APP
+    assert 'class="timeline-resize-handle"' in APP
+    assert ".timeline-segment > .timeline-shot-no" in CSS
+    assert "flex: 0 0 auto" in CSS
+    assert ".timeline-segment > .timeline-mode" in CSS
+    assert "text-overflow: ellipsis" in CSS
+    assert "white-space: nowrap" in CSS
+
+
 def test_homepage_production_route_uses_three_equal_semantic_stages():
     assert 'class="production-route"' in INDEX
     assert 'class="production-ruler"' in INDEX
