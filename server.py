@@ -205,9 +205,11 @@ def _client_identity(request: Request) -> str:
 
 
 def _rate_bucket(request: Request) -> str | None:
-    if request.method not in {"POST", "PUT", "PATCH", "DELETE"}:
-        return None
     path = request.url.path
+    mutating_method = request.method in {"POST", "PUT", "PATCH", "DELETE"}
+    mutating_export = request.method == "GET" and path.endswith(("/export/json", "/export/markdown"))
+    if not mutating_method and not mutating_export:
+        return None
     if path == "/auth/login":
         return "login"
     if not path.startswith("/api/"):
@@ -293,6 +295,9 @@ def _apply_security_headers(response: Response) -> Response:
 async def public_security_boundary(request: Request, call_next):
     path = request.url.path
     protected = _protected_path(path)
+    mutating_request = request.method in {"POST", "PUT", "PATCH", "DELETE"} or (
+        request.method == "GET" and path.endswith(("/export/json", "/export/markdown"))
+    )
     configured_token = bool(_app_access_token())
     auth_required = protected and (configured_token or _public_demo_mode() or (path.startswith("/api/v1") and bool(getattr(settings, "evaluator_api_token", None))))
 
@@ -301,7 +306,7 @@ async def public_security_boundary(request: Request, call_next):
     if auth_required and not _request_authenticated(request):
         code = "PUBLIC_DEMO_AUTH_REQUIRED" if _public_demo_mode() and not configured_token else "AUTH_REQUIRED"
         return _apply_security_headers(_auth_response(status_code=503 if code != "AUTH_REQUIRED" else 401, code=code))
-    if request.method in {"POST", "PUT", "PATCH", "DELETE"} and protected and request.cookies.get(SESSION_COOKIE_NAME) and not _csrf_origin_allowed(request):
+    if mutating_request and protected and request.cookies.get(SESSION_COOKIE_NAME) and not _csrf_origin_allowed(request):
         return _apply_security_headers(JSONResponse({"error": "Same-origin request required.", "error_code": "CSRF_ORIGIN_REJECTED"}, status_code=403))
 
     bucket = _rate_bucket(request)
