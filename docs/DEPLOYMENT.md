@@ -1,15 +1,40 @@
 # 魔搭创空间部署清单
 
+## 0. Stage 5B production release contract
+
+The accepted production target is the private Docker Studio
+`LuckyPan/Movie-Agent`. Keep the Studio private during acceptance and do not
+expose it publicly until a separate authentication review approves every
+mutation route. The target must run the `master` branch on the free
+`platform/2v-cpu-16g-mem` resource, listen on `0.0.0.0:7860`, and use
+`/mnt/workspace` for durable state.
+
+The release-safe baseline is deliberately offline and Mock-only:
+
+```text
+MODEL_PROVIDER=mock
+IMAGE_GENERATION_MODE=mock
+VIDEO_GENERATION_MODE=mock
+PROJECTS_DIR=/mnt/workspace/projects
+OUTPUTS_DIR=/mnt/workspace/outputs
+COMFY_OUTPUT_DIR=/mnt/workspace/comfy-output
+PORT=7860
+```
+
+Do not submit a real text, image, voice, ComfyUI, Wan, or other provider
+generation request as part of Stage 5B. Real-provider credentials remain
+optional and require a separately approved smoke test.
+
 ## 1. 推送代码
 
 将仓库推送到 GitHub。不要提交 `.env`、`models/`、`outputs/` 或 `projects/`。
 
 ## 2. 创建创空间
 
-主部署使用 Docker Studio，运行 FastAPI `server.py`；Gradio `app.py` 仅作为 fallback / compatibility 入口。Docker 启动命令为：
+主部署使用 Docker Studio，运行 FastAPI `server.py`；Gradio `app.py` 仅作为 fallback / compatibility 入口。Docker 启动命令为（先做固定、无网络的运行时自检）：
 
 ```bash
-uvicorn server:app --host 0.0.0.0 --port ${PORT:-7860} --workers 1
+python scripts/stage5a_runtime_check.py && uvicorn server:app --host 0.0.0.0 --port ${PORT:-7860} --workers 1
 ```
 
 依赖文件仍为 `requirements.txt`。
@@ -24,7 +49,7 @@ uvicorn server:app --host 0.0.0.0 --port ${PORT:-7860} --workers 1
 
 `JobLedger` 的跨请求保护依赖同一进程内的锁；多 worker 会让不同进程看到不一致的 process-local lock。产品化部署再评估 SQLite lease、file lock 或外部队列。
 
-## 3. 添加 Secrets
+## 3. 添加 Variables / Secrets
 
 创空间可以先用完全离线的 mock 配置启动；只有明确启用真实文本或视频生成时才需要对应密钥。建议设置：
 
@@ -53,7 +78,8 @@ PORT=7860
 
 ## 4. 验收
 
-- 应用可以公开打开。
+- Studio 保持 private；匿名访问被平台拒绝是预期的安全边界，不作为失败。
+- `GET /health`、`GET /api/health` 和 `GET /api/health/ready` 在目标容器内返回健康/ready；外部探针按平台认证边界配置。
 - 输入原创科幻创意后，页面出现项目设定、剧本、按镜头拆分的 Dialogue Book / Subtitle Track、视觉卡、6–10 个分镜和任务日志。
 - 能在编剧阶段编辑并锁定台词本；未锁定前不得进入配音、字幕和 AI Edit。
 - 全部镜头通过质检后显示 `SHOTS READY`，先生成可预览的 Rough Cut，再明确批准最终成片。
@@ -66,6 +92,28 @@ PORT=7860
 - 能打开已保存项目，且可导出 JSON 与 Markdown。
 - 无 API Key 时仍可切换为 mock 模式演示。
 - 视频能力未就绪时，页面明确标注为 mock 视频流程，不能将占位路径宣传为真实成片。
+
+### 持久化、重启与恢复
+
+- `/mnt/workspace/projects`：项目 JSON、`project.json.bak`、`job.json` 和恢复所需的 Job Ledger。
+- `/mnt/workspace/outputs`：用户上传音频、Source、Proxy、Screening Preview、Final Master 及导出产物；可重建的派生媒体仍保留版本元数据。
+- `/mnt/workspace/comfy-output`：仅在后续启用 Spark/ComfyUI 时使用的 Provider 输出目录。
+- `/tmp` 与容器工作目录：临时上传文件、锁和缓存，重启后不得视为可靠数据。
+
+容器启动时 `scripts/stage5a_runtime_check.py` 会固定检查 FFmpeg、FFprobe、应用路由、静态资源和 `/mnt/workspace` 写读能力，并维护重启 marker。看到
+`persistence_marker_previous=PRESENT` 与 `persistence_survived_restart=PASS`
+后，才可把恢复链路视为通过。任务中断后先读取
+`GET /api/projects/<project_id>/job?after=0&limit=40`，确认
+`RECOVERABLE_FAILED / RESUME AVAILABLE`，再由操作者显式重试；不要通过删除
+`project.json` 或 `job.json` 来“恢复”。
+
+### 发布后最小检查
+
+1. 确认 `master` 已部署、启动日志包含 `Application startup complete`。
+2. 确认 Stage 5A 自检的所有 `PASS` 项，以及 `/mnt/workspace` marker 已跨重启保留。
+3. 在 Mock 模式创建一个测试项目，读取项目、诊断、Job Ledger、导出 JSON/Markdown；不调用真实 Provider。
+4. 确认无 Key 时文本/图片/视频能力仍为 Mock 或明确 `PROVIDER REQUIRED`，而不是伪造媒体。
+5. 记录构建 SHA、目标 URL 的认证结果、健康结果和测试项目清理决定。
 
 ### P4 运行诊断与交付预检
 

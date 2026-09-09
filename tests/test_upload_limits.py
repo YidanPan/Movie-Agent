@@ -50,3 +50,27 @@ def test_audio_upload_rejects_declared_oversize(monkeypatch):
             headers={"x-filename": "oversize.wav"},
         )
         assert response.status_code == 413
+
+
+def test_audio_upload_filename_cannot_escape_project_output_directory(monkeypatch):
+    with TemporaryDirectory() as temporary_directory:
+        root = Path(temporary_directory)
+        settings = Settings(
+            "http://127.0.0.1:8188", 900, root / "workflows", 9071, root / "projects", True,
+            outputs_dir=root / "outputs", max_upload_mb=1,
+        )
+        orchestrator = MovieOrchestrator(settings)
+        project = orchestrator.create_project("A night watchman follows a signal beyond the moon.", 48, "film sci-fi")
+        monkeypatch.setattr(server, "orchestrator", orchestrator)
+        monkeypatch.setattr(server, "settings", settings)
+        monkeypatch.setattr(server, "job_ledger", JobLedger(settings.projects_dir))
+
+        response = TestClient(server.app).post(
+            f"/api/projects/{project.project_id}/audio/upload",
+            content=b"safe audio bytes",
+            headers={"x-filename": "../../outside.wav"},
+        )
+
+        assert response.status_code == 200
+        assert (root / "outputs" / project.project_id / "audio" / "outside.wav").is_file()
+        assert not (root / "outputs" / "outside.wav").exists()

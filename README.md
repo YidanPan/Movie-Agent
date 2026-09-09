@@ -4,6 +4,32 @@
 
 面向 ModelScope「AI + 影视流」比赛的电影 Agent MVP。输入一句原创科幻创意，应用会生成项目设定、短剧本、按镜头拆分的台词本/字幕轨、视觉设定和可供 ComfyUI 执行的结构化分镜。
 
+## Production release contract
+
+The current production acceptance target is the private ModelScope Docker
+Studio `LuckyPan/Movie-Agent` on the `master` branch and free
+`platform/2v-cpu-16g-mem` hardware. It listens on `0.0.0.0:7860` and stores
+state under the persistent `/mnt/workspace` mount. The accepted Stage 5B
+configuration is Mock-only and offline:
+
+```text
+MODEL_PROVIDER=mock
+IMAGE_GENERATION_MODE=mock
+VIDEO_GENERATION_MODE=mock
+PROJECTS_DIR=/mnt/workspace/projects
+OUTPUTS_DIR=/mnt/workspace/outputs
+COMFY_OUTPUT_DIR=/mnt/workspace/comfy-output
+PORT=7860
+```
+
+Run `python scripts/stage5a_runtime_check.py` before the server and verify
+FFmpeg/FFprobe, local health routes, static assets, and the restart marker.
+Keep the Studio private: the application has multiple mutation routes and a
+public exposure is not approved without a separate authentication review.
+See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) and
+[docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md) for the release and
+recovery runbook.
+
 默认是 **mock 制作模式**：不会调用 ComfyUI 或下载模型，但会完整模拟“规划 → 镜头生成 → 质检 → AI Edit 粗剪 → 最终批准”的状态流，并保存每个镜头的任务状态。Spark 上将 `VIDEO_GENERATION_MODE=comfyui` 后，页面会逐镜提交已验证的 MiniMax-H3 工作流；所有镜头通过质检后先进入 `6/6 SHOTS READY`，由用户启动 AI Edit Rough Cut，再选择字幕模式并批准最终 FFmpeg 成片。
 
 ## 工作流

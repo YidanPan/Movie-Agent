@@ -15,6 +15,20 @@ def test_health_probe_is_lightweight_and_available_at_standard_path():
     assert "Authorization" not in response.text
 
 
+def test_mock_release_fails_closed_before_video_generation(monkeypatch):
+    import server
+    from dataclasses import replace
+
+    server_settings = replace(server.settings, video_generation_mode="mock")
+    # Keep this a route-boundary test even when a developer's local .env uses
+    # a real renderer for separate, explicitly approved work.
+    monkeypatch.setattr(server, "settings", server_settings)
+    response = TestClient(app).post("/api/projects/nonexistent/render/stream")
+
+    assert response.status_code == 400
+    assert "mock mode" in response.json()["error"].lower()
+
+
 def test_root_and_static_frontend_are_served_same_origin():
     client = TestClient(app)
 
