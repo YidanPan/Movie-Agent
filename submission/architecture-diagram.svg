@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="820" viewBox="0 0 1400 820" role="img" aria-labelledby="title desc">
+  <title id="title">Movie-Agent production architecture</title>
+  <desc id="desc">User interface, FastAPI, orchestrator, seven agents, provider adapters, media pipeline, persistence, and ModelScope Docker runtime.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#334155"/></marker>
+    <style>
+      .box { fill:#f8fafc; stroke:#334155; stroke-width:2; rx:14; }
+      .accent { fill:#e0f2fe; stroke:#0369a1; stroke-width:2; rx:14; }
+      .store { fill:#fef3c7; stroke:#92400e; stroke-width:2; rx:14; }
+      .label { font: 600 22px system-ui, sans-serif; fill:#0f172a; text-anchor:middle; }
+      .small { font: 16px system-ui, sans-serif; fill:#334155; text-anchor:middle; }
+      .line { stroke:#334155; stroke-width:2.5; fill:none; marker-end:url(#arrow); }
+      .dashed { stroke-dasharray:8 7; }
+    </style>
+  </defs>
+  <rect width="1400" height="820" fill="#ffffff"/>
+  <text x="700" y="42" class="label" font-size="28">Movie-Agent · Submission Architecture</text>
+
+  <rect x="70" y="95" width="240" height="100" class="accent"/>
+  <text x="190" y="135" class="label">User / Reviewer</text>
+  <text x="190" y="165" class="small">brief · review · deliver</text>
+
+  <rect x="390" y="95" width="260" height="100" class="accent"/>
+  <text x="520" y="135" class="label">Native Frontend</text>
+  <text x="520" y="165" class="small">PLAN · PREVIS · RENDER · DELIVER</text>
+
+  <rect x="730" y="95" width="270" height="100" class="accent"/>
+  <text x="865" y="135" class="label">FastAPI Server</text>
+  <text x="865" y="165" class="small">API · health · streaming jobs</text>
+
+  <rect x="1050" y="95" width="280" height="100" class="accent"/>
+  <text x="1190" y="135" class="label">ModelScope Docker</text>
+  <text x="1190" y="165" class="small">0.0.0.0:7860 · private Studio</text>
+
+  <path d="M310 145 H390" class="line"/><path d="M650 145 H730" class="line"/><path d="M1000 145 H1050" class="line"/>
+
+  <rect x="475" y="265" width="450" height="105" class="box"/>
+  <text x="700" y="307" class="label">MovieOrchestrator</text>
+  <text x="700" y="338" class="small">revision · idempotency · ledger · recovery</text>
+  <path d="M865 195 V265" class="line"/>
+
+  <rect x="70" y="445" width="1260" height="150" class="box"/>
+  <text x="700" y="480" class="label">Seven Application Agents</text>
+  <text x="205" y="535" class="small">Director</text><text x="355" y="535" class="small">Writer</text>
+  <text x="520" y="535" class="small">Visual Bible</text><text x="700" y="535" class="small">Storyboard</text>
+  <text x="875" y="535" class="small">Generation</text><text x="1045" y="535" class="small">Reviewer</text><text x="1200" y="535" class="small">Editor</text>
+  <path d="M700 370 V445" class="line"/>
+
+  <rect x="70" y="665" width="300" height="105" class="store"/>
+  <text x="220" y="705" class="label">Project / Job Ledger</text>
+  <text x="220" y="735" class="small">snapshots · events · backups</text>
+
+  <rect x="470" y="665" width="300" height="105" class="store"/>
+  <text x="620" y="705" class="label">Persistent Workspace</text>
+  <text x="620" y="735" class="small">/mnt/workspace · projects · outputs</text>
+
+  <rect x="870" y="665" width="460" height="105" class="box"/>
+  <text x="1100" y="705" class="label">Provider / Media Pipeline</text>
+  <text x="1100" y="735" class="small">Mock · ModelScope · ComfyUI · FFmpeg/FFprobe</text>
+
+  <path d="M350 595 V665" class="line dashed"/><path d="M700 595 V665" class="line dashed"/><path d="M1050 595 V665" class="line dashed"/>
+  <text x="700" y="800" class="small">Current accepted runtime: Mock-only; no real generation request in this submission audit.</text>
+</svg>
