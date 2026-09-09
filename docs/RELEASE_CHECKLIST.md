@@ -7,6 +7,8 @@ Studio. It does not authorize paid or real-provider generation.
 
 - [ ] Working tree is clean before release work.
 - [ ] Full local test suite passes.
+- [ ] `python -m compileall .` passes.
+- [ ] `git diff --check` passes.
 - [ ] Release commit SHA is recorded.
 - [ ] GitHub `main` and ModelScope `main`/`master` point to the intended SHA.
 

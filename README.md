@@ -4,18 +4,19 @@
 
 面向 ModelScope「AI + 影视流」比赛的电影 Agent MVP。输入一句原创科幻创意，应用会生成项目设定、短剧本、按镜头拆分的台词本/字幕轨、视觉设定和可供 ComfyUI 执行的结构化分镜。
 
-## Production release contract
+## Production Deployment
 
 The current production acceptance target is the private ModelScope Docker
 Studio `LuckyPan/Movie-Agent` on the `master` branch and free
 `platform/2v-cpu-16g-mem` hardware. It listens on `0.0.0.0:7860` and stores
 state under the persistent `/mnt/workspace` mount. The accepted Stage 5B
-configuration is Mock-only and offline:
+configuration is Mock-only and offline (including `TTS_PROVIDER=none`):
 
 ```text
 MODEL_PROVIDER=mock
 IMAGE_GENERATION_MODE=mock
 VIDEO_GENERATION_MODE=mock
+TTS_PROVIDER=none
 PROJECTS_DIR=/mnt/workspace/projects
 OUTPUTS_DIR=/mnt/workspace/outputs
 COMFY_OUTPUT_DIR=/mnt/workspace/comfy-output
@@ -26,6 +27,9 @@ Run `python scripts/stage5a_runtime_check.py` before the server and verify
 FFmpeg/FFprobe, local health routes, static assets, and the restart marker.
 Keep the Studio private: the application has multiple mutation routes and a
 public exposure is not approved without a separate authentication review.
+The currently deployed demo uses safe deterministic Mock providers; the
+real-provider adapters were previously verified separately and are not enabled
+in this deployment.
 See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) and
 [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md) for the release and
 recovery runbook.
@@ -144,7 +148,7 @@ MEDIA_MAX_POLLS=120
 
 ## 当前能力
 
-- 导演、编剧、视觉设定、分镜四个独立 Agent；真实 ModelScope 文本模式或离线 mock 模式均可运行。
+- 四个创作规划 Agent（导演、编剧、视觉设定、分镜）以及生成、质检、剪辑三个执行/验收 Agent；真实 ModelScope 文本模式或离线 mock 模式均可运行。
 - 6–10 个结构化分镜：镜头号、时长、景别、画面、动作、声音、生成方式和最终提示词。
 - 质量门：检查镜头数、时长、提示词、视觉卡、固定 IP 风险与可选的语义版权风险。
 - 视频质检：抽取可追溯关键帧；可选视觉模型复核角色、场景一致性与版权风险。
