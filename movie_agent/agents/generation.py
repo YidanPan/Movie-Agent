@@ -64,6 +64,7 @@ def _record_provider_task_history(media_generation: dict[str, Any], event: str) 
         "provider_task_status": str(media_generation.get("provider_task_status") or media_generation.get("generation_status") or ""),
         "provider_task_revision": media_generation.get("provider_task_revision"),
         "provider_task_request_hash": str(media_generation.get("provider_task_request_hash") or ""),
+        "provider_task_request_fingerprint": str(media_generation.get("provider_task_request_fingerprint") or ""),
         "provider_task_provider": str(media_generation.get("provider_task_provider") or ""),
         "provider_task_model": str(media_generation.get("provider_task_model") or ""),
         "provider_task_submitted_at": str(media_generation.get("provider_task_submitted_at") or ""),
@@ -85,6 +86,7 @@ def _remote_task_matches_request(
     request_hash: str,
     provider: str,
     model: str,
+    request_fingerprint: str = "",
 ) -> bool:
     """Allow resume only when the durable task identity matches this render."""
 
@@ -102,6 +104,10 @@ def _remote_task_matches_request(
         and task_status in REMOTE_RESUME_STATUSES
         and task_revision == int(revision)
         and str(media_generation.get("provider_task_request_hash") or "") == str(request_hash or "")
+        and (
+            not request_fingerprint
+            or str(media_generation.get("provider_task_request_fingerprint") or "") == str(request_fingerprint)
+        )
         and str(media_generation.get("provider_task_provider") or "").strip().lower() == str(provider or "").strip().lower()
         and str(media_generation.get("provider_task_model") or "").strip() == str(model or "").strip()
     )
@@ -480,6 +486,50 @@ class GenerationAgent:
             seed=seed,
         )
 
+        provider_metadata = {
+            "workflow": workflow if is_comfyui else None,
+            "workflow_path": str(template_path),
+            "output_filename": f"shot-{shot.number:02d}.mp4",
+            "model": (self.settings.comfy_workflow_template if is_comfyui else provider_name) or provider_name,
+            "negative_prompt": negative_prompt,
+            "target_resolution": target_resolution,
+            "aspect": "16:9",
+        }
+        provider_reference_images = [
+            Path(path)
+            for key in ("character", "scene", "prop", "previous_frame", "palette", "cinematography", "keyframe")
+            for path in submitted_reference_inputs.get(key, [])
+            if Path(path).is_file()
+        ]
+        provider_request_fingerprint = ""
+        provider_seed: int | None = None
+        normalize_request = getattr(self.provider, "normalize_request", None)
+        if callable(normalize_request):
+            try:
+                normalized_request = normalize_request(
+                    prompt=continuity_prompt,
+                    seed=seed,
+                    duration_seconds=shot.source_duration_seconds or shot.duration_seconds,
+                    reference_images=provider_reference_images,
+                    metadata=provider_metadata,
+                )
+            except Exception as error:  # noqa: BLE001 - provider boundary is normalized below
+                wrapped = error if isinstance(error, VideoGenerationError) else VideoGenerationError(
+                    str(error), code="VIDEO_PROVIDER_REQUEST_UNSUPPORTED", provider=provider_name
+                )
+                record_failure(
+                    shot,
+                    wrapped,
+                    stage="generation",
+                    recoverable=getattr(wrapped, "recoverable", None),
+                )
+                shot.status = "generation_failed"
+                shot.qc_status = "FAILED"
+                raise wrapped
+            provider_request_fingerprint = normalized_request.fingerprint
+            provider_seed = normalized_request.provider_seed
+            provider_metadata["expected_provider_request_fingerprint"] = provider_request_fingerprint
+
         def on_provider_progress(event: dict[str, Any]) -> None:
             """Persist remote lifecycle identity before polling can continue."""
 
@@ -507,15 +557,6 @@ class GenerationAgent:
                 # process restart can lose the in-flight identity.
                 self.persist(project)
 
-        provider_metadata = {
-            "workflow": workflow if is_comfyui else None,
-            "workflow_path": str(template_path),
-            "output_filename": f"shot-{shot.number:02d}.mp4",
-            "model": (self.settings.comfy_workflow_template if is_comfyui else provider_name) or provider_name,
-            "negative_prompt": negative_prompt,
-            "target_resolution": target_resolution,
-            "aspect": "16:9",
-        }
         shot.media_generation["request"] = {
             "contract_version": "1",
             "provider": provider_name,
@@ -525,11 +566,16 @@ class GenerationAgent:
             "target_resolution": target_resolution,
             "aspect": "16:9",
             "seed": seed,
+            "canonical_seed": seed,
+            "provider_seed": provider_seed,
             "negative_prompt": negative_prompt,
             "reference_roles": sorted(submitted_reference_inputs),
             "generation_input_hash": shot.generation_input_hash,
+            "provider_request_fingerprint": provider_request_fingerprint,
             "master_fps": int(getattr(self.settings, "project_master_fps", 24) or 24),
         }
+        shot.media_generation["canonical_seed"] = seed
+        shot.media_generation["provider_seed"] = provider_seed
         expected_task_model = str(
             getattr(self.provider, "model", "")
             or (self.settings.comfy_workflow_template if is_comfyui else provider_name)
@@ -538,23 +584,45 @@ class GenerationAgent:
         current_task_identity = {
             "provider_task_revision": int(shot.revision or 1),
             "provider_task_request_hash": str(shot.generation_input_hash or ""),
+            "provider_task_request_fingerprint": provider_request_fingerprint,
             "provider_task_provider": provider_name,
             "provider_task_model": expected_task_model,
         }
+        existing_task_id = str(existing_media_generation.get("provider_task_id") or "").strip()
+        existing_task_status = str(
+            existing_media_generation.get("provider_task_status")
+            or existing_media_generation.get("generation_status")
+            or ""
+        ).upper()
+        if (
+            provider_request_fingerprint
+            and existing_task_id
+            and existing_task_status in {"SUBMITTED", "PENDING", "RUNNING", "RESUMING"}
+        ):
+            persisted_fingerprint = str(
+                existing_media_generation.get("provider_task_request_fingerprint") or ""
+            ).strip()
+            if not persisted_fingerprint or persisted_fingerprint != provider_request_fingerprint:
+                error = VideoGenerationError(
+                    "An in-flight remote task has an absent or mismatched exact provider request fingerprint; "
+                    "manual reconciliation is required before any new submission.",
+                    code="VIDEO_PROVIDER_TASK_IDENTITY_UNVERIFIED",
+                    provider=provider_name,
+                    recoverable=False,
+                )
+                record_failure(shot, error, stage="generation", recoverable=False)
+                shot.status = "generation_failed"
+                shot.qc_status = "FAILED"
+                raise error
         can_resume_existing_task = _remote_task_matches_request(
             existing_media_generation,
             revision=current_task_identity["provider_task_revision"],
             request_hash=current_task_identity["provider_task_request_hash"],
             provider=current_task_identity["provider_task_provider"],
             model=current_task_identity["provider_task_model"],
+            request_fingerprint=current_task_identity["provider_task_request_fingerprint"],
         )
         if can_resume_existing_task:
-            existing_task_id = str(existing_media_generation.get("provider_task_id") or "").strip()
-            existing_task_status = str(
-                existing_media_generation.get("provider_task_status")
-                or existing_media_generation.get("generation_status")
-                or ""
-            ).upper()
             if existing_task_status in {"SUCCEEDED", "COMPLETED"}:
                 _record_provider_task_history(shot.media_generation, "RECOVERED_COMPLETED_TASK")
         else:
@@ -581,12 +649,7 @@ class GenerationAgent:
                 "prompt": continuity_prompt,
                 "seed": seed,
                 "duration_seconds": shot.source_duration_seconds or shot.duration_seconds,
-                "reference_images": [
-                    Path(path)
-                    for key in ("character", "scene", "prop", "previous_frame", "palette", "cinematography", "keyframe")
-                    for path in submitted_reference_inputs.get(key, [])
-                    if Path(path).is_file()
-                ],
+                "reference_images": provider_reference_images,
                 "output_dir": self.settings.outputs_dir / project_id / "shots" / "source",
                 "metadata": provider_metadata,
                 "on_progress": on_provider_progress,

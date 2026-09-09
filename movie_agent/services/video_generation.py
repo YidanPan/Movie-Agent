@@ -89,6 +89,10 @@ class NormalizedVideoRequest:
     resolution: str
     ratio: str
     seed: int | None
+    # ``seed`` is the provider-normalized value that appears in the payload.
+    # Keep the continuity-level value separately for auditability without
+    # allowing it to change the exact provider fingerprint.
+    canonical_seed: int | None = None
 
     def payload(self) -> dict[str, Any]:
         parameters: dict[str, Any] = {
@@ -104,6 +108,12 @@ class NormalizedVideoRequest:
         if self.negative_prompt:
             input_payload["negative_prompt"] = self.negative_prompt
         return {"model": self.model, "input": input_payload, "parameters": parameters}
+
+    @property
+    def provider_seed(self) -> int | None:
+        """Return the seed actually sent to the provider."""
+
+        return self.seed
 
     @property
     def fingerprint(self) -> str:
@@ -361,6 +371,7 @@ class DashScopeVideoProvider:
     supported_modes = frozenset({"T2V"})
     accepts_local_reference_images = False
     _synthesis_path = "/api/v1/services/aigc/video-generation/video-synthesis"
+    _seed_modulus = 2**31
 
     def __init__(
         self,
@@ -439,6 +450,29 @@ class DashScopeVideoProvider:
         if code and message:
             return f"{code}: {message}"[:300]
         return (message or code or "Remote video service returned an error.")[:300]
+
+    def _normalize_seed(self, seed: int | None) -> int | None:
+        """Project the canonical non-negative seed into DashScope's range."""
+
+        if seed is None:
+            return None
+        try:
+            if isinstance(seed, float) and not seed.is_integer():
+                raise ValueError("seed must be an integer")
+            canonical_seed = int(seed)
+        except (TypeError, ValueError, OverflowError) as error:
+            raise VideoGenerationError(
+                "Remote video seed must be an integer.",
+                code="VIDEO_PROVIDER_REQUEST_UNSUPPORTED",
+                provider=self.name,
+            ) from error
+        if canonical_seed < 0:
+            raise VideoGenerationError(
+                "Remote video seed must be non-negative.",
+                code="VIDEO_PROVIDER_REQUEST_UNSUPPORTED",
+                provider=self.name,
+            )
+        return canonical_seed % self._seed_modulus
 
     def _request_json(
         self,
@@ -590,15 +624,7 @@ class DashScopeVideoProvider:
                 code="VIDEO_PROVIDER_REQUEST_UNSUPPORTED",
                 provider=self.name,
             )
-        normalized_seed = None
-        if seed is not None:
-            normalized_seed = int(seed)
-            if not 0 <= normalized_seed <= 2_147_483_647:
-                raise VideoGenerationError(
-                    "Remote video seed is outside the provider's supported integer range.",
-                    code="VIDEO_PROVIDER_REQUEST_UNSUPPORTED",
-                    provider=self.name,
-                )
+        normalized_seed = self._normalize_seed(seed)
         negative_prompt = str(metadata.get("negative_prompt") or "").strip()
         if len(negative_prompt) > 500:
             raise VideoGenerationError(
@@ -614,6 +640,7 @@ class DashScopeVideoProvider:
             resolution=resolution,
             ratio=ratio,
             seed=normalized_seed,
+            canonical_seed=(int(seed) if seed is not None else None),
         )
 
     def submit(
@@ -626,6 +653,7 @@ class DashScopeVideoProvider:
         metadata: dict[str, Any] | None = None,
     ) -> str:
         self._require_configured()
+        metadata = metadata or {}
         normalized = self.normalize_request(
             prompt=prompt,
             seed=seed,
@@ -634,6 +662,13 @@ class DashScopeVideoProvider:
             metadata=metadata,
         )
         self.last_normalized_request = normalized
+        expected_fingerprint = str(metadata.get("expected_provider_request_fingerprint") or "").strip()
+        if expected_fingerprint and normalized.fingerprint != expected_fingerprint:
+            raise VideoGenerationError(
+                "The provider request changed after preflight normalization; refusing to submit.",
+                code="VIDEO_PROVIDER_REQUEST_IDENTITY_MISMATCH",
+                provider=self.name,
+            )
         response = self._request_json(
             "POST",
             self._synthesis_path,

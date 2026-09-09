@@ -7,13 +7,14 @@ import json
 
 from movie_agent.agents.generation import GenerationAgent
 from movie_agent.config import Settings
-from movie_agent.models import Shot
+from movie_agent.models import MovieProject, Shot
 from movie_agent.services.comfyui import ComfyUIError
 from movie_agent.services.video_generation import (
     ComfyUIVideoProvider,
     DashScopeVideoProvider,
     HTTPResponse,
     MockVideoProvider,
+    NormalizedVideoRequest,
     VideoGenerationError,
     VideoGenerationResult,
     build_video_provider,
@@ -314,6 +315,63 @@ class _ResumableFakeProvider(_FakeVideoProvider):
         )
 
 
+class _FingerprintFakeProvider(_ResumableFakeProvider):
+    """Offline provider that exposes the exact-request identity contract."""
+
+    name = "fingerprint-remote"
+
+    def __init__(self, output: Path):
+        super().__init__(output)
+        self.provider_seed_offset = 0
+        self.submits = 0
+
+    def normalize_request(self, *, prompt, seed, duration_seconds, reference_images, metadata):
+        self.last_normalized_request = NormalizedVideoRequest(
+            model=self.model,
+            prompt=prompt,
+            negative_prompt=str(metadata.get("negative_prompt") or ""),
+            duration=int(round(duration_seconds)),
+            resolution=str(metadata.get("target_resolution") or "1080p").upper(),
+            ratio=str(metadata.get("aspect") or "16:9"),
+            seed=int(seed) + self.provider_seed_offset if seed is not None else None,
+            canonical_seed=int(seed) if seed is not None else None,
+        )
+        return self.last_normalized_request
+
+    def generate(self, **kwargs):
+        self.submits += 1
+        assert kwargs["metadata"]["expected_provider_request_fingerprint"] == self.normalize_request(
+            prompt=kwargs["prompt"],
+            seed=kwargs["seed"],
+            duration_seconds=kwargs["duration_seconds"],
+            reference_images=kwargs["reference_images"],
+            metadata=kwargs["metadata"],
+        ).fingerprint
+        kwargs["on_progress"]({"status": "SUBMITTED", "provider": self.name, "task_id": "fake-task-1"})
+        return VideoGenerationResult(
+            provider=self.name,
+            task_id="fake-task-1",
+            status="COMPLETED",
+            video_path=self.output,
+            model=self.model,
+            metadata={"source_path": str(self.output)},
+        )
+
+
+def _fingerprint_project(shot: Shot) -> MovieProject:
+    return MovieProject(
+        "film-a1b2c3d4",
+        "offline exact request identity test",
+        2,
+        "cinematic",
+        "render_ready",
+        {},
+        {},
+        {},
+        [shot],
+    )
+
+
 def _reference_shot(path: str, *, revision: int = 1) -> Shot:
     return Shot(
         1, 6, "medium", "image", "action", "sound", "T2V", "delta", "shot.mp4",
@@ -604,6 +662,188 @@ def test_dashscope_normalized_request_rejects_silent_duration_clamp():
         with pytest.raises(VideoGenerationError) as error:
             provider.normalize_request(prompt="shot", duration_seconds=16)
         assert error.value.error_code == "VIDEO_PROVIDER_DURATION_UNSUPPORTED"
+
+
+@pytest.mark.parametrize(
+    ("seed", "provider_seed"),
+    [
+        (None, None),
+        (0, 0),
+        (1, 1),
+        (2_147_483_647, 2_147_483_647),
+        (1_242_568_112_720_127_198, 2_011_768_030),
+    ],
+)
+def test_dashscope_normalizes_canonical_seed_at_provider_boundary(seed, provider_seed):
+    with TemporaryDirectory() as directory:
+        provider = DashScopeVideoProvider(_settings(Path(directory), "remote"))
+        normalized = provider.normalize_request(prompt="shot", seed=seed, duration_seconds=2)
+        assert normalized.seed == provider_seed
+        assert normalized.provider_seed == provider_seed
+        assert normalized.canonical_seed == seed
+
+
+@pytest.mark.parametrize("seed", [-1, "not-an-integer", 1.5])
+def test_dashscope_rejects_invalid_seed_before_network(seed):
+    with TemporaryDirectory() as directory:
+        provider = DashScopeVideoProvider(_settings(Path(directory), "remote"))
+        with pytest.raises(VideoGenerationError) as error:
+            provider.normalize_request(prompt="shot", seed=seed, duration_seconds=2)
+        assert error.value.error_code == "VIDEO_PROVIDER_REQUEST_UNSUPPORTED"
+
+
+def test_dashscope_normalized_request_fingerprint_is_stable_and_changes_with_provider_facts():
+    with TemporaryDirectory() as directory:
+        provider = DashScopeVideoProvider(_settings(Path(directory), "remote"))
+        base = provider.normalize_request(
+            prompt="shot", seed=1_242_568_112_720_127_198, duration_seconds=2,
+            metadata={"target_resolution": "720p", "aspect": "16:9", "negative_prompt": "no text"},
+        )
+        same = provider.normalize_request(
+            prompt="shot", seed=1_242_568_112_720_127_198, duration_seconds=2,
+            metadata={"target_resolution": "720p", "aspect": "16:9", "negative_prompt": "no text"},
+        )
+        changed_duration = provider.normalize_request(
+            prompt="shot", seed=1_242_568_112_720_127_198, duration_seconds=3,
+            metadata={"target_resolution": "720p", "aspect": "16:9", "negative_prompt": "no text"},
+        )
+        changed_ratio = provider.normalize_request(
+            prompt="shot", seed=1_242_568_112_720_127_198, duration_seconds=2,
+            metadata={"target_resolution": "720p", "aspect": "9:16", "negative_prompt": "no text"},
+        )
+        assert base.fingerprint == same.fingerprint
+        assert base.fingerprint != changed_duration.fingerprint
+        assert base.fingerprint != changed_ratio.fingerprint
+
+
+def test_dashscope_preflight_fingerprint_mismatch_makes_zero_post_calls():
+    with TemporaryDirectory() as directory:
+        root = Path(directory)
+        settings = _settings(root, "remote").__class__(
+            **{
+                **_settings(root, "remote").__dict__,
+                "remote_video_api_base": "https://workspace.cn-beijing.maas.aliyuncs.com/api/v1",
+                "remote_video_model": "wan2.7-t2v",
+                "remote_video_api_key": "secret-only-in-test",
+            }
+        )
+
+        class Transport:
+            def __init__(self):
+                self.calls = []
+
+            def request(self, method, url, *, headers, body=None, timeout):
+                self.calls.append((method, url, headers, body, timeout))
+                raise AssertionError("transport must not be called on identity mismatch")
+
+        transport = Transport()
+        provider = DashScopeVideoProvider(settings, transport=transport)
+        with pytest.raises(VideoGenerationError) as error:
+            provider.submit(
+                prompt="shot",
+                seed=1_242_568_112_720_127_198,
+                duration_seconds=2,
+                metadata={
+                    "target_resolution": "720p",
+                    "aspect": "16:9",
+                    "expected_provider_request_fingerprint": "0" * 64,
+                },
+            )
+        assert error.value.error_code == "VIDEO_PROVIDER_REQUEST_IDENTITY_MISMATCH"
+        assert transport.calls == []
+
+
+def test_generation_persists_exact_provider_fingerprint_with_task_identity():
+    with TemporaryDirectory() as directory:
+        root = Path(directory)
+        output = root / "video.mp4"
+        output.write_bytes(b"real-video")
+        provider = _FingerprintFakeProvider(output)
+        saved = []
+        shot = Shot(1, 2, "wide", "image", "action", "sound", "T2V", "delta", "shot.mp4", source_duration_seconds=2)
+        project = _fingerprint_project(shot)
+        agent = GenerationAgent(_settings(root), provider=provider, persist=lambda item: saved.append(item.storyboard[0].media_generation.copy()))
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr("movie_agent.agents.generation.asset_record", lambda *args, **kwargs: kwargs)
+            agent.generate(
+                project.project_id,
+                shot,
+                visual_bible={"reference_seed": "42", "cinematography_lock": "camera"},
+                project=project,
+            )
+        assert len(saved) == 1
+        assert saved[0]["provider_task_id"] == "fake-task-1"
+        assert saved[0]["provider_task_request_hash"] == shot.generation_input_hash
+        assert saved[0]["provider_task_request_fingerprint"] == shot.media_generation["request"]["provider_request_fingerprint"]
+        assert saved[0]["provider_task_request_fingerprint"]
+        assert saved[0]["provider_seed"] == shot.media_generation["request"]["provider_seed"]
+
+
+def test_generation_resumes_same_exact_provider_request_without_second_submit():
+    with TemporaryDirectory() as directory:
+        root = Path(directory)
+        output = root / "video.mp4"
+        output.write_bytes(b"real-video")
+        provider = _FingerprintFakeProvider(output)
+        shot = Shot(1, 2, "wide", "image", "action", "sound", "T2V", "delta", "shot.mp4", source_duration_seconds=2)
+        agent = GenerationAgent(_settings(root), provider=provider)
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr("movie_agent.agents.generation.asset_record", lambda *args, **kwargs: kwargs)
+            agent.generate(
+                "film-a1b2c3d4", shot,
+                visual_bible={"reference_seed": "42", "cinematography_lock": "camera"},
+            )
+            shot.status = "generating"
+            shot.media_generation["generation_status"] = "RUNNING"
+            shot.media_generation["provider_task_status"] = "RUNNING"
+            agent.generate(
+                "film-a1b2c3d4", shot,
+                visual_bible={"reference_seed": "42", "cinematography_lock": "camera"},
+            )
+        assert provider.submits == 1
+        assert provider.calls == ["resume:fake-task-1"]
+
+
+def test_generation_fails_closed_for_inflight_provider_fingerprint_mismatch():
+    with TemporaryDirectory() as directory:
+        root = Path(directory)
+        output = root / "video.mp4"
+        output.write_bytes(b"real-video")
+        provider = _FingerprintFakeProvider(output)
+        shot = Shot(1, 2, "wide", "image", "action", "sound", "T2V", "delta", "shot.mp4", source_duration_seconds=2)
+        agent = GenerationAgent(_settings(root), provider=provider)
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr("movie_agent.agents.generation.asset_record", lambda *args, **kwargs: kwargs)
+            agent.generate("film-a1b2c3d4", shot, visual_bible={"reference_seed": "42", "cinematography_lock": "camera"})
+            shot.status = "generating"
+            shot.media_generation["generation_status"] = "RUNNING"
+            shot.media_generation["provider_task_status"] = "RUNNING"
+            provider.provider_seed_offset = 1
+            with pytest.raises(VideoGenerationError) as error:
+                agent.generate("film-a1b2c3d4", shot, visual_bible={"reference_seed": "42", "cinematography_lock": "camera"})
+        assert error.value.error_code == "VIDEO_PROVIDER_TASK_IDENTITY_UNVERIFIED"
+        assert provider.submits == 1
+
+
+def test_generation_fails_closed_for_legacy_inflight_task_without_provider_fingerprint():
+    with TemporaryDirectory() as directory:
+        root = Path(directory)
+        output = root / "video.mp4"
+        output.write_bytes(b"real-video")
+        provider = _FingerprintFakeProvider(output)
+        shot = Shot(1, 2, "wide", "image", "action", "sound", "T2V", "delta", "shot.mp4", source_duration_seconds=2)
+        agent = GenerationAgent(_settings(root), provider=provider)
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr("movie_agent.agents.generation.asset_record", lambda *args, **kwargs: kwargs)
+            agent.generate("film-a1b2c3d4", shot, visual_bible={"reference_seed": "42", "cinematography_lock": "camera"})
+            shot.status = "generating"
+            shot.media_generation["generation_status"] = "RUNNING"
+            shot.media_generation["provider_task_status"] = "RUNNING"
+            shot.media_generation.pop("provider_task_request_fingerprint")
+            with pytest.raises(VideoGenerationError) as error:
+                agent.generate("film-a1b2c3d4", shot, visual_bible={"reference_seed": "42", "cinematography_lock": "camera"})
+        assert error.value.error_code == "VIDEO_PROVIDER_TASK_IDENTITY_UNVERIFIED"
+        assert provider.submits == 1
 
 
 def test_dashscope_poll_retries_transient_failure_without_resubmitting():
