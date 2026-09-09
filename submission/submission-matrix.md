@@ -16,6 +16,7 @@ HTTP(S) external work link for the `video` track), and a creation-notes link.
 | Work description | REQUIRED / READY DRAFT | Fill `作品简介`; use `project-description.md` and obey any live length limit |
 | ModelScope Studio link | REQUIRED for studio / READY | `https://modelscope.cn/studios/LuckyPan/Movie-Agent`; currently private, Docker, `master` |
 | External work/video link | REQUIRED for video / NOT APPLICABLE to studio | The live video track validates an HTTP(S) public link; no fabricated link is supplied |
+| Creation-notes draft | REQUIRED / READY | [creative-note.md](creative-note.md) is 800–1500 Chinese characters and ready for publication |
 | Creation-notes link (`blog_url`) | REQUIRED / MISSING | Publish the approved creation notes on ModelScope Learn/Spotlight, then paste the public URL |
 | Competition category | COMPATIBLE / CONFIRM | Official works page currently lists `电影Agent`; confirm the selected category in the portal |
 | Source repository | SUPPORTING / READY | GitHub `YidanPan/Movie-Agent`, HEAD `7dcd366`; paste exact public URL if the portal asks |

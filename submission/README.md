@@ -7,6 +7,7 @@ generated media, local project snapshots, or private Studio data.
 ## Package contents
 
 - [Project description](project-description.md)
+- [Creative note](creative-note.md)
 - [Demo script](demo-script.md)
 - [Screenshots checklist](screenshots-checklist.md)
 - [Team template](team-template.md)
@@ -21,4 +22,3 @@ current runtime is Mock-only (`MODEL_PROVIDER=mock`,
 and must be presented that way. `film-f55e58de` is a local six-shot planning
 candidate for a safe UI walkthrough; it is not a final film and it has no
 committed or verified delivery media.
-
