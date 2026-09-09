@@ -14,4 +14,4 @@ COPY . .
 
 EXPOSE 7860
 
-CMD ["sh", "-c", "uvicorn server:app --host 0.0.0.0 --port ${PORT:-7860}"]
+CMD ["sh", "-c", "python scripts/stage5a_runtime_check.py && uvicorn server:app --host 0.0.0.0 --port ${PORT:-7860}"]
