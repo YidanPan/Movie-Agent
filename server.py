@@ -13,25 +13,30 @@ from __future__ import annotations
 import asyncio
 from contextlib import contextmanager
 import hashlib
+import hmac
 import json
 import mimetypes
 import os
 import re
+import secrets
 import shutil
 import threading
+import time
+from collections import deque
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal
+from urllib.parse import parse_qs, urlsplit
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Request, Response
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from movie_agent.config import Settings
 from movie_agent.orchestrator import MovieOrchestrator
-from movie_agent.services.errors import error_info, record_failure
+from movie_agent.services.errors import error_info, record_failure, safe_error_message
 from movie_agent.services.subtitles import render_srt, render_vtt, script_subtitle_track
 from movie_agent.services.media_quality import best_master_path, best_screening_path, quality_snapshot
 from movie_agent.pipeline.diagnostics import delivery_preflight, diagnostics_snapshot
@@ -63,6 +68,46 @@ BUILD_SHA = (os.getenv("APP_BUILD_SHA") or os.getenv("GIT_COMMIT_SHA") or "dev")
 project_locks: dict[str, threading.Lock] = {}
 project_locks_guard = threading.Lock()
 JOB_HEARTBEAT_INTERVAL_SECONDS = 45
+SESSION_COOKIE_NAME = "movie_agent_session"
+SESSION_TTL_SECONDS = 8 * 60 * 60
+PUBLIC_DEMO_PROVIDER_ERROR = {
+    "error": "This operation is disabled in Public Demo Mode.",
+    "error_code": "PUBLIC_DEMO_PROVIDER_DISABLED",
+}
+RATE_LIMITS = {
+    "login": (10, 60),
+    "project_creation": (3, 10 * 60),
+    "job_start": (10, 10 * 60),
+    "mutation": (60, 60),
+}
+
+
+class RequestRateLimiter:
+    """Small process-local sliding-window limiter for the single-worker MVP."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._buckets: dict[tuple[str, str], deque[float]] = {}
+
+    def allow(self, identity: str, bucket: str, *, limit: int, window_seconds: int) -> bool:
+        now = time.monotonic()
+        cutoff = now - window_seconds
+        key = (identity, bucket)
+        with self._lock:
+            events = self._buckets.setdefault(key, deque())
+            while events and events[0] <= cutoff:
+                events.popleft()
+            if len(events) >= limit:
+                return False
+            events.append(now)
+            return True
+
+
+rate_limiter = RequestRateLimiter()
+sessions: dict[str, float] = {}
+sessions_guard = threading.Lock()
+project_creation_guard = threading.Lock()
+project_creation_reservations: set[str] = set()
 
 
 def project_lock(project_id: str) -> threading.Lock:
@@ -78,7 +123,7 @@ def _job_idempotency_conflict_response(error: JobIdempotencyConflict) -> JSONRes
 
     return JSONResponse(
         {
-            "error": str(error),
+            "error": safe_error_message(error),
             "error_code": error.error_code,
             "job": error.snapshot,
         },
@@ -87,6 +132,192 @@ def _job_idempotency_conflict_response(error: JobIdempotencyConflict) -> JSONRes
 
 app = FastAPI(title="Movie-Agent · AI Film Studio")
 app.include_router(evaluator_router)
+
+
+def _app_access_token() -> str:
+    return str(getattr(settings, "app_access_token", "") or "").strip()
+
+
+def _public_demo_mode() -> bool:
+    return bool(getattr(settings, "public_demo_mode", False))
+
+
+def public_demo_provider_safe() -> bool:
+    """Return whether public exposure is locked to the deterministic workflow."""
+
+    return not _public_demo_mode() or (
+        str(getattr(settings, "model_provider", "mock") or "").lower() == "mock"
+        and str(getattr(settings, "image_generation_mode", "mock") or "").lower() == "mock"
+        and str(getattr(settings, "video_generation_mode", "mock") or "").lower() == "mock"
+        and str(getattr(settings, "tts_provider", "none") or "").lower() == "none"
+    )
+
+
+def effective_max_active_jobs(current_settings: Any = None) -> int:
+    target = current_settings or settings
+    configured = max(1, int(getattr(target, "max_active_jobs", 2) or 2))
+    return min(2, configured) if bool(getattr(target, "public_demo_mode", False)) else configured
+
+
+def effective_max_upload_mb(current_settings: Any = None) -> int:
+    target = current_settings or settings
+    configured = max(1, int(getattr(target, "max_upload_mb", 50) or 50))
+    public_limit = max(1, int(getattr(target, "public_max_upload_mb", 10) or 10))
+    return min(configured, public_limit) if bool(getattr(target, "public_demo_mode", False)) else configured
+
+
+def _protected_path(path: str) -> bool:
+    return path == "/api/projects" or path.startswith("/api/projects/") or path == "/api/v1" or path.startswith("/api/v1/")
+
+
+def _evaluator_authorized(request: Request) -> bool:
+    expected = str(getattr(settings, "evaluator_api_token", "") or "").strip()
+    if not expected or not request.url.path.startswith("/api/v1"):
+        return False
+    scheme, _, token = str(request.headers.get("authorization") or "").partition(" ")
+    return scheme.lower() == "bearer" and bool(token.strip()) and hmac.compare_digest(token.strip(), expected)
+
+
+def _session_authorized(request: Request) -> bool:
+    session_id = str(request.cookies.get(SESSION_COOKIE_NAME) or "").strip()
+    if not session_id:
+        return False
+    now = time.monotonic()
+    with sessions_guard:
+        created_at = sessions.get(session_id)
+        if created_at is None:
+            return False
+        if now - created_at > SESSION_TTL_SECONDS:
+            sessions.pop(session_id, None)
+            return False
+        sessions[session_id] = now
+        return True
+
+
+def _request_authenticated(request: Request) -> bool:
+    return _session_authorized(request) or _evaluator_authorized(request)
+
+
+def _client_identity(request: Request) -> str:
+    """Use the direct ASGI peer; forwarded headers are not trusted."""
+
+    return str(request.client.host if request.client else "unknown")
+
+
+def _rate_bucket(request: Request) -> str | None:
+    if request.method not in {"POST", "PUT", "PATCH", "DELETE"}:
+        return None
+    path = request.url.path
+    if path == "/auth/login":
+        return "login"
+    if not path.startswith("/api/"):
+        return None
+    if path == "/api/projects/stream":
+        return "project_creation"
+    if path.startswith("/api/v1/generate") or any(token in path for token in ("/stream", "/generate", "/render", "/replan", "/regenerate")):
+        return "job_start"
+    return "mutation"
+
+
+def _csrf_origin_allowed(request: Request) -> bool:
+    """Require same-origin browser metadata for cookie-authenticated writes."""
+
+    origin = str(request.headers.get("origin") or "").strip()
+    expected = f"{request.url.scheme}://{request.url.netloc}"
+    if origin:
+        parsed = urlsplit(origin)
+        return parsed.scheme in {"http", "https"} and f"{parsed.scheme}://{parsed.netloc}" == expected
+    referer = str(request.headers.get("referer") or "").strip()
+    if referer:
+        parsed = urlsplit(referer)
+        return parsed.scheme in {"http", "https"} and f"{parsed.scheme}://{parsed.netloc}" == expected
+    fetch_site = str(request.headers.get("sec-fetch-site") or "").strip().lower()
+    return fetch_site in {"same-origin", "same-site"}
+
+
+def _public_provider_route(path: str) -> bool:
+    return bool(
+        path in {"/api/projects/references/generate"}
+        or path.endswith("/render/stream")
+        or re.search(r"/shots/\d+/(render|regenerate)$", path)
+        or path.endswith("/references/generate")
+        or path.endswith("/audio/tracks/voice/generate")
+        or re.search(r"/audio/tracks/[^/]+/(replan|render|regenerate)$", path)
+        or path.endswith("/audio/upload")
+    )
+
+
+def _rate_limited_response() -> JSONResponse:
+    return JSONResponse(
+        {"error": "Request rate limit exceeded.", "error_code": "RATE_LIMITED"},
+        status_code=429,
+    )
+
+
+def _auth_response(*, status_code: int = 401, code: str = "AUTH_REQUIRED") -> JSONResponse:
+    return JSONResponse(
+        {"error": "Application authentication required.", "error_code": code},
+        status_code=status_code,
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+def _access_screen() -> HTMLResponse:
+    return HTMLResponse(
+        """<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Movie-Agent · Private Studio</title>
+<style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#15110b;color:#ece2cd;font:16px system-ui,sans-serif}main{width:min(420px,calc(100% - 40px));padding:32px;border:1px solid #8b6330;background:#211910}h1{margin-top:0;font-size:1.5rem}p{color:#c4b59b;line-height:1.5}label{display:grid;gap:8px;margin:24px 0 12px}input,button{box-sizing:border-box;width:100%;padding:12px;border:1px solid #8b6330;background:#15110b;color:#ece2cd;font:inherit}button{cursor:pointer;background:#c28a3e;color:#15110b;font-weight:700}small{color:#a99678}</style></head>
+<body><main><h1>Private Movie-Agent Studio</h1><p>This Studio is protected. Enter the access token supplied by the owner.</p>
+<form method="post" action="/auth/login"><label for="access_token">Studio access token<input id="access_token" name="access_token" type="password" autocomplete="current-password" required></label><button type="submit">Enter Studio</button></form><small>Session access expires after inactivity.</small></main></body></html>""",
+        status_code=401,
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+def _apply_security_headers(response: Response) -> Response:
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("Referrer-Policy", "same-origin")
+    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    response.headers.setdefault(
+        "Content-Security-Policy",
+        "default-src 'self'; base-uri 'self'; object-src 'none'; script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; "
+        "font-src 'self' data:; connect-src 'self'; form-action 'self'; "
+        "frame-ancestors 'self' https://modelscope.cn https://*.modelscope.cn",
+    )
+    return response
+
+
+@app.middleware("http")
+async def public_security_boundary(request: Request, call_next):
+    path = request.url.path
+    protected = _protected_path(path)
+    configured_token = bool(_app_access_token())
+    auth_required = protected and (configured_token or _public_demo_mode() or (path.startswith("/api/v1") and bool(getattr(settings, "evaluator_api_token", None))))
+
+    if path == "/" and (configured_token or _public_demo_mode()) and not _request_authenticated(request):
+        return _apply_security_headers(_access_screen())
+    if auth_required and not _request_authenticated(request):
+        code = "PUBLIC_DEMO_AUTH_REQUIRED" if _public_demo_mode() and not configured_token else "AUTH_REQUIRED"
+        return _apply_security_headers(_auth_response(status_code=503 if code != "AUTH_REQUIRED" else 401, code=code))
+    if request.method in {"POST", "PUT", "PATCH", "DELETE"} and protected and request.cookies.get(SESSION_COOKIE_NAME) and not _csrf_origin_allowed(request):
+        return _apply_security_headers(JSONResponse({"error": "Same-origin request required.", "error_code": "CSRF_ORIGIN_REJECTED"}, status_code=403))
+
+    bucket = _rate_bucket(request)
+    if bucket:
+        limit, window = RATE_LIMITS[bucket]
+        if not rate_limiter.allow(_client_identity(request), bucket, limit=limit, window_seconds=window):
+            return _apply_security_headers(_rate_limited_response())
+
+    if _public_demo_mode() and path not in {"/auth/login", "/auth/logout"} and request.method in {"POST", "PUT", "PATCH", "DELETE"}:
+        if not public_demo_provider_safe():
+            return _apply_security_headers(JSONResponse({**PUBLIC_DEMO_PROVIDER_ERROR}, status_code=503))
+        if _public_provider_route(path):
+            return _apply_security_headers(JSONResponse({**PUBLIC_DEMO_PROVIDER_ERROR}, status_code=403))
+
+    response = await call_next(request)
+    return _apply_security_headers(response)
 
 
 def _directory_ready(path: Path) -> bool:
@@ -142,6 +373,14 @@ def runtime_checks() -> dict[str, dict[str, Any]]:
         video_provider_ok = False
         declared_modes = []
     checks = {
+        "public_demo_provider_lock": {
+            "ok": public_demo_provider_safe(),
+            "required": _public_demo_mode(),
+        },
+        "public_demo_auth": {
+            "ok": bool(_app_access_token()),
+            "required": _public_demo_mode(),
+        },
         "projects_storage": {"ok": _directory_ready(settings.projects_dir), "required": True},
         "outputs_storage": {"ok": _directory_ready(settings.outputs_dir), "required": True},
         "ffmpeg": {"ok": _binary_ready(settings.ffmpeg_bin), "required": True},
@@ -349,18 +588,18 @@ def sse_chunk(payload: dict) -> str:
 
 
 def project_not_found(project_id: str) -> JSONResponse:
-    return JSONResponse({"error": f"Project {project_id} not found."}, status_code=404)
+    return JSONResponse({"error": "Project not found.", "error_code": "PROJECT_NOT_FOUND"}, status_code=404)
 
 
 def invalid_project_id(error: ValueError) -> JSONResponse:
-    return JSONResponse({"error": str(error)}, status_code=400)
+    return JSONResponse({"error": "Invalid project id.", "error_code": "INVALID_PROJECT_ID"}, status_code=400)
 
 
 def invalid_payload(error: ValidationError) -> JSONResponse:
     first = error.errors()[0]
     field = ", ".join(str(part) for part in first.get("loc", ()))
     return JSONResponse(
-        {"error": f"Invalid submission: {field} {first.get('msg', 'invalid')}"}, status_code=400
+        {"error": f"Invalid submission: {field} {first.get('msg', 'invalid')}", "error_code": "INVALID_PAYLOAD"}, status_code=400
     )
 
 
@@ -439,6 +678,19 @@ _INTERNAL_PATH_KEYS = {
     "renderer_manifest",
     "workflow_path",
 }
+_SENSITIVE_KEYS = {
+    "api_key",
+    "access_token",
+    "authorization",
+    "bearer",
+    "password",
+    "secret",
+    "token",
+    "modelscope_api_key",
+    "remote_video_api_key",
+    "evaluator_api_token",
+    "app_access_token",
+}
 
 
 def _sanitize_public_payload(value: Any) -> Any:
@@ -450,7 +702,8 @@ def _sanitize_public_payload(value: Any) -> Any:
         return value
     result: dict[str, Any] = {}
     for key, item in value.items():
-        if str(key) in _INTERNAL_PATH_KEYS:
+        normalized_key = str(key).lower().replace("-", "_")
+        if normalized_key in _INTERNAL_PATH_KEYS or normalized_key in _SENSITIVE_KEYS:
             continue
         result[str(key)] = _sanitize_public_payload(item)
     return result
@@ -531,7 +784,7 @@ def run_with_sse(
                 idempotency_key=fence.get("idempotency_key"),
                 project_revision=fence.get("project_revision"),
                 expected_input_hash=fence.get("expected_input_hash"),
-                max_active_jobs=int(getattr(settings, "max_active_jobs", 2) or 2),
+                max_active_jobs=effective_max_active_jobs(),
             )
         except JobIdempotencyConflict as conflict:
             return _job_idempotency_conflict_response(conflict)
@@ -588,7 +841,7 @@ def run_with_sse(
                     idempotency_key=fence.get("idempotency_key"),
                     project_revision=fence.get("project_revision"),
                     expected_input_hash=fence.get("expected_input_hash"),
-                    max_active_jobs=int(getattr(settings, "max_active_jobs", 2) or 2),
+                    max_active_jobs=effective_max_active_jobs(),
                 )
                 if started.get("idempotent_replay"):
                     event_payload = {"type": "job_replay", "job": started}
@@ -598,7 +851,7 @@ def run_with_sse(
                 event_payload = {
                     "type": "error",
                     "error_code": conflict.error_code,
-                    "error_message": str(conflict),
+                    "error_message": safe_error_message(conflict),
                     "stage": stage,
                     "job": conflict.snapshot,
                 }
@@ -748,6 +1001,64 @@ def health_ready() -> JSONResponse:
     return JSONResponse(payload, status_code=200 if payload["ready"] else 503)
 
 
+async def _submitted_access_token(request: Request) -> str:
+    body = await request.body()
+    content_type = str(request.headers.get("content-type") or "").lower()
+    if "application/json" in content_type:
+        try:
+            payload = json.loads(body.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            return ""
+        return str(payload.get("access_token") or "") if isinstance(payload, dict) else ""
+    form = parse_qs(body.decode("utf-8", errors="ignore"), keep_blank_values=True)
+    return str((form.get("access_token") or [""])[0] or "")
+
+
+@app.post("/auth/login")
+async def login(request: Request):
+    expected = _app_access_token()
+    if not expected:
+        return _apply_security_headers(_auth_response(status_code=503, code="AUTH_NOT_CONFIGURED"))
+    submitted = await _submitted_access_token(request)
+    if not submitted or not hmac.compare_digest(submitted, expected):
+        response = JSONResponse(
+            {"error": "Invalid access token.", "error_code": "AUTH_INVALID"},
+            status_code=401,
+            headers={"Cache-Control": "no-store"},
+        )
+        if "text/html" in str(request.headers.get("accept") or "").lower():
+            response = _access_screen()
+        return _apply_security_headers(response)
+    session_id = secrets.token_urlsafe(32)
+    with sessions_guard:
+        sessions[session_id] = time.monotonic()
+    if "text/html" in str(request.headers.get("accept") or "").lower():
+        response = RedirectResponse("/", status_code=303)
+    else:
+        response = JSONResponse({"authenticated": True}, headers={"Cache-Control": "no-store"})
+    response.set_cookie(
+        SESSION_COOKIE_NAME,
+        session_id,
+        max_age=SESSION_TTL_SECONDS,
+        httponly=True,
+        secure=request.url.scheme == "https",
+        samesite="lax",
+        path="/",
+    )
+    return _apply_security_headers(response)
+
+
+@app.post("/auth/logout")
+def logout(request: Request):
+    session_id = str(request.cookies.get(SESSION_COOKIE_NAME) or "").strip()
+    if session_id:
+        with sessions_guard:
+            sessions.pop(session_id, None)
+    response = RedirectResponse("/", status_code=303) if "text/html" in str(request.headers.get("accept") or "").lower() else JSONResponse({"authenticated": False})
+    response.delete_cookie(SESSION_COOKIE_NAME, path="/")
+    return _apply_security_headers(response)
+
+
 @app.get("/api/projects")
 def list_projects() -> dict:
     return {
@@ -855,12 +1166,25 @@ async def create_project_stream(request: Request) -> StreamingResponse:
         return JSONResponse({"error": "Request must be valid JSON."}, status_code=400)  # type: ignore[return-value]
 
     project_id = f"film-{uuid4().hex[:8]}"
+    if _public_demo_mode():
+        max_projects = max(1, int(getattr(settings, "public_max_projects", 20) or 20))
+        with project_creation_guard:
+            if len(orchestrator.store.list_project_ids()) + len(project_creation_reservations) >= max_projects:
+                return JSONResponse(
+                    {"error": "Public project capacity has been reached.", "error_code": "PROJECT_CAPACITY_REACHED"},
+                    status_code=429,
+                )
+            project_creation_reservations.add(project_id)
 
     def work(emit: Callable[[dict], None]) -> None:
-        project = orchestrator.create_project(
-            payload.idea, payload.duration, payload.visual_style, event_callback=emit, project_id=project_id
-        )
-        emit({"type": "done", "project": serialized_project(project)})
+        try:
+            project = orchestrator.create_project(
+                payload.idea, payload.duration, payload.visual_style, event_callback=emit, project_id=project_id
+            )
+            emit({"type": "done", "project": serialized_project(project)})
+        finally:
+            with project_creation_guard:
+                project_creation_reservations.discard(project_id)
 
     return run_with_sse(request, work, project_id=project_id, job_kind="planning", stage="planning")
 
@@ -883,7 +1207,7 @@ async def update_script(project_id: str, request: Request):
     except FileNotFoundError:
         return project_not_found(project_id)
     except ValueError as error:
-        return JSONResponse({"error": str(error)}, status_code=400)
+        return JSONResponse({"error": safe_error_message(error), "error_code": "INVALID_MUTATION"}, status_code=400)
     return serialized_project(project)
 
 
@@ -895,7 +1219,7 @@ def lock_script(project_id: str):
     except FileNotFoundError:
         return project_not_found(project_id)
     except ValueError as error:
-        return JSONResponse({"error": str(error)}, status_code=400)
+        return JSONResponse({"error": safe_error_message(error), "error_code": "INVALID_MUTATION"}, status_code=400)
     return serialized_project(project)
 
 
@@ -907,7 +1231,7 @@ def unlock_script(project_id: str):
     except FileNotFoundError:
         return project_not_found(project_id)
     except ValueError as error:
-        return JSONResponse({"error": str(error)}, status_code=400)
+        return JSONResponse({"error": safe_error_message(error), "error_code": "INVALID_MUTATION"}, status_code=400)
     return serialized_project(project)
 
 
@@ -969,7 +1293,7 @@ async def update_audio_design(project_id: str, request: Request):
     except FileNotFoundError:
         return project_not_found(project_id)
     except ValueError as error:
-        return JSONResponse({"error": str(error)}, status_code=400)
+        return JSONResponse({"error": safe_error_message(error), "error_code": "INVALID_MUTATION"}, status_code=400)
     return serialized_project(project)
 
 
@@ -996,7 +1320,7 @@ async def update_final_look(project_id: str, request: Request):
     except FileNotFoundError:
         return project_not_found(project_id)
     except ValueError as error:
-        return JSONResponse({"error": str(error)}, status_code=400)
+        return JSONResponse({"error": safe_error_message(error), "error_code": "INVALID_MUTATION"}, status_code=400)
     except RuntimeError as error:
         return structured_error_response(error, status_code=409, stage="final_look")
     return serialized_project(project)
@@ -1023,7 +1347,7 @@ def _run_audio_track_action(project_id: str, track_key: str, action: str, reques
                 idempotency_key=fence["idempotency_key"],
                 project_revision=fence["project_revision"],
                 expected_input_hash=fence["expected_input_hash"],
-                max_active_jobs=int(getattr(settings, "max_active_jobs", 2) or 2),
+                max_active_jobs=effective_max_active_jobs(),
             )
             if started_job.get("idempotent_replay"):
                 return JSONResponse({"job": started_job, "idempotent_replay": True}, status_code=200)
@@ -1038,7 +1362,7 @@ def _run_audio_track_action(project_id: str, track_key: str, action: str, reques
     except JobIdempotencyConflict as error:
         return _job_idempotency_conflict_response(error)
     except JobAlreadyRunning as error:
-        return JSONResponse({"error": str(error), "error_code": "JOB_ALREADY_RUNNING", "job": error.snapshot}, status_code=409)
+        return JSONResponse({"error": safe_error_message(error), "error_code": "JOB_ALREADY_RUNNING", "job": error.snapshot}, status_code=409)
     except JobCapacityReached as error:
         return JSONResponse({"error": "Production job capacity has been reached.", "error_code": "JOB_CAPACITY_REACHED", "active": error.active, "maximum": error.maximum}, status_code=429)
     except ProductionBlockedError as error:
@@ -1046,7 +1370,7 @@ def _run_audio_track_action(project_id: str, track_key: str, action: str, reques
     except ValueError as error:
         if started_job:
             job_ledger.finish(project_id, started_job["job_id"], status="failed", error=error_info(error, stage="audio"))
-        return JSONResponse({"error": str(error)}, status_code=400)
+        return JSONResponse({"error": safe_error_message(error), "error_code": "INVALID_MUTATION"}, status_code=400)
     except Exception as error:  # noqa: BLE001 - keep the durable job truthful
         if started_job:
             job_ledger.finish(project_id, started_job["job_id"], status="failed", error=error_info(error, stage="audio"))
@@ -1081,7 +1405,7 @@ def generate_voice_track(project_id: str):
     except FileNotFoundError:
         return project_not_found(project_id)
     except ValueError as error:
-        return JSONResponse({"error": str(error)}, status_code=400)
+        return JSONResponse({"error": safe_error_message(error), "error_code": "INVALID_MUTATION"}, status_code=400)
     except RuntimeError as error:
         return structured_error_response(error, status_code=409, stage="voice")
     return serialized_project(project)
@@ -1107,7 +1431,7 @@ async def upload_music(project_id: str, request: Request):
                 return JSONResponse(
                     {"error": "Audio upload must be .mp3, .wav, .m4a, .aac, or .flac."}, status_code=415
                 )
-            max_bytes = int(getattr(settings, "max_upload_mb", 50) or 50) * 1024 * 1024
+            max_bytes = effective_max_upload_mb() * 1024 * 1024
             declared_length = request.headers.get("content-length")
             try:
                 if declared_length is not None and int(declared_length) > max_bytes:
@@ -1173,7 +1497,7 @@ async def approve_edit(project_id: str, request: Request):
     except ProductionBlockedError as error:
         return structured_error_response(error, status_code=409, stage="final_cut")
     except ValueError as error:
-        return JSONResponse({"error": str(error)}, status_code=400)
+        return JSONResponse({"error": safe_error_message(error), "error_code": "INVALID_MUTATION"}, status_code=400)
     except RuntimeError as error:
         return structured_error_response(error, status_code=502, stage="final_cut")
     return serialized_project(project)
@@ -1203,7 +1527,7 @@ async def normalize_media_resolution(project_id: str, request: Request):
     except FileNotFoundError:
         return project_not_found(project_id)
     except ValueError as error:
-        return JSONResponse({"error": str(error)}, status_code=400)
+        return JSONResponse({"error": safe_error_message(error), "error_code": "INVALID_MUTATION"}, status_code=400)
     except RuntimeError as error:
         return structured_error_response(error, status_code=409, stage="media")
     return serialized_project(project)
@@ -1313,12 +1637,12 @@ async def generate_reference(project_id: str, request: Request):
             idempotency_key=idempotency_key,
             project_revision=project_revision,
             expected_input_hash=input_fingerprint,
-            max_active_jobs=int(getattr(settings, "max_active_jobs", 2) or 2),
+            max_active_jobs=effective_max_active_jobs(),
         )
     except JobIdempotencyConflict as error:
         return _job_idempotency_conflict_response(error)
     except JobAlreadyRunning as error:
-        return JSONResponse({"error": str(error), "error_code": "JOB_ALREADY_RUNNING", "job": error.snapshot}, status_code=409)
+        return JSONResponse({"error": safe_error_message(error), "error_code": "JOB_ALREADY_RUNNING", "job": error.snapshot}, status_code=409)
     except JobCapacityReached as error:
         return JSONResponse({"error": "Production job capacity has been reached.", "error_code": "JOB_CAPACITY_REACHED", "active": error.active, "maximum": error.maximum}, status_code=429)
     if started.get("idempotent_replay"):
@@ -1426,7 +1750,7 @@ def approve_reference(project_id: str, reference_id: str) -> dict[str, Any]:
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Reference not found.")
     except ValueError as error:
-        raise HTTPException(status_code=409, detail=str(error)) from error
+        raise HTTPException(status_code=409, detail=safe_error_message(error)) from error
     return {"project_id": project_id, "reference": _public_reference(asset)}
 
 
@@ -1451,7 +1775,7 @@ def regenerate_shot(project_id: str, shot_number: int):
     except ProductionBlockedError as error:
         return structured_error_response(error, status_code=409, stage="generation")
     except ValueError as error:
-        return JSONResponse({"error": str(error)}, status_code=400)
+        return JSONResponse({"error": safe_error_message(error), "error_code": "INVALID_MUTATION"}, status_code=400)
     return serialized_project(project)
 
 
@@ -1470,7 +1794,7 @@ async def update_shot(project_id: str, shot_number: int, request: Request):
     except FileNotFoundError:
         return project_not_found(project_id)
     except ValueError as error:
-        return JSONResponse({"error": str(error)}, status_code=400)
+        return JSONResponse({"error": safe_error_message(error), "error_code": "INVALID_MUTATION"}, status_code=400)
     return serialized_project(project)
 
 
@@ -1501,7 +1825,7 @@ def render_single_shot(project_id: str, shot_number: int, request: Request):
                 idempotency_key=fence["idempotency_key"],
                 project_revision=fence["project_revision"],
                 expected_input_hash=fence["expected_input_hash"],
-                max_active_jobs=int(getattr(settings, "max_active_jobs", 2) or 2),
+                max_active_jobs=effective_max_active_jobs(),
             )
             if started_job.get("idempotent_replay"):
                 return JSONResponse({"job": started_job, "idempotent_replay": True}, status_code=200)
@@ -1513,7 +1837,7 @@ def render_single_shot(project_id: str, shot_number: int, request: Request):
     except JobIdempotencyConflict as error:
         return _job_idempotency_conflict_response(error)
     except JobAlreadyRunning as error:
-        return JSONResponse({"error": str(error), "error_code": "JOB_ALREADY_RUNNING", "job": error.snapshot}, status_code=409)
+        return JSONResponse({"error": safe_error_message(error), "error_code": "JOB_ALREADY_RUNNING", "job": error.snapshot}, status_code=409)
     except JobCapacityReached as error:
         return JSONResponse({"error": "Production job capacity has been reached.", "error_code": "JOB_CAPACITY_REACHED", "active": error.active, "maximum": error.maximum}, status_code=429)
     except ProductionBlockedError as error:
@@ -1523,7 +1847,7 @@ def render_single_shot(project_id: str, shot_number: int, request: Request):
     except ValueError as error:
         if started_job:
             job_ledger.finish(project_id, started_job["job_id"], status="failed", error=error_info(error, stage="generation"))
-        return JSONResponse({"error": str(error)}, status_code=400)
+        return JSONResponse({"error": safe_error_message(error), "error_code": "INVALID_MUTATION"}, status_code=400)
     except Exception as error:  # noqa: BLE001 - surface generation failures to the inspector
         if started_job:
             job_ledger.finish(project_id, started_job["job_id"], status="failed", error=error_info(error, stage="generation"))
@@ -1553,7 +1877,7 @@ def generate_final_master(project_id: str, request: Request):
                 idempotency_key=fence["idempotency_key"],
                 project_revision=fence["project_revision"],
                 expected_input_hash=fence["expected_input_hash"],
-                max_active_jobs=int(getattr(settings, "max_active_jobs", 2) or 2),
+                max_active_jobs=effective_max_active_jobs(),
             )
             if started_job.get("idempotent_replay"):
                 return JSONResponse({"job": started_job, "idempotent_replay": True}, status_code=200)
@@ -1565,7 +1889,7 @@ def generate_final_master(project_id: str, request: Request):
     except JobIdempotencyConflict as error:
         return _job_idempotency_conflict_response(error)
     except JobAlreadyRunning as error:
-        return JSONResponse({"error": str(error), "error_code": "JOB_ALREADY_RUNNING", "job": error.snapshot}, status_code=409)
+        return JSONResponse({"error": safe_error_message(error), "error_code": "JOB_ALREADY_RUNNING", "job": error.snapshot}, status_code=409)
     except JobCapacityReached as error:
         return JSONResponse({"error": "Production job capacity has been reached.", "error_code": "JOB_CAPACITY_REACHED", "active": error.active, "maximum": error.maximum}, status_code=429)
     except ProductionBlockedError as error:
@@ -1575,7 +1899,7 @@ def generate_final_master(project_id: str, request: Request):
     except ValueError as error:
         if started_job:
             job_ledger.finish(project_id, started_job["job_id"], status="failed", error=error_info(error, stage="final_master"))
-        return JSONResponse({"error": str(error)}, status_code=400)
+        return JSONResponse({"error": safe_error_message(error), "error_code": "INVALID_MUTATION"}, status_code=400)
     except Exception as error:  # noqa: BLE001 - keep the durable job truthful
         if started_job:
             job_ledger.finish(project_id, started_job["job_id"], status="failed", error=error_info(error, stage="final_master"))
@@ -1593,7 +1917,7 @@ def verify_final_master(project_id: str):
     except FileNotFoundError:
         return project_not_found(project_id)
     except ValueError as error:
-        return JSONResponse({"error": str(error)}, status_code=400)
+        return JSONResponse({"error": safe_error_message(error), "error_code": "INVALID_MUTATION"}, status_code=400)
     return serialized_project(project)
 
 
@@ -1617,7 +1941,7 @@ def approve_single_shot(project_id: str, shot_number: int):
     except ProductionBlockedError as error:
         return structured_error_response(error, status_code=409, stage="shot_review")
     except ValueError as error:
-        return JSONResponse({"error": str(error)}, status_code=400)
+        return JSONResponse({"error": safe_error_message(error), "error_code": "INVALID_MUTATION"}, status_code=400)
     return serialized_project(project)
 
 
@@ -1640,7 +1964,7 @@ def approve_previs(project_id: str):
     except ProductionBlockedError as error:
         return structured_error_response(error, status_code=409, stage="previs")
     except ValueError as error:
-        return JSONResponse({"error": str(error)}, status_code=400)
+        return JSONResponse({"error": safe_error_message(error), "error_code": "INVALID_MUTATION"}, status_code=400)
     return serialized_project(project)
 
 
@@ -1676,9 +2000,9 @@ def _load_project_or_http(project_id: str):
     try:
         return orchestrator.store.load(project_id)
     except FileNotFoundError as error:
-        raise HTTPException(status_code=404, detail=f"Project {project_id} not found.") from error
+        raise HTTPException(status_code=404, detail="Project not found.") from error
     except ValueError as error:
-        raise HTTPException(status_code=400, detail=str(error)) from error
+        raise HTTPException(status_code=400, detail="Invalid project id.") from error
     except RuntimeError as error:
         info = error_info(error, stage="storage")
         raise HTTPException(status_code=503, detail=info["error_message"]) from error
@@ -1850,7 +2174,7 @@ async def export_video(project_id: str, request: Request):
                 )
                 return JSONResponse(
                     {
-                        "error": str(error),
+                        "error": safe_error_message(error),
                         "error_code": "DELIVERY_NOT_READY",
                         "stage": "export",
                         "preflight": preflight,
@@ -1889,7 +2213,7 @@ async def export_video(project_id: str, request: Request):
                 idempotency_key=fence["idempotency_key"],
                 project_revision=fence["project_revision"],
                 expected_input_hash=fence["expected_input_hash"],
-                max_active_jobs=int(getattr(settings, "max_active_jobs", 2) or 2),
+                max_active_jobs=effective_max_active_jobs(),
             )
             if started_job.get("idempotent_replay"):
                 return JSONResponse({"job": started_job, "idempotent_replay": True}, status_code=200)
@@ -1901,7 +2225,7 @@ async def export_video(project_id: str, request: Request):
     except JobIdempotencyConflict as error:
         return _job_idempotency_conflict_response(error)
     except JobAlreadyRunning as error:
-        return JSONResponse({"error": str(error), "error_code": "JOB_ALREADY_RUNNING", "job": error.snapshot}, status_code=409)
+        return JSONResponse({"error": safe_error_message(error), "error_code": "JOB_ALREADY_RUNNING", "job": error.snapshot}, status_code=409)
     except JobCapacityReached as error:
         return JSONResponse({"error": "Production job capacity has been reached.", "error_code": "JOB_CAPACITY_REACHED", "active": error.active, "maximum": error.maximum}, status_code=429)
     except ProductionBlockedError as error:
@@ -1909,7 +2233,7 @@ async def export_video(project_id: str, request: Request):
     except ValueError as error:
         if started_job:
             job_ledger.finish(project_id, started_job["job_id"], status="failed", error=error_info(error, stage="export"))
-        return JSONResponse({"error": str(error)}, status_code=400)
+        return JSONResponse({"error": safe_error_message(error), "error_code": "INVALID_MUTATION"}, status_code=400)
     except RuntimeError as error:
         if started_job:
             job_ledger.finish(project_id, started_job["job_id"], status="failed", error=error_info(error, stage="export"))

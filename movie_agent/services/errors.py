@@ -16,12 +16,26 @@ from movie_agent.services.revisions import utc_now
 _SECRET_PATTERN = re.compile(
     r"(?i)(authorization|api[\s_-]?key|access[\s_-]?token|password|secret|token)\s*[:=]\s*(?:bearer\s+)?[^\s,;]+"
 )
+_ABSOLUTE_PATH_PATTERN = re.compile(r"(?i)(?:[a-z]:[\\/]|/(?:mnt|home|workspace|tmp|var|opt)/)[^\s,;\"']+")
+_URL_PATTERN = re.compile(r"https?://[^\s,;\"']+")
+_IP_PATTERN = re.compile(r"(?<![\d.])(?:\d{1,3}\.){3}\d{1,3}(?![\d.])")
+_BEARER_PATTERN = re.compile(r"(?i)\bbearer\s+[^\s,;]+")
 
 
 def _safe_message(error: BaseException) -> str:
     message = str(error).strip() or error.__class__.__name__
     message = _SECRET_PATTERN.sub(lambda match: f"{match.group(1)}=[REDACTED]", message)
+    message = _BEARER_PATTERN.sub("Bearer [REDACTED]", message)
+    message = _ABSOLUTE_PATH_PATTERN.sub("[REDACTED_PATH]", message)
+    message = _URL_PATTERN.sub("[REDACTED_URL]", message)
+    message = _IP_PATTERN.sub("[REDACTED_IP]", message)
     return message[:1_000]
+
+
+def safe_error_message(error: BaseException) -> str:
+    """Return an API-safe error message without credentials or host details."""
+
+    return _safe_message(error)
 
 
 def classify_error(error: BaseException, *, stage: str = "pipeline") -> tuple[str, bool]:
@@ -119,4 +133,4 @@ def clear_failure(target: Any) -> Any:
     return target
 
 
-__all__ = ["classify_error", "clear_failure", "error_info", "record_failure"]
+__all__ = ["classify_error", "clear_failure", "error_info", "record_failure", "safe_error_message"]

@@ -17,6 +17,12 @@ MODEL_PROVIDER=mock
 IMAGE_GENERATION_MODE=mock
 VIDEO_GENERATION_MODE=mock
 TTS_PROVIDER=none
+PUBLIC_DEMO_MODE=true
+APP_ACCESS_TOKEN=<deployment secret; never commit>
+PUBLIC_MAX_PROJECTS=20
+PUBLIC_MAX_UPLOAD_MB=10
+MAX_ACTIVE_JOBS=2
+MAX_UPLOAD_MB=10
 PROJECTS_DIR=/mnt/workspace/projects
 OUTPUTS_DIR=/mnt/workspace/outputs
 COMFY_OUTPUT_DIR=/mnt/workspace/comfy-output
@@ -25,8 +31,12 @@ PORT=7860
 
 Run `python scripts/stage5a_runtime_check.py` before the server and verify
 FFmpeg/FFprobe, local health routes, static assets, and the restart marker.
-Keep the Studio private: the application has multiple mutation routes and a
-public exposure is not approved without a separate authentication review.
+Keep the Studio private until the public-exposure security gates pass. When
+`PUBLIC_DEMO_MODE=true`, the server requires the mock-only provider lock and an
+`APP_ACCESS_TOKEN`; project and evaluator APIs then require the signed,
+process-local HttpOnly session cookie. The direct ASGI client address is used
+for rate limiting; `X-Forwarded-For` is intentionally ignored. A server restart
+expires all sessions, so users must sign in again.
 The currently deployed demo uses safe deterministic Mock providers; the
 real-provider adapters were previously verified separately and are not enabled
 in this deployment.

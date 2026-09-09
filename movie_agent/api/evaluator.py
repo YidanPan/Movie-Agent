@@ -12,7 +12,7 @@ from fastapi import APIRouter, Header, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
-from movie_agent.services.errors import error_info
+from movie_agent.services.errors import error_info, safe_error_message
 from movie_agent.services.media_quality import best_master_path, best_screening_path
 from movie_agent.pipeline.evaluator_submissions import EvaluatorSubmissionIndex
 from movie_agent.pipeline.jobs import JobCapacityReached
@@ -83,6 +83,8 @@ async def evaluator_generate(
     request: Request,
     authorization: str | None = Header(default=None),
 ) -> JSONResponse:
+    import server
+
     orchestrator, ledger, settings, _ = _runtime()
     _authorize(settings, authorization)
     try:
@@ -136,7 +138,7 @@ async def evaluator_generate(
                 stage="planning",
                 idempotency_key=ledger_key,
                 mutates_project=True,
-                max_active_jobs=int(getattr(settings, "max_active_jobs", 2) or 2),
+                max_active_jobs=server.effective_max_active_jobs(settings),
             )
         except JobCapacityReached:
             return JSONResponse(
@@ -144,7 +146,7 @@ async def evaluator_generate(
                 status_code=429,
             )
         except Exception as error:  # pragma: no cover - ledger-specific failures are surfaced safely
-            return JSONResponse({"error": str(error), "error_code": "JOB_START_FAILED"}, status_code=409)
+            return JSONResponse({"error": safe_error_message(error), "error_code": "JOB_START_FAILED"}, status_code=409)
         if idempotency_key:
             reserved = submission_index.reserve(
                 idempotency_key,
@@ -220,7 +222,7 @@ def evaluator_project(project_id: str, authorization: str | None = Header(defaul
     except FileNotFoundError as error:
         raise HTTPException(status_code=404, detail="Project not found.") from error
     except ValueError as error:
-        raise HTTPException(status_code=400, detail=str(error)) from error
+        raise HTTPException(status_code=400, detail=safe_error_message(error)) from error
 
 
 @router.get("/projects/{project_id}/result")

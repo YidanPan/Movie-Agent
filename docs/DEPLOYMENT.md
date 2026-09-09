@@ -15,6 +15,13 @@ The release-safe baseline is deliberately offline and Mock-only:
 MODEL_PROVIDER=mock
 IMAGE_GENERATION_MODE=mock
 VIDEO_GENERATION_MODE=mock
+PUBLIC_DEMO_MODE=true
+# Set APP_ACCESS_TOKEN only in the Studio secret configuration; never commit it.
+APP_ACCESS_TOKEN=<deployment secret>
+MAX_ACTIVE_JOBS=2
+MAX_UPLOAD_MB=10
+PUBLIC_MAX_PROJECTS=20
+PUBLIC_MAX_UPLOAD_MB=10
 PROJECTS_DIR=/mnt/workspace/projects
 OUTPUTS_DIR=/mnt/workspace/outputs
 COMFY_OUTPUT_DIR=/mnt/workspace/comfy-output
@@ -61,13 +68,13 @@ PROJECTS_DIR=/mnt/workspace/projects
 OUTPUTS_DIR=/mnt/workspace/outputs
 PORT=7860
 
-# 需要真实文本创作时再配置；不要提交真实值。
+# 需要真实文本创作时再配置；不要提交真实值。公开模式必须保持 mock。
 # MODEL_PROVIDER=modelscope
 # MODELSCOPE_API_KEY=<仅在创空间后台填写>
 # MODELSCOPE_API_BASE=https://api-inference.modelscope.cn/v1
 # MODELSCOPE_MODEL=Qwen/Qwen3-30B-A3B-Instruct-2507
 
-# 需要真实 Wan 视频时再配置；不要提交真实值。
+# 需要真实 Wan 视频时再配置；不要提交真实值。公开模式禁止启用。
 # VIDEO_GENERATION_MODE=remote
 # REMOTE_VIDEO_API_BASE=<Beijing workspace API base>
 # REMOTE_VIDEO_MODEL=wan2.7-t2v
