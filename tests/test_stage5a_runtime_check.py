@@ -1,5 +1,6 @@
 import inspect
 import json
+from dataclasses import replace
 from types import SimpleNamespace
 
 from scripts import stage5a_runtime_check as runtime_check
@@ -60,6 +61,92 @@ def test_application_self_check_uses_real_fastapi_contract(capsys):
         "frontend_same_origin=PASS",
     ):
         assert evidence in output
+
+
+def test_application_self_check_accepts_configured_app_auth(monkeypatch, capsys):
+    import server
+
+    monkeypatch.setattr(server, "settings", replace(server.settings, app_access_token="stage5a-test-secret"))
+
+    assert runtime_check.check_application(server.app) is True
+    output = capsys.readouterr().out
+    for evidence in (
+        "endpoint_root=401",
+        "endpoint_health=200",
+        "endpoint_api_health=200",
+        "endpoint_health_ready=200",
+        "endpoint_projects=401",
+        "auth_boundary=PASS",
+        "access_screen=PASS",
+        "project_auth_boundary=PASS",
+        "frontend_html=PASS",
+        "frontend_css=PASS",
+        "frontend_js=PASS",
+        "frontend_same_origin=PASS",
+    ):
+        assert evidence in output
+    assert "stage5a-test-secret" not in output
+
+
+def test_application_self_check_accepts_public_demo_auth_contract(monkeypatch, capsys):
+    import server
+
+    monkeypatch.setattr(
+        server,
+        "settings",
+        replace(
+            server.settings,
+            app_access_token="stage5a-public-test-secret",
+            public_demo_mode=True,
+            model_provider="mock",
+            image_generation_mode="mock",
+            video_generation_mode="mock",
+            tts_provider="none",
+        ),
+    )
+
+    assert runtime_check.check_application(server.app) is True
+    output = capsys.readouterr().out
+    assert "endpoint_root=401" in output
+    assert "endpoint_projects=401" in output
+    assert "auth_boundary=PASS" in output
+    assert "project_auth_boundary=PASS" in output
+    assert "stage5a-public-test-secret" not in output
+
+
+def test_application_self_check_rejects_unexpected_server_errors(capsys):
+    from fastapi import FastAPI
+    from fastapi.responses import JSONResponse
+
+    broken = FastAPI()
+
+    @broken.get("/")
+    def broken_root():
+        return JSONResponse({"error": "internal"}, status_code=500)
+
+    @broken.get("/health")
+    def broken_health():
+        return {"status": "ok"}
+
+    @broken.get("/api/health")
+    def broken_api_health():
+        return {"status": "ok"}
+
+    @broken.get("/api/health/ready")
+    def broken_health_ready():
+        return {"ready": True}
+
+    @broken.get("/api/projects")
+    def broken_projects():
+        return JSONResponse({"error": "internal"}, status_code=503)
+
+    assert runtime_check.check_application(broken) is False
+    output = capsys.readouterr().out
+    assert "endpoint_root=500" in output
+    assert "endpoint_projects=503" in output
+    assert "auth_boundary=FAIL" in output
+    assert "project_auth_boundary=FAIL" in output
+    assert "internal" not in output
 
 
 def test_self_check_evidence_does_not_print_environment_secrets(monkeypatch, tmp_path, capsys):
