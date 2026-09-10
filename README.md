@@ -9,11 +9,15 @@
 The current production acceptance target is the private ModelScope Docker
 Studio `LuckyPan/Movie-Agent` on the `master` branch and free
 `platform/2v-cpu-16g-mem` hardware. It listens on `0.0.0.0:7860` and stores
-state under the persistent `/mnt/workspace` mount. The accepted Stage 5B
-configuration is Mock-only and offline (including `TTS_PROVIDER=none`):
+state under the persistent `/mnt/workspace` mount. The intended Option B
+competition configuration uses the real ModelScope text LLM while keeping all
+media deterministic and offline:
 
 ```text
-MODEL_PROVIDER=mock
+MODEL_PROVIDER=modelscope
+MODELSCOPE_API_KEY=<Studio secret; never commit>
+MODELSCOPE_MODEL=Qwen/Qwen3-30B-A3B-Instruct-2507
+MODELSCOPE_MAX_TOKENS=8192
 IMAGE_GENERATION_MODE=mock
 VIDEO_GENERATION_MODE=mock
 TTS_PROVIDER=none
@@ -31,15 +35,15 @@ PORT=7860
 
 Run `python scripts/stage5a_runtime_check.py` before the server and verify
 FFmpeg/FFprobe, local health routes, static assets, and the restart marker.
-Keep the Studio private until the public-exposure security gates pass. When
-`PUBLIC_DEMO_MODE=true`, the server requires the mock-only provider lock and an
-`APP_ACCESS_TOKEN`; project and evaluator APIs then require the signed,
-process-local HttpOnly session cookie. The direct ASGI client address is used
-for rate limiting; `X-Forwarded-For` is intentionally ignored. A server restart
-expires all sessions, so users must sign in again.
-The currently deployed demo uses safe deterministic Mock providers; the
-real-provider adapters were previously verified separately and are not enabled
-in this deployment.
+Keep the Studio private until the public-exposure security gates pass. In
+Option B, `PUBLIC_DEMO_MODE=true` permits only `MODEL_PROVIDER=mock` or
+`modelscope`; image and video generation remain `mock`, and `TTS_PROVIDER=none`.
+`APP_ACCESS_TOKEN` is required for project and evaluator APIs, which use a
+signed, process-local HttpOnly session cookie. The direct ASGI client address
+is used for rate limiting; `X-Forwarded-For` is intentionally ignored. A
+server restart expires all sessions, so users must sign in again. Real image,
+video, ComfyUI, Wan/DashScope, and TTS providers remain implemented for
+controlled private deployments but are disabled in the Public Demo.
 See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) and
 [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md) for the release and
 recovery runbook.

@@ -9,10 +9,13 @@ mutation route. The target must run the `master` branch on the free
 `platform/2v-cpu-16g-mem` resource, listen on `0.0.0.0:7860`, and use
 `/mnt/workspace` for durable state.
 
-The release-safe baseline is deliberately offline and Mock-only:
+The competition Option B runtime uses real ModelScope text planning and Mock-only
+media:
 
 ```text
-MODEL_PROVIDER=mock
+MODEL_PROVIDER=modelscope
+MODELSCOPE_MODEL=Qwen/Qwen3-30B-A3B-Instruct-2507
+MODELSCOPE_MAX_TOKENS=8192
 IMAGE_GENERATION_MODE=mock
 VIDEO_GENERATION_MODE=mock
 PUBLIC_DEMO_MODE=true
@@ -28,9 +31,12 @@ COMFY_OUTPUT_DIR=/mnt/workspace/comfy-output
 PORT=7860
 ```
 
-Do not submit a real text, image, voice, ComfyUI, Wan, or other provider
-generation request as part of Stage 5B. Real-provider credentials remain
-optional and require a separately approved smoke test.
+`MODELSCOPE_API_KEY` and `APP_ACCESS_TOKEN` belong only in Studio Secrets.
+The Public Demo may call the real ModelScope text LLM for dynamic planning, but
+image generation, video generation, ComfyUI, Wan/DashScope, and TTS remain
+disabled and Mock/none respectively. Do not submit a real media-provider
+generation request. The real media adapters remain available for controlled
+private deployments.
 
 ## 1. 推送代码
 
@@ -58,19 +64,21 @@ uvicorn server:app --host 0.0.0.0 --port ${PORT:-7860} --workers 1
 
 ## 3. 添加 Variables / Secrets
 
-创空间可以先用完全离线的 mock 配置启动；只有明确启用真实文本或视频生成时才需要对应密钥。建议设置：
+公开竞赛 Demo 使用真实 ModelScope 文本规划和 Mock-only media；建议设置：
 
 ```text
-MODEL_PROVIDER=mock
+MODEL_PROVIDER=modelscope
 IMAGE_GENERATION_MODE=mock
 VIDEO_GENERATION_MODE=mock
+TTS_PROVIDER=none
+PUBLIC_DEMO_MODE=true
+APP_ACCESS_TOKEN=<仅在创空间后台填写>
+MODELSCOPE_API_KEY=<仅在创空间后台填写>
 PROJECTS_DIR=/mnt/workspace/projects
 OUTPUTS_DIR=/mnt/workspace/outputs
 PORT=7860
 
-# 需要真实文本创作时再配置；不要提交真实值。公开模式必须保持 mock。
-# MODEL_PROVIDER=modelscope
-# MODELSCOPE_API_KEY=<仅在创空间后台填写>
+# 真实文本模型配置；不要提交真实值。
 # MODELSCOPE_API_BASE=https://api-inference.modelscope.cn/v1
 # MODELSCOPE_MODEL=Qwen/Qwen3-30B-A3B-Instruct-2507
 

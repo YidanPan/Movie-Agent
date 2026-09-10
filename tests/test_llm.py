@@ -114,6 +114,19 @@ class ModelScopeLLMTests(unittest.TestCase):
                 client.complete_json("screenwriter", "Return JSON")
         self.assertEqual(raised.exception.error_type, "invalid_json")
 
+    def test_request_budgets_are_finite(self) -> None:
+        client = ModelScopeLLM(
+            "test-token",
+            "https://example.test/v1",
+            "test-model",
+            timeout_seconds=10_000,
+            max_retries=10_000,
+            max_tokens=1_000_000,
+        )
+        self.assertEqual(client.timeout_seconds, 600)
+        self.assertEqual(client.max_retries, 5)
+        self.assertEqual(client.max_tokens, 32_768)
+
 
 if __name__ == "__main__":
     unittest.main()

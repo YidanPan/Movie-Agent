@@ -52,9 +52,9 @@ class ModelScopeLLM:
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
         self.model = model
-        self.timeout_seconds = timeout_seconds
-        self.max_retries = max(1, max_retries)
-        self.max_tokens = max(1024, max_tokens)
+        self.timeout_seconds = min(600, max(1, int(timeout_seconds)))
+        self.max_retries = min(5, max(1, int(max_retries)))
+        self.max_tokens = min(32768, max(1024, int(max_tokens)))
         self.request_count = 0
         self.last_request: dict[str, Any] = {}
 

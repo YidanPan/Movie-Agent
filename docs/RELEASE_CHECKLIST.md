@@ -1,7 +1,7 @@
 # Movie-Agent Stage 5B Release Checklist
 
 This is the short acceptance checklist for the private ModelScope Docker
-Studio. It does not authorize paid or real-provider generation.
+Studio. It does not authorize paid or real-media-provider generation.
 
 ## Baseline
 
@@ -21,8 +21,12 @@ Studio. It does not authorize paid or real-provider generation.
 - [ ] `PROJECTS_DIR=/mnt/workspace/projects`.
 - [ ] `OUTPUTS_DIR=/mnt/workspace/outputs`.
 - [ ] `COMFY_OUTPUT_DIR=/mnt/workspace/comfy-output`.
-- [ ] `MODEL_PROVIDER=mock`, `IMAGE_GENERATION_MODE=mock`, and
-  `VIDEO_GENERATION_MODE=mock` for acceptance.
+- [ ] Option B uses `MODEL_PROVIDER=modelscope` with `MODELSCOPE_API_KEY` in
+  Studio Secrets; `IMAGE_GENERATION_MODE=mock`, `VIDEO_GENERATION_MODE=mock`,
+  and `TTS_PROVIDER=none` remain mandatory.
+- [ ] Real image/video/TTS providers remain implemented but disabled in the
+  Public Demo; ComfyUI and DashScope-Wan are reserved for controlled private
+  deployments.
 
 ## Runtime, persistence, and recovery
 
@@ -45,7 +49,8 @@ Studio. It does not authorize paid or real-provider generation.
   placeholder media is presented as real output.
 - [ ] No prompt, token, secret, internal path, or signed URL appears in
   browser payloads or logs.
-- [ ] No real video/image/LLM/voice generation request was made.
+- [ ] No real video/image/voice generation request was made. ModelScope text
+  planning is allowed only in the explicitly configured Option B runtime.
 - [ ] Public exposure remains `NOT RECOMMENDED` until authentication review.
 
 Evidence and known residual risks belong in the Stage 5B release report.

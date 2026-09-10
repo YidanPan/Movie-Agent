@@ -143,10 +143,10 @@ def _public_demo_mode() -> bool:
 
 
 def public_demo_provider_safe() -> bool:
-    """Return whether public exposure is locked to the deterministic workflow."""
+    """Return whether public exposure uses the approved text/media boundary."""
 
     return not _public_demo_mode() or (
-        str(getattr(settings, "model_provider", "mock") or "").lower() == "mock"
+        str(getattr(settings, "model_provider", "mock") or "").lower() in {"mock", "modelscope"}
         and str(getattr(settings, "image_generation_mode", "mock") or "").lower() == "mock"
         and str(getattr(settings, "video_generation_mode", "mock") or "").lower() == "mock"
         and str(getattr(settings, "tts_provider", "none") or "").lower() == "none"

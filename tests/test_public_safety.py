@@ -2,6 +2,7 @@ from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import time
+from unittest.mock import Mock
 
 from fastapi.testclient import TestClient
 
@@ -159,6 +160,96 @@ def test_public_demo_mock_lock_is_ready_and_disables_expensive_routes(monkeypatc
                 break
             time.sleep(0.01)
         assert server.job_ledger.active_count() == 0
+
+
+def test_public_demo_option_b_allows_modelscope_text_but_keeps_media_locked(monkeypatch):
+    with TemporaryDirectory() as temporary_directory:
+        root = Path(temporary_directory)
+        settings = _settings(
+            root,
+            public_demo_mode=True,
+            model_provider="modelscope",
+            modelscope_api_key="test-modelscope-secret",
+            image_generation_mode="mock",
+            video_generation_mode="mock",
+            tts_provider="none",
+        )
+        _install(monkeypatch, root, settings)
+        monkeypatch.setattr(server, "_directory_ready", lambda path: True)
+        monkeypatch.setattr(server, "_binary_ready", lambda binary: True)
+
+        checks = server.runtime_checks()
+        assert server.public_demo_provider_safe() is True
+        assert checks["model_provider"] == {"ok": True, "required": True}
+        assert server.runtime_ready(checks) is True
+        health = TestClient(server.app).get("/api/health")
+        assert health.status_code == 200
+        assert "test-modelscope-secret" not in health.text
+
+        client = TestClient(server.app)
+        _login(client)
+        monkeypatch.setattr(server, "run_with_sse", Mock(return_value={"allowed": True}))
+        allowed = client.post(
+            "/api/projects/stream",
+            json={"idea": "A courier follows a signal beyond the moon.", "duration": 48, "visual_style": "film sci-fi"},
+            headers={"Origin": "http://testserver"},
+        )
+        assert allowed.status_code == 200
+        assert allowed.json() == {"allowed": True}
+
+        denied = client.post(
+            "/api/projects/film-1234abcd/shots/1/render",
+            headers={"Origin": "http://testserver"},
+        )
+        assert denied.status_code == 403
+        assert denied.json()["error_code"] == "PUBLIC_DEMO_PROVIDER_DISABLED"
+
+
+def test_public_demo_modelscope_missing_key_is_not_ready(monkeypatch):
+    with TemporaryDirectory() as temporary_directory:
+        root = Path(temporary_directory)
+        settings = _settings(root, public_demo_mode=True)
+        _install(monkeypatch, root, settings)
+        monkeypatch.setattr(
+            server,
+            "settings",
+            replace(
+                settings,
+                public_demo_mode=True,
+                model_provider="modelscope",
+                modelscope_api_key=None,
+                image_generation_mode="mock",
+                video_generation_mode="mock",
+                tts_provider="none",
+            ),
+        )
+        monkeypatch.setattr(server, "_directory_ready", lambda path: True)
+        monkeypatch.setattr(server, "_binary_ready", lambda binary: True)
+
+        checks = server.runtime_checks()
+        assert checks["public_demo_provider_lock"]["ok"] is True
+        assert checks["model_provider"] == {"ok": False, "required": True}
+        assert server.runtime_ready(checks) is False
+        response = TestClient(server.app).get("/api/health/ready")
+        assert response.status_code == 503
+        assert "test-modelscope-secret" not in response.text
+
+
+def test_public_demo_provider_allowlist_rejects_unsafe_variants(monkeypatch):
+    with TemporaryDirectory() as temporary_directory:
+        root = Path(temporary_directory)
+        base = _settings(root, public_demo_mode=True)
+        _install(monkeypatch, root, base)
+        unsafe = (
+            {"model_provider": "unknown"},
+            {"image_generation_mode": "modelscope"},
+            {"video_generation_mode": "remote"},
+            {"video_generation_mode": "comfyui"},
+            {"tts_provider": "edge_tts"},
+        )
+        for override in unsafe:
+            monkeypatch.setattr(server, "settings", replace(base, **override))
+            assert server.public_demo_provider_safe() is False
 
 
 def test_mutation_rate_limit_and_public_project_cap(monkeypatch):
