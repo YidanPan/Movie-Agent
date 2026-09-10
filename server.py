@@ -142,6 +142,13 @@ def _public_demo_mode() -> bool:
     return bool(getattr(settings, "public_demo_mode", False))
 
 
+def _application_auth_enabled() -> bool:
+    """Return whether the current deployment intentionally gates the app."""
+
+    provider = str(getattr(settings, "model_provider", "mock") or "").lower()
+    return bool(_app_access_token()) or (_public_demo_mode() and provider == "modelscope")
+
+
 def public_demo_provider_safe() -> bool:
     """Return whether public exposure uses the approved text/media boundary."""
 
@@ -299,14 +306,19 @@ async def public_security_boundary(request: Request, call_next):
         request.method == "GET" and path.endswith(("/export/json", "/export/markdown"))
     )
     configured_token = bool(_app_access_token())
-    auth_required = protected and (configured_token or _public_demo_mode() or (path.startswith("/api/v1") and bool(getattr(settings, "evaluator_api_token", None))))
+    auth_required = protected and (
+        _application_auth_enabled()
+        or (path.startswith("/api/v1") and bool(getattr(settings, "evaluator_api_token", None)))
+    )
 
-    if path == "/" and (configured_token or _public_demo_mode()) and not _request_authenticated(request):
+    if path == "/" and _application_auth_enabled() and not _request_authenticated(request):
         return _apply_security_headers(_access_screen())
     if auth_required and not _request_authenticated(request):
         code = "PUBLIC_DEMO_AUTH_REQUIRED" if _public_demo_mode() and not configured_token else "AUTH_REQUIRED"
         return _apply_security_headers(_auth_response(status_code=503 if code != "AUTH_REQUIRED" else 401, code=code))
-    if mutating_request and protected and request.cookies.get(SESSION_COOKIE_NAME) and not _csrf_origin_allowed(request):
+    public_browser_mutation = _public_demo_mode() and protected and not _csrf_origin_allowed(request)
+    cookie_mutation = protected and bool(request.cookies.get(SESSION_COOKIE_NAME)) and not _csrf_origin_allowed(request)
+    if mutating_request and (public_browser_mutation or cookie_mutation):
         return _apply_security_headers(JSONResponse({"error": "Same-origin request required.", "error_code": "CSRF_ORIGIN_REJECTED"}, status_code=403))
 
     bucket = _rate_bucket(request)
@@ -383,8 +395,8 @@ def runtime_checks() -> dict[str, dict[str, Any]]:
             "required": _public_demo_mode(),
         },
         "public_demo_auth": {
-            "ok": bool(_app_access_token()),
-            "required": _public_demo_mode(),
+            "ok": bool(_app_access_token()) or str(settings.model_provider or "").lower() != "modelscope",
+            "required": _public_demo_mode() and str(settings.model_provider or "").lower() == "modelscope",
         },
         "projects_storage": {"ok": _directory_ready(settings.projects_dir), "required": True},
         "outputs_storage": {"ok": _directory_ready(settings.outputs_dir), "required": True},

@@ -9,18 +9,14 @@ mutation route. The target must run the `master` branch on the free
 `platform/2v-cpu-16g-mem` resource, listen on `0.0.0.0:7860`, and use
 `/mnt/workspace` for durable state.
 
-The competition Option B runtime uses real ModelScope text planning and Mock-only
-media:
+The competition Public Demo is public and uses Mock providers for stable
+judging and zero external model cost:
 
 ```text
-MODEL_PROVIDER=modelscope
-MODELSCOPE_MODEL=Qwen/Qwen3-30B-A3B-Instruct-2507
-MODELSCOPE_MAX_TOKENS=8192
+MODEL_PROVIDER=mock
 IMAGE_GENERATION_MODE=mock
 VIDEO_GENERATION_MODE=mock
 PUBLIC_DEMO_MODE=true
-# Set APP_ACCESS_TOKEN only in the Studio secret configuration; never commit it.
-APP_ACCESS_TOKEN=<deployment secret>
 MAX_ACTIVE_JOBS=2
 MAX_UPLOAD_MB=10
 PUBLIC_MAX_PROJECTS=20
@@ -31,12 +27,12 @@ COMFY_OUTPUT_DIR=/mnt/workspace/comfy-output
 PORT=7860
 ```
 
-`MODELSCOPE_API_KEY` and `APP_ACCESS_TOKEN` belong only in Studio Secrets.
-The Public Demo may call the real ModelScope text LLM for dynamic planning, but
-image generation, video generation, ComfyUI, Wan/DashScope, and TTS remain
-disabled and Mock/none respectively. Do not submit a real media-provider
-generation request. The real media adapters remain available for controlled
-private deployments.
+The all-Mock Public Demo requires no external model credentials and no
+application access code. Real ModelScope text, image, video, ComfyUI,
+Wan/DashScope, and TTS integrations remain available for controlled private
+deployments. A new model family requires a Provider adapter implementing the
+corresponding interface and registration in the configuration layer; arbitrary
+model names are not supported automatically.
 
 ## 1. 推送代码
 
@@ -64,21 +60,21 @@ uvicorn server:app --host 0.0.0.0 --port ${PORT:-7860} --workers 1
 
 ## 3. 添加 Variables / Secrets
 
-公开竞赛 Demo 使用真实 ModelScope 文本规划和 Mock-only media；建议设置：
+公开竞赛 Demo 使用 Mock-only providers，匿名即可体验完整演示；建议设置：
 
 ```text
-MODEL_PROVIDER=modelscope
+MODEL_PROVIDER=mock
 IMAGE_GENERATION_MODE=mock
 VIDEO_GENERATION_MODE=mock
 TTS_PROVIDER=none
 PUBLIC_DEMO_MODE=true
-APP_ACCESS_TOKEN=<仅在创空间后台填写>
-MODELSCOPE_API_KEY=<仅在创空间后台填写>
 PROJECTS_DIR=/mnt/workspace/projects
 OUTPUTS_DIR=/mnt/workspace/outputs
 PORT=7860
 
-# 真实文本模型配置；不要提交真实值。
+# 受控私有部署才配置真实文本；不要提交真实值。
+# MODEL_PROVIDER=modelscope
+# MODELSCOPE_API_KEY=<仅在创空间后台填写>
 # MODELSCOPE_API_BASE=https://api-inference.modelscope.cn/v1
 # MODELSCOPE_MODEL=Qwen/Qwen3-30B-A3B-Instruct-2507
 

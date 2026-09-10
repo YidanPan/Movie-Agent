@@ -142,7 +142,7 @@ def _auth_enabled() -> bool:
 
     import server
 
-    return bool(server._app_access_token() or server._public_demo_mode())
+    return bool(server._application_auth_enabled())
 
 
 def _health_payload_is_safe(response: Any) -> bool:

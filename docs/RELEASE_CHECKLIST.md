@@ -21,12 +21,11 @@ Studio. It does not authorize paid or real-media-provider generation.
 - [ ] `PROJECTS_DIR=/mnt/workspace/projects`.
 - [ ] `OUTPUTS_DIR=/mnt/workspace/outputs`.
 - [ ] `COMFY_OUTPUT_DIR=/mnt/workspace/comfy-output`.
-- [ ] Option B uses `MODEL_PROVIDER=modelscope` with `MODELSCOPE_API_KEY` in
-  Studio Secrets; `IMAGE_GENERATION_MODE=mock`, `VIDEO_GENERATION_MODE=mock`,
-  and `TTS_PROVIDER=none` remain mandatory.
-- [ ] Real image/video/TTS providers remain implemented but disabled in the
-  Public Demo; ComfyUI and DashScope-Wan are reserved for controlled private
-  deployments.
+- [ ] Public Demo uses `MODEL_PROVIDER=mock`,
+  `IMAGE_GENERATION_MODE=mock`, `VIDEO_GENERATION_MODE=mock`, and
+  `TTS_PROVIDER=none`; no external model credentials are required.
+- [ ] Real ModelScope/ComfyUI/DashScope-Wan/image/video/TTS providers remain
+  implemented for controlled private deployments but are disabled in Public.
 
 ## Runtime, persistence, and recovery
 
@@ -49,8 +48,8 @@ Studio. It does not authorize paid or real-media-provider generation.
   placeholder media is presented as real output.
 - [ ] No prompt, token, secret, internal path, or signed URL appears in
   browser payloads or logs.
-- [ ] No real video/image/voice generation request was made. ModelScope text
-  planning is allowed only in the explicitly configured Option B runtime.
+- [ ] No real external model, video/image, or voice generation request was
+  made; Mock providers are used for the public competition demo.
 - [ ] Public exposure remains `NOT RECOMMENDED` until authentication review.
 
 Evidence and known residual risks belong in the Stage 5B release report.
