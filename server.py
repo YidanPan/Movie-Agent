@@ -142,6 +142,12 @@ def _public_demo_mode() -> bool:
     return bool(getattr(settings, "public_demo_mode", False))
 
 
+def _application_auth_enabled() -> bool:
+    """Return whether the application intentionally requires a session."""
+
+    return bool(_app_access_token() or _public_demo_mode())
+
+
 def public_demo_provider_safe() -> bool:
     """Return whether public exposure uses the approved text/media boundary."""
 
@@ -299,9 +305,9 @@ async def public_security_boundary(request: Request, call_next):
         request.method == "GET" and path.endswith(("/export/json", "/export/markdown"))
     )
     configured_token = bool(_app_access_token())
-    auth_required = protected and (configured_token or _public_demo_mode() or (path.startswith("/api/v1") and bool(getattr(settings, "evaluator_api_token", None))))
+    auth_required = protected and (_application_auth_enabled() or (path.startswith("/api/v1") and bool(getattr(settings, "evaluator_api_token", None))))
 
-    if path == "/" and (configured_token or _public_demo_mode()) and not _request_authenticated(request):
+    if path == "/" and _application_auth_enabled() and not _request_authenticated(request):
         return _apply_security_headers(_access_screen())
     if auth_required and not _request_authenticated(request):
         code = "PUBLIC_DEMO_AUTH_REQUIRED" if _public_demo_mode() and not configured_token else "AUTH_REQUIRED"

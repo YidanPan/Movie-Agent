@@ -21,6 +21,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from movie_agent.services.errors import safe_error_message
+
 WORKSPACE_PATH = Path("/mnt/workspace")
 MARKER_NAME = "movie-agent-stage5a-runtime-marker.json"
 TEMP_NAME = ".stage5a-write-test"
@@ -142,7 +144,27 @@ def _auth_enabled() -> bool:
 
     import server
 
-    return bool(server._app_access_token() or server._public_demo_mode())
+    return bool(server._application_auth_enabled())
+
+
+def _safe_import_error(error: BaseException) -> str:
+    """Format startup import failures without exposing credentials or paths."""
+
+    return safe_error_message(error).replace("\r", " ").replace("\n", " ")[:500]
+
+
+def load_application() -> Any | None:
+    """Import the ASGI app and emit actionable, redacted startup evidence."""
+
+    try:
+        from server import app
+    except Exception as error:
+        _emit("application_import", "FAIL")
+        _emit("application_import_error_type", type(error).__name__)
+        _emit("application_import_error", _safe_import_error(error))
+        return None
+    _emit("application_import", "PASS")
+    return app
 
 
 def _health_payload_is_safe(response: Any) -> bool:
@@ -264,10 +286,8 @@ def main() -> int:
     """Run the fixed startup checks; no user input or command arguments."""
 
     passed = check_binaries() and check_workspace()
-    try:
-        from server import app
-    except Exception:
-        _emit("application_import", "FAIL")
+    app = load_application()
+    if app is None:
         return 1
     if not check_application(app):
         passed = False

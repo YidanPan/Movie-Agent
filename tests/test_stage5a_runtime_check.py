@@ -149,6 +149,41 @@ def test_application_self_check_rejects_unexpected_server_errors(capsys):
     assert "internal" not in output
 
 
+def test_application_import_failure_emits_redacted_diagnostic(monkeypatch, capsys):
+    import builtins
+
+    original_import = builtins.__import__
+
+    def failing_import(name, *args, **kwargs):
+        if name == "server":
+            raise ValueError("MODEL_PROVIDER=modelscope requires MODELSCOPE_API_KEY=super-secret")
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", failing_import)
+
+    assert runtime_check.load_application() is None
+    output = capsys.readouterr().out
+    assert "application_import=FAIL" in output
+    assert "application_import_error_type=ValueError" in output
+    assert "MODELSCOPE_API_KEY=[REDACTED]" in output
+    assert "super-secret" not in output
+
+
+def test_runtime_auth_check_delegates_to_server_contract(monkeypatch):
+    import server
+
+    calls = []
+
+    def fake_application_auth_enabled():
+        calls.append(True)
+        return True
+
+    monkeypatch.setattr(server, "_application_auth_enabled", fake_application_auth_enabled)
+
+    assert runtime_check._auth_enabled() is True
+    assert calls == [True]
+
+
 def test_self_check_evidence_does_not_print_environment_secrets(monkeypatch, tmp_path, capsys):
     monkeypatch.setenv("REMOTE_VIDEO_API_KEY", "super-secret")
     monkeypatch.setenv("MODELSCOPE_API_KEY", "another-secret")
