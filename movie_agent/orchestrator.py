@@ -762,8 +762,10 @@ class MovieOrchestrator:
             source="shot",
             shot=revised_shot,
         )
-        project.status = "ready_for_ai_edit" if self._shots_ready(project) else _render_ready_status(self.settings)
         project.logs.append(f"Storyboard Agent: Shot {shot_number} re-planned; duration and narrative position preserved.")
         project.logs.extend(project.quality_report)
+        if self.settings.video_generation_mode == "mock" and self.settings.public_demo_mode:
+            return self.render_pipeline.rerender_mock_shot(project, shot_number)
+        project.status = "ready_for_ai_edit" if self._shots_ready(project) else _render_ready_status(self.settings)
         self.store.save(project)
         return project

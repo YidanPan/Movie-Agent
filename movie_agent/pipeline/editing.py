@@ -259,7 +259,15 @@ class EditPipeline:
                 project.status = "completed"
             else:
                 project.logs.append(self.editor.assemble_mock(project))
-                project.status = "completed_text_ai_video_mock" if self.using_creative_llm else "completed_mock"
+                # Public Demo exposes one stable mock-delivery state while
+                # the API still reports the real planning provider separately
+                # as ``text_mode=modelscope``.  Keep the more specific legacy
+                # status for private/non-demo callers.
+                project.status = (
+                    "completed_mock"
+                    if bool(getattr(self.settings, "public_demo_mode", False)) or not self.using_creative_llm
+                    else "completed_text_ai_video_mock"
+                )
             project.logs.append(f"Project complete: Final Master generated from approved cut ({project.subtitle_mode}).")
             project.mix_state["status"] = "FINAL MASTER READY"
             project.mix_state["active_stage"] = None

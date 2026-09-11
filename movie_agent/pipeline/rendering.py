@@ -326,6 +326,47 @@ class RenderPipeline:
         self._save(project)
         return project
 
+    def rerender_mock_shot(self, project: Any, shot_number: int) -> Any:
+        """Rebuild one re-planned shot through the deterministic mock contract.
+
+        Public demos may re-plan a shot, but they intentionally cannot call a
+        real media provider.  Without this narrow recovery path, re-planning
+        would leave the shot stale with no legal way back to ``SHOTS READY``.
+        The mock generator only updates durable state; it never creates or
+        claims a real video asset.
+        """
+
+        if self.settings is None or self.settings.video_generation_mode != "mock":
+            raise ValueError("Mock shot recovery requires VIDEO_GENERATION_MODE=mock.")
+        if not 1 <= shot_number <= len(project.storyboard):
+            raise ValueError(f"Shot number must be between 1 and {len(project.storyboard)}.")
+
+        clear_failure(project)
+        shot = project.storyboard[shot_number - 1]
+        # The previous revision is retained in ``asset_history`` by
+        # ``mark_shot_stale``.  Mock generation has no new file to point at,
+        # so never carry an old source path forward as if it were the new
+        # revision's media.
+        shot.output_placeholder = ""
+        shot.media_assets = {}
+        project.status = "generating_video_mock"
+        project.logs.append(
+            f"Generation Agent: Rebuilding mock media state for re-planned Shot {shot_number}."
+        )
+        project.logs.append(self.generation_agent.generate_mock(shot))
+        project.logs.append(self.reviewer.review_mock(shot))
+        project.status = "ready_for_ai_edit" if shots_ready(project) else "awaiting_visual_review"
+        if project.status == "ready_for_ai_edit":
+            project.logs.append(
+                f"Generation Agent: Mock recovery restored {len(project.storyboard)}/{len(project.storyboard)} SHOTS READY."
+            )
+        else:
+            project.logs.append(
+                f"QC Agent: Mock recovery completed for Shot {shot_number}; remaining shots require review."
+            )
+        self._save(project)
+        return project
+
     def approve_shot(self, project: Any, shot_number: int) -> Any:
         """Record explicit human approval for a generated shot revision."""
 

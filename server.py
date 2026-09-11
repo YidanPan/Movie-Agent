@@ -229,15 +229,39 @@ def _request_visitor_id(request: Request) -> str:
     return visitor_id
 
 
+def _embedded_cookie_policy(request: Request) -> tuple[bool, str]:
+    """Return a secure cookie policy for the supported Studio embed hosts.
+
+    ModelScope renders ``*.ms.show`` apps inside a ``modelscope.cn`` page.
+    ``SameSite=Lax`` cookies are not sent on cross-site iframe requests, which
+    would rotate an anonymous visitor identity between the HTML page and its
+    API calls.  Keep the broader default conservative: only HTTPS requests to
+    ModelScope-owned hosts opt into the ``None`` policy required by that
+    embedding relationship.  Session-authenticated writes still pass through
+    the same-origin CSRF check in the request boundary.
+    """
+
+    host = str(request.url.hostname or "").lower().rstrip(".")
+    modelscope_host = (
+        host == "ms.show"
+        or host.endswith(".ms.show")
+        or host == "modelscope.cn"
+        or host.endswith(".modelscope.cn")
+    )
+    secure = request.url.scheme.lower() == "https"
+    return secure, "none" if secure and modelscope_host else "lax"
+
+
 def _with_visitor_cookie(response: Response, request: Request, visitor_id: str) -> Response:
     if visitor_id and bool(getattr(request.state, "anonymous_visitor_cookie_new", False)):
+        secure, samesite = _embedded_cookie_policy(request)
         response.set_cookie(
             ANONYMOUS_VISITOR_COOKIE,
             visitor_id,
             max_age=ANONYMOUS_VISITOR_TTL_SECONDS,
             httponly=True,
-            secure=request.url.scheme == "https",
-            samesite="lax",
+            secure=secure,
+            samesite=samesite,
             path="/",
         )
     return response
@@ -1131,13 +1155,14 @@ async def login(request: Request):
         response = RedirectResponse("/", status_code=303)
     else:
         response = JSONResponse({"authenticated": True}, headers={"Cache-Control": "no-store"})
+    secure, samesite = _embedded_cookie_policy(request)
     response.set_cookie(
         SESSION_COOKIE_NAME,
         session_id,
         max_age=SESSION_TTL_SECONDS,
         httponly=True,
-        secure=request.url.scheme == "https",
-        samesite="lax",
+        secure=secure,
+        samesite=samesite,
         path="/",
     )
     return _apply_security_headers(response)
