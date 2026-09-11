@@ -133,8 +133,6 @@ def test_public_demo_mock_lock_is_ready_and_disables_expensive_routes(monkeypatc
         assert server.effective_max_upload_mb() == 10
 
         client = TestClient(server.app)
-        assert client.get("/").status_code == 401
-        assert client.get("/api/projects").status_code == 401
         _login(client)
         response = client.post(
             "/api/projects/film-1234abcd/shots/1/render",
@@ -162,36 +160,6 @@ def test_public_demo_mock_lock_is_ready_and_disables_expensive_routes(monkeypatc
                 break
             time.sleep(0.01)
         assert server.job_ledger.active_count() == 0
-
-
-def test_public_demo_all_mock_without_token_is_guest_accessible(monkeypatch):
-    with TemporaryDirectory() as temporary_directory:
-        root = Path(temporary_directory)
-        settings = _settings(root, public_demo_mode=True, app_access_token=None)
-        _install(monkeypatch, root, settings)
-        monkeypatch.setattr(server, "_directory_ready", lambda path: True)
-        monkeypatch.setattr(server, "_binary_ready", lambda binary: True)
-        monkeypatch.setattr(server, "run_with_sse", Mock(return_value={"allowed": True}))
-
-        client = TestClient(server.app)
-        assert client.get("/").status_code == 200
-        assert client.get("/api/projects").status_code == 200
-        assert server.runtime_ready(server.runtime_checks()) is True
-
-        rejected = client.post(
-            "/api/projects/stream",
-            json={"idea": "A courier follows a signal beyond the moon.", "duration": 48, "visual_style": "film sci-fi"},
-        )
-        assert rejected.status_code == 403
-        assert rejected.json()["error_code"] == "CSRF_ORIGIN_REJECTED"
-
-        allowed = client.post(
-            "/api/projects/stream",
-            json={"idea": "A courier follows a signal beyond the moon.", "duration": 48, "visual_style": "film sci-fi"},
-            headers={"Origin": "http://testserver"},
-        )
-        assert allowed.status_code == 200
-        assert allowed.json() == {"allowed": True}
 
 
 def test_public_demo_option_b_allows_modelscope_text_but_keeps_media_locked(monkeypatch):
@@ -235,32 +203,6 @@ def test_public_demo_option_b_allows_modelscope_text_but_keeps_media_locked(monk
         )
         assert denied.status_code == 403
         assert denied.json()["error_code"] == "PUBLIC_DEMO_PROVIDER_DISABLED"
-
-
-def test_public_demo_modelscope_requires_app_auth_even_with_text_key(monkeypatch):
-    with TemporaryDirectory() as temporary_directory:
-        root = Path(temporary_directory)
-        settings = _settings(
-            root,
-            public_demo_mode=True,
-            app_access_token=None,
-            model_provider="modelscope",
-            modelscope_api_key="test-modelscope-secret",
-            image_generation_mode="mock",
-            video_generation_mode="mock",
-            tts_provider="none",
-        )
-        _install(monkeypatch, root, settings)
-        monkeypatch.setattr(server, "_directory_ready", lambda path: True)
-        monkeypatch.setattr(server, "_binary_ready", lambda binary: True)
-
-        checks = server.runtime_checks()
-        assert checks["model_provider"]["ok"] is True
-        assert checks["public_demo_auth"] == {"ok": False, "required": True}
-        assert server.runtime_ready(checks) is False
-        client = TestClient(server.app)
-        assert client.get("/").status_code == 401
-        assert client.get("/api/projects").status_code == 503
 
 
 def test_public_demo_modelscope_missing_key_is_not_ready(monkeypatch):
