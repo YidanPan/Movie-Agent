@@ -187,6 +187,8 @@ def test_public_demo_option_b_allows_modelscope_text_but_keeps_media_locked(monk
         assert "test-modelscope-secret" not in health.text
 
         client = TestClient(server.app)
+        assert client.get("/").status_code == 401
+        assert client.get("/api/projects").status_code == 401
         _login(client)
         monkeypatch.setattr(server, "run_with_sse", Mock(return_value={"allowed": True}))
         allowed = client.post(
@@ -203,6 +205,34 @@ def test_public_demo_option_b_allows_modelscope_text_but_keeps_media_locked(monk
         )
         assert denied.status_code == 403
         assert denied.json()["error_code"] == "PUBLIC_DEMO_PROVIDER_DISABLED"
+
+
+def test_public_demo_without_app_token_allows_anonymous_access(monkeypatch):
+    with TemporaryDirectory() as temporary_directory:
+        root = Path(temporary_directory)
+        settings = _settings(
+            root,
+            public_demo_mode=True,
+            app_access_token=None,
+            model_provider="modelscope",
+            modelscope_api_key="test-modelscope-secret",
+            image_generation_mode="mock",
+            video_generation_mode="mock",
+            tts_provider="none",
+        )
+        _install(monkeypatch, root, settings)
+        monkeypatch.setattr(server, "_directory_ready", lambda path: True)
+        monkeypatch.setattr(server, "_binary_ready", lambda binary: True)
+
+        checks = server.runtime_checks()
+        assert server._application_auth_enabled() is False
+        assert checks["public_demo_auth"] == {"ok": True, "required": False}
+        assert server.public_demo_provider_safe() is True
+        assert server.runtime_ready(checks) is True
+
+        client = TestClient(server.app)
+        assert client.get("/").status_code == 200
+        assert client.get("/api/projects").status_code == 200
 
 
 def test_public_demo_modelscope_missing_key_is_not_ready(monkeypatch):

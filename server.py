@@ -145,7 +145,7 @@ def _public_demo_mode() -> bool:
 def _application_auth_enabled() -> bool:
     """Return whether the application intentionally requires a session."""
 
-    return bool(_app_access_token() or _public_demo_mode())
+    return bool(_app_access_token())
 
 
 def public_demo_provider_safe() -> bool:
@@ -389,8 +389,8 @@ def runtime_checks() -> dict[str, dict[str, Any]]:
             "required": _public_demo_mode(),
         },
         "public_demo_auth": {
-            "ok": bool(_app_access_token()),
-            "required": _public_demo_mode(),
+            "ok": not _application_auth_enabled() or bool(_app_access_token()),
+            "required": _application_auth_enabled(),
         },
         "projects_storage": {"ok": _directory_ready(settings.projects_dir), "required": True},
         "outputs_storage": {"ok": _directory_ready(settings.outputs_dir), "required": True},

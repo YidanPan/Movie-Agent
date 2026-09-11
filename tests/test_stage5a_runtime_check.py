@@ -114,6 +114,31 @@ def test_application_self_check_accepts_public_demo_auth_contract(monkeypatch, c
     assert "stage5a-public-test-secret" not in output
 
 
+def test_application_self_check_accepts_anonymous_public_demo(monkeypatch, capsys):
+    import server
+
+    monkeypatch.setattr(
+        server,
+        "settings",
+        replace(
+            server.settings,
+            app_access_token=None,
+            public_demo_mode=True,
+            model_provider="mock",
+            image_generation_mode="mock",
+            video_generation_mode="mock",
+            tts_provider="none",
+        ),
+    )
+
+    assert runtime_check.check_application(server.app) is True
+    output = capsys.readouterr().out
+    assert "endpoint_root=200" in output
+    assert "endpoint_projects=200" in output
+    assert "auth_boundary=PASS" in output
+    assert "project_auth_boundary=PASS" in output
+
+
 def test_application_self_check_rejects_unexpected_server_errors(capsys):
     from fastapi import FastAPI
     from fastapi.responses import JSONResponse
