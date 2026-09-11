@@ -70,6 +70,10 @@ project_locks_guard = threading.Lock()
 JOB_HEARTBEAT_INTERVAL_SECONDS = 45
 SESSION_COOKIE_NAME = "movie_agent_session"
 SESSION_TTL_SECONDS = 8 * 60 * 60
+ANONYMOUS_VISITOR_COOKIE = "movie_agent_visitor"
+ANONYMOUS_VISITOR_TTL_SECONDS = 30 * 24 * 60 * 60
+_VISITOR_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{20,128}$")
+_PROJECT_PATH_PATTERN = re.compile(r"^/api/projects/(film-[0-9a-f]{8})(?:/|$)")
 PUBLIC_DEMO_PROVIDER_ERROR = {
     "error": "This operation is disabled in Public Demo Mode.",
     "error_code": "PUBLIC_DEMO_PROVIDER_DISABLED",
@@ -107,7 +111,7 @@ rate_limiter = RequestRateLimiter()
 sessions: dict[str, float] = {}
 sessions_guard = threading.Lock()
 project_creation_guard = threading.Lock()
-project_creation_reservations: set[str] = set()
+project_creation_reservations: dict[str, str] = {}
 
 
 def project_lock(project_id: str) -> threading.Lock:
@@ -204,10 +208,66 @@ def _request_authenticated(request: Request) -> bool:
     return _session_authorized(request) or _evaluator_authorized(request)
 
 
-def _client_identity(request: Request) -> str:
-    """Use the direct ASGI peer; forwarded headers are not trusted."""
+def _anonymous_demo_enabled(request: Request) -> bool:
+    return _public_demo_mode() and not _application_auth_enabled() and not _evaluator_authorized(request)
 
+
+def _request_visitor_id(request: Request) -> str:
+    """Resolve a stable, opaque visitor id for anonymous Public Demo access."""
+
+    if not _anonymous_demo_enabled(request):
+        return ""
+    existing = str(request.cookies.get(ANONYMOUS_VISITOR_COOKIE) or "").strip()
+    if _VISITOR_ID_PATTERN.fullmatch(existing):
+        visitor_id = existing
+        created = False
+    else:
+        visitor_id = secrets.token_urlsafe(32)
+        created = True
+    request.state.anonymous_visitor_id = visitor_id
+    request.state.anonymous_visitor_cookie_new = created
+    return visitor_id
+
+
+def _with_visitor_cookie(response: Response, request: Request, visitor_id: str) -> Response:
+    if visitor_id and bool(getattr(request.state, "anonymous_visitor_cookie_new", False)):
+        response.set_cookie(
+            ANONYMOUS_VISITOR_COOKIE,
+            visitor_id,
+            max_age=ANONYMOUS_VISITOR_TTL_SECONDS,
+            httponly=True,
+            secure=request.url.scheme == "https",
+            samesite="lax",
+            path="/",
+        )
+    return response
+
+
+def _client_identity(request: Request) -> str:
+    """Prefer a server-issued visitor/session identity; never trust X-Forwarded-For."""
+
+    visitor_id = str(getattr(request.state, "anonymous_visitor_id", "") or "")
+    if visitor_id:
+        return f"visitor:{visitor_id}"
+    if _request_authenticated(request):
+        if request.cookies.get(SESSION_COOKIE_NAME):
+            return f"session:{request.cookies.get(SESSION_COOKIE_NAME)}"
+        return "evaluator"
     return str(request.client.host if request.client else "unknown")
+
+
+def _project_belongs_to_request(request: Request, project_id: str) -> bool:
+    """Scope anonymous project reads and mutations to the creating visitor."""
+
+    visitor_id = str(getattr(request.state, "anonymous_visitor_id", "") or "")
+    if not visitor_id:
+        return True
+    try:
+        project = orchestrator.store.load(project_id)
+    except (FileNotFoundError, ValueError, RuntimeError):
+        # Let the endpoint produce its normal not-found/storage response.
+        return True
+    return str(getattr(project, "owner_id", "") or "") == visitor_id
 
 
 def _rate_bucket(request: Request) -> str | None:
@@ -247,10 +307,10 @@ def _public_provider_route(path: str) -> bool:
     return bool(
         path in {"/api/projects/references/generate"}
         or path.endswith("/render/stream")
-        or re.search(r"/shots/\d+/(render|regenerate)$", path)
+        or re.search(r"/shots/\d+/render$", path)
         or path.endswith("/references/generate")
         or path.endswith("/audio/tracks/voice/generate")
-        or re.search(r"/audio/tracks/[^/]+/(replan|render|regenerate)$", path)
+        or re.search(r"/audio/tracks/[^/]+/(render|regenerate)$", path)
         or path.endswith("/audio/upload")
     )
 
@@ -300,6 +360,11 @@ def _apply_security_headers(response: Response) -> Response:
 @app.middleware("http")
 async def public_security_boundary(request: Request, call_next):
     path = request.url.path
+    visitor_id = _request_visitor_id(request)
+
+    def finish(response: Response) -> Response:
+        return _apply_security_headers(_with_visitor_cookie(response, request, visitor_id))
+
     protected = _protected_path(path)
     mutating_request = request.method in {"POST", "PUT", "PATCH", "DELETE"} or (
         request.method == "GET" and path.endswith(("/export/json", "/export/markdown"))
@@ -308,27 +373,30 @@ async def public_security_boundary(request: Request, call_next):
     auth_required = protected and (_application_auth_enabled() or (path.startswith("/api/v1") and bool(getattr(settings, "evaluator_api_token", None))))
 
     if path == "/" and _application_auth_enabled() and not _request_authenticated(request):
-        return _apply_security_headers(_access_screen())
+        return finish(_access_screen())
     if auth_required and not _request_authenticated(request):
         code = "PUBLIC_DEMO_AUTH_REQUIRED" if _public_demo_mode() and not configured_token else "AUTH_REQUIRED"
-        return _apply_security_headers(_auth_response(status_code=503 if code != "AUTH_REQUIRED" else 401, code=code))
+        return finish(_auth_response(status_code=503 if code != "AUTH_REQUIRED" else 401, code=code))
+    project_match = _PROJECT_PATH_PATTERN.match(path)
+    if project_match and not _project_belongs_to_request(request, project_match.group(1)):
+        return finish(JSONResponse({"error": "Project not found.", "error_code": "PROJECT_NOT_FOUND"}, status_code=404))
     if mutating_request and protected and request.cookies.get(SESSION_COOKIE_NAME) and not _csrf_origin_allowed(request):
-        return _apply_security_headers(JSONResponse({"error": "Same-origin request required.", "error_code": "CSRF_ORIGIN_REJECTED"}, status_code=403))
+        return finish(JSONResponse({"error": "Same-origin request required.", "error_code": "CSRF_ORIGIN_REJECTED"}, status_code=403))
 
     bucket = _rate_bucket(request)
     if bucket:
         limit, window = RATE_LIMITS[bucket]
         if not rate_limiter.allow(_client_identity(request), bucket, limit=limit, window_seconds=window):
-            return _apply_security_headers(_rate_limited_response())
+            return finish(_rate_limited_response())
 
     if _public_demo_mode() and path not in {"/auth/login", "/auth/logout"} and request.method in {"POST", "PUT", "PATCH", "DELETE"}:
         if not public_demo_provider_safe():
-            return _apply_security_headers(JSONResponse({**PUBLIC_DEMO_PROVIDER_ERROR}, status_code=503))
+            return finish(JSONResponse({**PUBLIC_DEMO_PROVIDER_ERROR}, status_code=503))
         if _public_provider_route(path):
-            return _apply_security_headers(JSONResponse({**PUBLIC_DEMO_PROVIDER_ERROR}, status_code=403))
+            return finish(JSONResponse({**PUBLIC_DEMO_PROVIDER_ERROR}, status_code=403))
 
     response = await call_next(request)
-    return _apply_security_headers(response)
+    return finish(response)
 
 
 def _directory_ready(path: Path) -> bool:
@@ -688,6 +756,7 @@ _INTERNAL_PATH_KEYS = {
     "reference_inputs",
     "renderer_manifest",
     "workflow_path",
+    "owner_id",
 }
 _SENSITIVE_KEYS = {
     "api_key",
@@ -988,6 +1057,7 @@ def run_with_sse(
 @app.get("/api/health")
 def health() -> dict:
     checks = runtime_checks()
+    public_demo = _public_demo_mode()
     return {
         "status": "ok",
         "build": BUILD_SHA,
@@ -995,6 +1065,20 @@ def health() -> dict:
         "checks": checks,
         "text_mode": "modelscope" if orchestrator.using_creative_llm else "mock",
         "video_mode": settings.video_generation_mode,
+        "public_demo": public_demo,
+        "capabilities": {
+            # Planning remains available in the public demo. Media-producing
+            # operations remain explicitly unavailable while their providers
+            # are mocked, and the same contract drives the UI controls.
+            "planning_replan": True,
+            "shot_replan": True,
+            "audio_replan": True,
+            "shot_render": not public_demo,
+            "reference_generation": not public_demo,
+            "audio_render": not public_demo,
+            "voice_generation": not public_demo,
+            "audio_upload": not public_demo,
+        },
     }
 
 
@@ -1071,9 +1155,10 @@ def logout(request: Request):
 
 
 @app.get("/api/projects")
-def list_projects() -> dict:
+def list_projects(request: Request) -> dict:
+    owner_id = getattr(request.state, "anonymous_visitor_id", "")
     return {
-        "projects": orchestrator.store.list_project_ids(),
+        "projects": orchestrator.store.list_project_ids(str(owner_id) if owner_id else None),
         "text_mode": "modelscope" if orchestrator.using_creative_llm else "mock",
         "video_mode": settings.video_generation_mode,
     }
@@ -1177,25 +1262,32 @@ async def create_project_stream(request: Request) -> StreamingResponse:
         return JSONResponse({"error": "Request must be valid JSON."}, status_code=400)  # type: ignore[return-value]
 
     project_id = f"film-{uuid4().hex[:8]}"
+    owner_id: str | None = None
     if _public_demo_mode():
-        max_projects = max(1, int(getattr(settings, "public_max_projects", 20) or 20))
+        max_projects = max(1, int(getattr(settings, "public_max_projects", 100) or 100))
+        owner_id = str(getattr(request.state, "anonymous_visitor_id", "") or "") or None
         with project_creation_guard:
-            if len(orchestrator.store.list_project_ids()) + len(project_creation_reservations) >= max_projects:
+            owned_projects = len(orchestrator.store.list_project_ids(owner_id))
+            owned_reservations = sum(1 for reserved_owner in project_creation_reservations.values() if reserved_owner == (owner_id or ""))
+            if owned_projects + owned_reservations >= max_projects:
                 return JSONResponse(
                     {"error": "Public project capacity has been reached.", "error_code": "PROJECT_CAPACITY_REACHED"},
                     status_code=429,
                 )
-            project_creation_reservations.add(project_id)
+            project_creation_reservations[project_id] = owner_id or ""
 
     def work(emit: Callable[[dict], None]) -> None:
         try:
             project = orchestrator.create_project(
                 payload.idea, payload.duration, payload.visual_style, event_callback=emit, project_id=project_id
             )
+            if owner_id:
+                project.owner_id = owner_id
+                orchestrator.store.save(project)
             emit({"type": "done", "project": serialized_project(project)})
         finally:
             with project_creation_guard:
-                project_creation_reservations.discard(project_id)
+                project_creation_reservations.pop(project_id, None)
 
     return run_with_sse(request, work, project_id=project_id, job_kind="planning", stage="planning")
 

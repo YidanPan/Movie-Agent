@@ -2,10 +2,8 @@
 
 ## 0. Stage 5B production release contract
 
-The accepted production target is the private Docker Studio
-`LuckyPan/Movie-Agent`. Keep the Studio private during acceptance and do not
-expose it publicly until a separate authentication review approves every
-mutation route. The target must run the `master` branch on the free
+The accepted production target is the Docker Studio
+`LuckyPan/Movie-Agent`. The target must run the `master` branch on the free
 `platform/2v-cpu-16g-mem` resource, listen on `0.0.0.0:7860`, and use
 `/mnt/workspace` for durable state.
 
@@ -19,11 +17,11 @@ MODELSCOPE_MAX_TOKENS=8192
 IMAGE_GENERATION_MODE=mock
 VIDEO_GENERATION_MODE=mock
 PUBLIC_DEMO_MODE=true
-# Set APP_ACCESS_TOKEN only in the Studio secret configuration; never commit it.
-APP_ACCESS_TOKEN=<deployment secret>
+# Optional. Set only in Studio Secrets; leave empty for anonymous demo access.
+APP_ACCESS_TOKEN=
 MAX_ACTIVE_JOBS=2
 MAX_UPLOAD_MB=10
-PUBLIC_MAX_PROJECTS=20
+PUBLIC_MAX_PROJECTS=100
 PUBLIC_MAX_UPLOAD_MB=10
 PROJECTS_DIR=/mnt/workspace/projects
 OUTPUTS_DIR=/mnt/workspace/outputs
@@ -31,12 +29,21 @@ COMFY_OUTPUT_DIR=/mnt/workspace/comfy-output
 PORT=7860
 ```
 
-`MODELSCOPE_API_KEY` and `APP_ACCESS_TOKEN` belong only in Studio Secrets.
+`MODELSCOPE_API_KEY` belongs only in Studio Secrets. `APP_ACCESS_TOKEN` is
+also managed only as a Studio Secret when token protection is desired; an empty
+value intentionally enables anonymous Public Demo access.
 The Public Demo may call the real ModelScope text LLM for dynamic planning, but
 image generation, video generation, ComfyUI, Wan/DashScope, and TTS remain
 disabled and Mock/none respectively. Do not submit a real media-provider
 generation request. The real media adapters remain available for controlled
 private deployments.
+
+In the anonymous Public Demo, planning edits remain available: shot replan
+and audio-track replan are allowed. Media-producing actions are not: shot
+render, reference generation, voice generation, audio render, and audio upload
+return an explicit Public Demo provider-disabled response. The frontend reads
+the same capability contract from `/api/health` so unavailable controls are
+disabled before a request is made.
 
 ## 1. 推送代码
 
@@ -72,7 +79,7 @@ IMAGE_GENERATION_MODE=mock
 VIDEO_GENERATION_MODE=mock
 TTS_PROVIDER=none
 PUBLIC_DEMO_MODE=true
-APP_ACCESS_TOKEN=<仅在创空间后台填写>
+APP_ACCESS_TOKEN=
 MODELSCOPE_API_KEY=<仅在创空间后台填写>
 PROJECTS_DIR=/mnt/workspace/projects
 OUTPUTS_DIR=/mnt/workspace/outputs
@@ -93,7 +100,9 @@ PORT=7860
 
 ## 4. 验收
 
-- Studio 保持 private；匿名访问被平台拒绝是预期的安全边界，不作为失败。
+- Public Demo 的匿名访问由 Movie-Agent 自己隔离：每个浏览器获得一个
+  HttpOnly visitor cookie，只能列出和访问自己创建的项目。配置
+  `APP_ACCESS_TOKEN` 后恢复 token 登录保护；不要把 token 写入仓库。
 - `GET /health`、`GET /api/health` 和 `GET /api/health/ready` 在目标容器内返回健康/ready；外部探针按平台认证边界配置。
 - 输入原创科幻创意后，页面出现项目设定、剧本、按镜头拆分的 Dialogue Book / Subtitle Track、视觉卡、6–10 个分镜和任务日志。
 - 能在编剧阶段编辑并锁定台词本；未锁定前不得进入配音、字幕和 AI Edit。

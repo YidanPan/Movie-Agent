@@ -22,8 +22,8 @@ IMAGE_GENERATION_MODE=mock
 VIDEO_GENERATION_MODE=mock
 TTS_PROVIDER=none
 PUBLIC_DEMO_MODE=true
-APP_ACCESS_TOKEN=<deployment secret; never commit>
-PUBLIC_MAX_PROJECTS=20
+APP_ACCESS_TOKEN=<optional Studio secret; leave empty for anonymous demo>
+PUBLIC_MAX_PROJECTS=100
 PUBLIC_MAX_UPLOAD_MB=10
 MAX_ACTIVE_JOBS=2
 MAX_UPLOAD_MB=10
@@ -35,15 +35,15 @@ PORT=7860
 
 Run `python scripts/stage5a_runtime_check.py` before the server and verify
 FFmpeg/FFprobe, local health routes, static assets, and the restart marker.
-Keep the Studio private until the public-exposure security gates pass. In
-Option B, `PUBLIC_DEMO_MODE=true` permits only `MODEL_PROVIDER=mock` or
+In Option B, `PUBLIC_DEMO_MODE=true` permits only `MODEL_PROVIDER=mock` or
 `modelscope`; image and video generation remain `mock`, and `TTS_PROVIDER=none`.
-`APP_ACCESS_TOKEN` is required for project and evaluator APIs, which use a
-signed, process-local HttpOnly session cookie. The direct ASGI client address
-is used for rate limiting; `X-Forwarded-For` is intentionally ignored. A
-server restart expires all sessions, so users must sign in again. Real image,
-video, ComfyUI, Wan/DashScope, and TTS providers remain implemented for
-controlled private deployments but are disabled in the Public Demo.
+`APP_ACCESS_TOKEN` is optional: when configured, the Studio shows the access
+token login; when empty, each browser receives an opaque HttpOnly visitor
+cookie and can see only its own projects. Public capacity is counted per
+visitor (`PUBLIC_MAX_PROJECTS=100`), and `X-Forwarded-For` is intentionally
+ignored for identity. Real image, video, ComfyUI, Wan/DashScope, and TTS
+providers remain implemented for controlled private deployments but are
+disabled in the Public Demo.
 See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) and
 [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md) for the release and
 recovery runbook.

@@ -96,15 +96,22 @@ class ProjectStore:
                     f"项目 {project_id} 的 project.json 与备份均已损坏，无法恢复。"
                 ) from backup_error
 
-    def list_project_ids(self) -> list[str]:
-        """Return saved projects newest first without loading every project file."""
+    def list_project_ids(self, owner_id: str | None = None) -> list[str]:
+        """Return saved projects newest first, optionally scoped to an owner."""
         if not self.root.exists():
             return []
-        projects = [
-            (project_file.stat().st_mtime, project_file.parent.name)
-            for project_file in self.root.glob("*/project.json")
-            if self.project_id_pattern.fullmatch(project_file.parent.name)
-        ]
+        projects = []
+        for project_file in self.root.glob("*/project.json"):
+            if not self.project_id_pattern.fullmatch(project_file.parent.name):
+                continue
+            if owner_id is not None:
+                try:
+                    payload = json.loads(project_file.read_text(encoding="utf-8"))
+                except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+                    continue
+                if not isinstance(payload, dict) or str(payload.get("owner_id") or "") != str(owner_id):
+                    continue
+            projects.append((project_file.stat().st_mtime, project_file.parent.name))
         return [project_id for _, project_id in sorted(projects, reverse=True)]
 
     def export(self, project_id: str) -> list[Path]:

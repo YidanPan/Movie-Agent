@@ -2366,7 +2366,7 @@ function renderAudioTrackList(project, target) {
     const labels = AUDIO_TRACK_LABELS[key];
     const enabled = track.enabled !== false;
     const canReplan = track.can_replan !== false;
-    const canRender = track.can_render === true;
+    const canRender = track.can_render === true && publicCapabilityAllowed("audio_render");
     const previewUrl = track.preview_url || "";
     const selected = state.audioInspectorTrack === key;
     return `<article class="audio-track ${enabled ? "is-enabled" : "is-muted"} ${selected ? "is-selected" : ""}" data-audio-track="${key}" data-audio-track-select="${key}" tabindex="0" aria-label="选择 ${labels.en} 音轨" aria-current="${selected ? "true" : "false"}">
@@ -2433,7 +2433,7 @@ function syncAudioInspectors(project = state.project) {
     const preview = inspector.querySelector("[data-audio-inspector-preview]");
     const regenerate = inspector.querySelector("[data-audio-inspector-regenerate]");
     if (preview) { preview.dataset.audioPreview = key; preview.dataset.audioUrl = track.preview_url || ""; }
-    if (regenerate) { regenerate.dataset.audioInspectorRegenerate = key; regenerate.disabled = track.can_replan === false; }
+    if (regenerate) { regenerate.dataset.audioInspectorRegenerate = key; regenerate.disabled = track.can_replan === false || !publicCapabilityAllowed("audio_replan"); }
   });
 }
 
@@ -2555,6 +2555,7 @@ function renderAudioDesign(project) {
   const timelineTime = activeMedia?.currentTime || 0;
   const timelinePlaying = Boolean(activeMedia && !activeMedia.paused);
   const mode = audioModeFor(project);
+  const uploadAllowed = publicCapabilityAllowed("audio_upload");
   state.musicMode = mode;
   state.musicAssetName = project.music_asset_name || "";
   const rawIntensity = Number(project.music_intensity ?? project.music_brief?.intensity ?? 0.6);
@@ -2565,11 +2566,15 @@ function renderAudioDesign(project) {
     const selected = button.dataset.audioMode === mode;
     button.classList.toggle("is-selected", selected);
     button.setAttribute("aria-checked", String(selected));
+    button.disabled = button.dataset.audioMode === "upload" && !uploadAllowed;
+    if (button.dataset.audioMode === "upload" && !uploadAllowed) button.title = "Public Demo 暂不支持上传音频";
   });
   els.audioUploadRow?.classList.toggle("hidden", mode !== "upload");
-  if (els.musicUploadNote) els.musicUploadNote.textContent = state.musicAssetName ? `已选择：${state.musicAssetName}` : "上传后将作为 MUSIC 轨来源。";
+  if (els.musicUploadNote) els.musicUploadNote.textContent = !uploadAllowed ? "PUBLIC DEMO · 上传音频已禁用。" : state.musicAssetName ? `已选择：${state.musicAssetName}` : "上传后将作为 MUSIC 轨来源。";
+  els.audioUploadRow?.querySelector("input")?.toggleAttribute("disabled", !uploadAllowed);
   els.deliverAudioUploadRow?.classList.toggle("hidden", mode !== "upload");
-  if (els.deliverMusicUploadNote) els.deliverMusicUploadNote.textContent = state.musicAssetName ? `已选择：${state.musicAssetName}` : "上传后将作为 MUSIC 轨来源。";
+  if (els.deliverMusicUploadNote) els.deliverMusicUploadNote.textContent = !uploadAllowed ? "PUBLIC DEMO · 上传音频已禁用。" : state.musicAssetName ? `已选择：${state.musicAssetName}` : "上传后将作为 MUSIC 轨来源。";
+  els.deliverAudioUploadRow?.querySelector("input")?.toggleAttribute("disabled", !uploadAllowed);
   if (els.deliverMusicIntensity) els.deliverMusicIntensity.value = String(state.musicIntensity);
   if (els.deliverMusicIntensityValue) els.deliverMusicIntensityValue.textContent = `${Math.round(state.musicIntensity * 100)}%`;
   if (els.musicBriefSource) els.musicBriefSource.textContent = project.music_brief?.source || AUDIO_MODE_LABELS[mode];
@@ -3555,6 +3560,11 @@ function realVideoProviderReady() {
   return mode !== "mock" && state.health?.checks?.video_provider?.ok === true;
 }
 
+function publicCapabilityAllowed(capability) {
+  const value = state.health?.capabilities?.[capability];
+  return value !== false;
+}
+
 function renderWorkspace(project, options = {}) {
   show(els.actWorkspace);
   renderProjectDiagnostics(project);
@@ -3569,9 +3579,10 @@ function renderWorkspace(project, options = {}) {
   renderDelivery(project);
   updatePipelineForProject(project);
   const videoProviderReady = realVideoProviderReady();
+  const shotRenderAllowed = publicCapabilityAllowed("shot_render");
   const shots = project.storyboard || [];
   const allShotsReady = shots.length > 0 && shots.every((shot) => shotCapabilities(shot).canEnterCut);
-  if (videoProviderReady) {
+  if (videoProviderReady && shotRenderAllowed) {
     const actionReady = productionActionReady(project, "START_RENDER");
     els.btnRender.disabled = state.rendering || allShotsReady || actionReady === false;
     els.renderNote.textContent = allShotsReady
@@ -3581,7 +3592,9 @@ function renderWorkspace(project, options = {}) {
         : "请先在剧本与旁白页审阅并锁定台词本，再提交真实生成。";
   } else {
     els.btnRender.disabled = true;
-    els.renderNote.textContent = allShotsReady
+    els.renderNote.textContent = !shotRenderAllowed
+      ? "PUBLIC DEMO：媒体生成已禁用；可继续规划、审阅和重排镜头。"
+      : allShotsReady
       ? "mock 镜头已全部就绪：锁定台词本后可直接启动 AI Edit Rough Cut。"
         : "当前为 mock 视频流程：启用并通过健康检查的真实视频 Provider 后，这里会变成逐镜生成与 FFmpeg 合片。";
   }
@@ -3797,7 +3810,7 @@ function buildShotInspectorMarkup(project, shot) {
          ${capabilities.canApprove ? '<button class="cta inspector-action-primary" data-inspector-action="approve" type="button">APPROVE SHOT <span aria-hidden="true">✓</span></button>' : ""}
          ${capabilities.primaryReviewDomain && !capabilities.canApprove ? `<button class="ghost type-control" data-inspector-action="review-domain" data-review-domain="${esc(capabilities.primaryReviewDomain)}" type="button">${capabilities.primaryReviewDomain === "planning" ? "EDIT STORYBOARD" : capabilities.primaryReviewDomain === "reference" ? "RESOLVE REFERENCES" : capabilities.primaryReviewDomain === "audio" ? "EDIT DIALOGUE" : capabilities.primaryReviewDomain === "media" ? "REVIEW MEDIA" : "REVIEW CONTINUITY"}</button>` : ""}
          <button class="ghost type-control" data-inspector-action="replan" type="button"${capabilities.canReplan ? "" : " disabled"}>↻ 重新规划</button>
-        <button class="cta inspector-action-primary" data-inspector-action="regenerate" type="button"${capabilities.canRenderMedia ? "" : " disabled"}>重新生成素材 <span aria-hidden="true">→</span></button>
+        <button class="cta inspector-action-primary" data-inspector-action="regenerate" type="button"${capabilities.canRenderMedia && publicCapabilityAllowed("shot_render") ? "" : " disabled"}>重新生成素材 <span aria-hidden="true">→</span></button>
       </footer>
     </div>`;
 }
@@ -5549,6 +5562,10 @@ async function loadHealth() {
     const text = state.health.text_mode === "modelscope" ? "ModelScope AI 文案" : "mock 文案";
     const video = state.health.video_mode !== "mock" ? "真实视频 Provider" : "mock 视频流程";
     els.modeNote.textContent = `制作引擎就绪 · ${text} + ${video}`;
+    // Health is loaded independently from project data. Re-apply the same
+    // capability contract after it arrives so a public-demo page cannot keep
+    // stale media controls rendered during the initial project paint.
+    if (state.project) renderWorkspace(state.project);
   } catch {
     els.engineLamp?.classList.remove("is-pending");
     els.engineLamp?.classList.add("is-error");

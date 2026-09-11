@@ -210,6 +210,15 @@ def test_sound_console_uses_progressive_disclosure_and_track_inspector():
     assert "MASTER · -14 LUFS" in APP
 
 
+def test_public_demo_capability_contract_gates_media_controls_but_keeps_replan():
+    assert 'function publicCapabilityAllowed(capability)' in APP
+    assert 'publicCapabilityAllowed("shot_render")' in APP
+    assert 'publicCapabilityAllowed("audio_render")' in APP
+    assert 'publicCapabilityAllowed("audio_upload")' in APP
+    assert 'publicCapabilityAllowed("audio_replan")' in APP
+    assert 'capabilities' in (ROOT / "server.py").read_text(encoding="utf-8")
+
+
 def test_sound_console_timeline_is_media_synced_and_semantically_sized():
     assert "syncAudioTimeline(media.currentTime" in APP
     assert "setAudioTimelinePlaybackState(true)" in APP

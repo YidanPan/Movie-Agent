@@ -236,10 +236,51 @@ def test_public_demo_without_app_token_allows_anonymous_access(monkeypatch):
 
         mock_orchestrator = MovieOrchestrator(replace(settings, model_provider="mock"))
         project = mock_orchestrator.create_project("A courier follows a signal beyond the moon.", 48, "film sci-fi")
+        project.owner_id = client.cookies.get(server.ANONYMOUS_VISITOR_COOKIE)
+        mock_orchestrator.store.save(project)
         monkeypatch.setattr(server, "orchestrator", mock_orchestrator)
         locked = client.post(f"/api/projects/{project.project_id}/script/lock")
         assert locked.status_code == 200
         assert locked.json()["script"]["dialogue_locked"] is True
+
+
+def test_anonymous_public_projects_are_isolated_by_visitor_cookie(monkeypatch):
+    with TemporaryDirectory() as temporary_directory:
+        root = Path(temporary_directory)
+        settings = _settings(
+            root,
+            public_demo_mode=True,
+            app_access_token=None,
+            model_provider="mock",
+            image_generation_mode="mock",
+            video_generation_mode="mock",
+            tts_provider="none",
+        )
+        orchestrator = _install(monkeypatch, root, settings)
+        client_a = TestClient(server.app)
+        client_b = TestClient(server.app)
+        assert client_a.get("/").status_code == 200
+        assert client_b.get("/").status_code == 200
+        visitor_a = client_a.cookies.get(server.ANONYMOUS_VISITOR_COOKIE)
+        visitor_b = client_b.cookies.get(server.ANONYMOUS_VISITOR_COOKIE)
+        assert visitor_a and visitor_b and visitor_a != visitor_b
+
+        project = orchestrator.create_project("A courier follows a signal beyond the moon.", 48, "film sci-fi")
+        project.owner_id = visitor_a
+        orchestrator.store.save(project)
+
+        assert project.project_id in client_a.get("/api/projects").json()["projects"]
+        assert project.project_id not in client_b.get("/api/projects").json()["projects"]
+        assert client_a.get(f"/api/projects/{project.project_id}").status_code == 200
+        assert client_b.get(f"/api/projects/{project.project_id}").status_code == 404
+
+
+def test_public_demo_allows_planning_replans_but_blocks_media_routes():
+    assert server._public_provider_route("/api/projects/film-1234abcd/shots/1/regenerate") is False
+    assert server._public_provider_route("/api/projects/film-1234abcd/audio/tracks/music/replan") is False
+    assert server._public_provider_route("/api/projects/film-1234abcd/shots/1/render") is True
+    assert server._public_provider_route("/api/projects/film-1234abcd/audio/tracks/music/render") is True
+    assert server._public_provider_route("/api/projects/film-1234abcd/references/generate") is True
 
 
 def test_public_demo_modelscope_missing_key_is_not_ready(monkeypatch):

@@ -64,7 +64,7 @@ class Settings:
     max_upload_mb: int = 50
     public_demo_mode: bool = False
     app_access_token: str | None = None
-    public_max_projects: int = 20
+    public_max_projects: int = 100
     public_max_upload_mb: int = 10
 
     @classmethod
@@ -131,6 +131,6 @@ class Settings:
             max_upload_mb=max(1, int(os.getenv("MAX_UPLOAD_MB", "50"))),
             public_demo_mode=os.getenv("PUBLIC_DEMO_MODE", "false").lower() == "true",
             app_access_token=os.getenv("APP_ACCESS_TOKEN") or None,
-            public_max_projects=max(1, int(os.getenv("PUBLIC_MAX_PROJECTS", "20"))),
+            public_max_projects=max(1, int(os.getenv("PUBLIC_MAX_PROJECTS", "100"))),
             public_max_upload_mb=max(1, int(os.getenv("PUBLIC_MAX_UPLOAD_MB", "10"))),
         )
