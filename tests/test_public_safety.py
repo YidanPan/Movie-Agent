@@ -234,6 +234,13 @@ def test_public_demo_without_app_token_allows_anonymous_access(monkeypatch):
         assert client.get("/").status_code == 200
         assert client.get("/api/projects").status_code == 200
 
+        mock_orchestrator = MovieOrchestrator(replace(settings, model_provider="mock"))
+        project = mock_orchestrator.create_project("A courier follows a signal beyond the moon.", 48, "film sci-fi")
+        monkeypatch.setattr(server, "orchestrator", mock_orchestrator)
+        locked = client.post(f"/api/projects/{project.project_id}/script/lock")
+        assert locked.status_code == 200
+        assert locked.json()["script"]["dialogue_locked"] is True
+
 
 def test_public_demo_modelscope_missing_key_is_not_ready(monkeypatch):
     with TemporaryDirectory() as temporary_directory:

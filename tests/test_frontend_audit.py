@@ -176,6 +176,13 @@ def test_production_bible_summary_separates_title_and_logline():
     assert 'label: "PREVIS / LOCKED"' in APP
 
 
+def test_dialogue_lock_keeps_silent_projects_lockable_and_surfaces_backend_errors():
+    assert "const lockDisabled = !dialogue.length && !allSilent;" in APP
+    assert "function projectHasOnlySilentSpeech" in APP
+    assert "if (assets.dialogueBook.length || !silentOnly)" in APP
+    assert "payload.error || `HTTP ${response.status}`" in APP
+
+
 def test_frontend_assets_are_versioned_and_not_cached():
     server = (ROOT / "server.py").read_text(encoding="utf-8")
     assert "/static/style.css?v=" in INDEX

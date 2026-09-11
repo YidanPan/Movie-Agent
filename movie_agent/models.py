@@ -203,6 +203,28 @@ class MovieProject:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "MovieProject":
+        raw_script = data.get("script") or {}
+        raw_storyboard = data.get("storyboard") or []
+        # Preserve an explicitly empty subtitle projection until the
+        # storyboard is available to the lock validator.  Normalising here
+        # used to manufacture ``(silence)`` lines before we could distinguish
+        # a legal silent film from a missing dialogue asset.
+        if (
+            isinstance(raw_script, dict)
+            and "dialogue_book" in raw_script
+            and "subtitle_track" in raw_script
+            and not raw_script.get("subtitle_track")
+        ):
+            script = dict(raw_script)
+            script["dialogue_locked"] = bool(script.get("dialogue_locked", False))
+            script["subtitle_mode"] = normalise_subtitle_mode(script.get("subtitle_mode", "burned"))
+            script["dialogue_revision"] = int(script.get("dialogue_revision", 1) or 1)
+        else:
+            script = ensure_dialogue_assets(
+                raw_script,
+                duration_seconds=int(data.get("duration_seconds", 48)),
+                shot_count=len(raw_storyboard) or None,
+            )
         project = cls(
             project_id=data["project_id"],
             idea=data["idea"],
@@ -210,15 +232,11 @@ class MovieProject:
             visual_style=data["visual_style"],
             status=data["status"],
             brief=data["brief"],
-            script=ensure_dialogue_assets(
-                data.get("script") or {},
-                duration_seconds=int(data.get("duration_seconds", 48)),
-                shot_count=len(data.get("storyboard") or []) or None,
-            ),
+            script=script,
             visual_bible=data["visual_bible"],
             storyboard=[
                 Shot(**{key: value for key, value in shot.items() if key != "edit_duration_seconds"})
-                for shot in data["storyboard"]
+                for shot in raw_storyboard
             ],
             quality_report=data.get("quality_report", []),
             logs=data.get("logs", []),

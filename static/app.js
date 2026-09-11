@@ -2001,6 +2001,14 @@ function renderScriptTab(project) {
   const dialogue = Array.isArray(script.dialogue_book) ? script.dialogue_book : [];
   const subtitles = Array.isArray(script.subtitle_track) ? script.subtitle_track : dialogue;
   const locked = Boolean(script.dialogue_locked);
+  const explicitSpeechPolicies = script.speech_policy_by_shot && typeof script.speech_policy_by_shot === "object"
+    ? Object.values(script.speech_policy_by_shot)
+    : [];
+  const speechPolicies = explicitSpeechPolicies.length
+    ? explicitSpeechPolicies
+    : (Array.isArray(project.storyboard) ? project.storyboard.map((shot) => shot?.speech_policy || "NARRATION") : []);
+  const allSilent = speechPolicies.length > 0 && speechPolicies.every((policy) => ["SILENT", "AMBIENCE_ONLY"].includes(String(policy).toUpperCase()));
+  const lockDisabled = !dialogue.length && !allSilent;
   const rows = dialogue.map((entry, index) => {
     const cue = subtitles[index] || entry || {};
     const start = Number(entry?.start_seconds ?? cue?.start_seconds ?? 0).toFixed(2);
@@ -2023,7 +2031,7 @@ function renderScriptTab(project) {
       <section class="dialogue-book" aria-label="台词本与字幕轨">
         <header class="dialogue-book-head"><div><span class="manual-section-kicker type-system-meta">WRITER DELIVERABLE / 编剧正式产物</span><h3>台词本 / 字幕稿</h3><p class="manual-type type-helper">先审阅每一镜的对白与旁白，锁定后才会进入配音、字幕和 AI Edit。</p></div><span class="dialogue-lock-badge ${locked ? "is-locked" : "is-draft"} type-status">${locked ? "LOCKED ✓" : "DRAFT · 待锁定"}</span></header>
         <div class="dialogue-rows">${rows || '<p class="empty-note">编剧完成后，这里会按镜头生成可编辑台词与字幕。</p>'}</div>
-        <footer class="dialogue-book-actions"><span class="dialogue-revision type-system-meta">VERSION ${esc(script.dialogue_revision || 1)} · ${dialogue.length} CUES · ${locked ? "DOWNSTREAM LOCKED" : "EDITABLE BEFORE RENDER"}</span><div>${locked ? '<button class="ghost type-control" data-script-unlock type="button">解锁并修改</button>' : `<button class="ghost type-control" data-script-save type="button" ${!dialogue.length ? "disabled" : ""}>保存台词修改</button><button class="cta type-control" data-script-lock type="button" ${!dialogue.length ? "disabled" : ""}>锁定台词本 →</button>`}</div></footer>
+        <footer class="dialogue-book-actions"><span class="dialogue-revision type-system-meta">VERSION ${esc(script.dialogue_revision || 1)} · ${dialogue.length} CUES · ${locked ? "DOWNSTREAM LOCKED" : "EDITABLE BEFORE RENDER"}</span><div>${locked ? '<button class="ghost type-control" data-script-unlock type="button">解锁并修改</button>' : `<button class="ghost type-control" data-script-save type="button" ${!dialogue.length ? "disabled" : ""}>保存台词修改</button><button class="cta type-control" data-script-lock type="button" ${lockDisabled ? "disabled" : ""}>锁定台词本 →</button>`}</div></footer>
       </section>
     </section>`;
 }
@@ -4055,6 +4063,17 @@ function collectDialogueAssets() {
   return { dialogueBook, subtitleTrack };
 }
 
+function projectHasOnlySilentSpeech(project = state.project) {
+  const script = project?.script || {};
+  const explicitPolicies = script.speech_policy_by_shot && typeof script.speech_policy_by_shot === "object"
+    ? Object.values(script.speech_policy_by_shot)
+    : [];
+  const policies = explicitPolicies.length
+    ? explicitPolicies
+    : (Array.isArray(project?.storyboard) ? project.storyboard.map((shot) => shot?.speech_policy || "NARRATION") : []);
+  return policies.length > 0 && policies.every((policy) => ["SILENT", "AMBIENCE_ONLY"].includes(String(policy).toUpperCase()));
+}
+
 async function unlockDialogue() {
   if (!state.project) return;
   try {
@@ -4072,7 +4091,8 @@ async function unlockDialogue() {
 async function saveDialogueDraft({ lock = false, button = null } = {}) {
   if (!state.project) return;
   const assets = collectDialogueAssets();
-  if (!assets.dialogueBook.length || assets.dialogueBook.some((entry) => !String(entry.text || "").trim())) {
+  const silentOnly = projectHasOnlySilentSpeech(state.project);
+  if ((!assets.dialogueBook.length && !silentOnly) || assets.dialogueBook.some((entry) => !String(entry.text || "").trim())) {
     toast("每个镜头至少需要一条台词或旁白；无对白时可填写留白。", true);
     return;
   }
@@ -4082,13 +4102,20 @@ async function saveDialogueDraft({ lock = false, button = null } = {}) {
     button.textContent = lock ? "锁定中…" : "保存中…";
   }
   try {
-    let response = await fetch(`/api/projects/${state.project.project_id}/script`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(assets),
-    });
-    let payload = await response.json();
-    if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    let response;
+    let payload;
+    // A fully silent project has no editable cue rows.  Submit the lock
+    // directly so the backend can preserve empty canonical assets instead of
+    // passing them through the legacy placeholder normaliser.
+    if (assets.dialogueBook.length || !silentOnly) {
+      response = await fetch(`/api/projects/${state.project.project_id}/script`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(assets),
+      });
+      payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    }
     if (lock) {
       response = await fetch(`/api/projects/${state.project.project_id}/script/lock`, { method: "POST" });
       payload = await response.json();

@@ -127,6 +127,10 @@ class WriterAgent:
                 "narration": _as_text(result.get("narration") or script.get("narration", "")),
                 "dialogue_book": result.get("dialogue_book"),
                 "subtitle_track": result.get("subtitle_track"),
+                "speech_policy_by_shot": {
+                    str(index): self._shot_value(shot, "speech_policy").upper() or "NARRATION"
+                    for index, shot in enumerate(storyboard, start=1)
+                },
                 "narrative_source": "storyboard_supervisor",
             }
             return align_script_to_shots(result_script, storyboard, allow_silent=True)

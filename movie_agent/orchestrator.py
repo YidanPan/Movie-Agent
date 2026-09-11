@@ -268,6 +268,11 @@ class MovieOrchestrator:
 
     def lock_dialogue(self, project_id: str) -> MovieProject:
         project = self.store.load(project_id)
+        # Rebuild the sparse dialogue/subtitle projection from the storyboard
+        # before validating it.  This both persists speech policy for real LLM
+        # runs and derives subtitles from the canonical dialogue book when a
+        # provider omitted the timed projection.
+        project.script = align_script_to_shots(project.script or {}, project.storyboard, allow_silent=True)
         policies = (project.script or {}).get("speech_policy_by_shot") or {}
         all_silent = bool(policies) and all(
             str(value).upper() in {"SILENT", "AMBIENCE_ONLY"} for value in policies.values()
@@ -275,13 +280,6 @@ class MovieOrchestrator:
         # Do not silently lock a brand-new empty payload that the normaliser
         # would otherwise turn into placeholder lines.
         if not all_silent and (not (project.script or {}).get("dialogue_book") or not (project.script or {}).get("subtitle_track")):
-            raise ValueError("Dialogue book or subtitle track is empty; cannot lock.")
-        project.script = ensure_dialogue_assets(
-            project.script,
-            duration_seconds=project.duration_seconds,
-            shot_count=len(project.storyboard) or None,
-        )
-        if not all_silent and (not project.script.get("dialogue_book") or not project.script.get("subtitle_track")):
             raise ValueError("Dialogue book or subtitle track is empty; cannot lock.")
         project.script["dialogue_locked"] = True
         ensure_audio_design(project)

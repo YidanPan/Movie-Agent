@@ -457,7 +457,15 @@ def align_script_to_shots(
     # silence in longer films.
     if allow_silent:
         policies = {
-            int(getattr(shot, "number", index + 1)): str(getattr(shot, "speech_policy", "NARRATION") or "NARRATION").upper()
+            (
+                int(shot.get("number", index + 1))
+                if isinstance(shot, dict)
+                else int(getattr(shot, "number", index + 1))
+            ): (
+                str(shot.get("speech_policy", "NARRATION") or "NARRATION").upper()
+                if isinstance(shot, dict)
+                else str(getattr(shot, "speech_policy", "NARRATION") or "NARRATION").upper()
+            )
             for index, shot in enumerate(shots)
         }
         result = deepcopy(script or {})
