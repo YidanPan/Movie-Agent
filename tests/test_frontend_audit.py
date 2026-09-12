@@ -521,3 +521,14 @@ def test_disconnect_safe_job_ledger_is_visible_without_replacing_sse():
     assert "/api/projects/${encodeURIComponent(requestedProject)}/job" in APP
     assert "RESUME AVAILABLE" in APP
     assert INDEX.count("?v=__MOVIE_AGENT_BUILD_VALUE__") >= 14
+
+
+def test_refresh_button_reloads_the_studio_page_once():
+    assert 'id="btn-refresh"' in INDEX
+    assert "function refreshStudioPage()" in APP
+    assert APP.count('els.btnRefresh.addEventListener("click", refreshStudioPage);') == 1
+    refresh_function = APP.split("function refreshStudioPage()", 1)[1].split("async function loadSelectedProject", 1)[0]
+    assert "window.location.reload()" in refresh_function
+    assert "fetch(" not in refresh_function
+    assert "localStorage" not in refresh_function
+    assert "logout" not in refresh_function

@@ -4764,6 +4764,20 @@ async function refreshLibrary() {
   }
 }
 
+function refreshStudioPage() {
+  const button = els.btnRefresh;
+  if (!button || button.disabled) return;
+  button.disabled = true;
+  button.setAttribute("aria-busy", "true");
+  button.textContent = "刷新中…";
+  const reload = () => window.location.reload();
+  if (typeof window.requestAnimationFrame === "function") {
+    window.requestAnimationFrame(reload);
+  } else {
+    reload();
+  }
+}
+
 async function loadSelectedProject() {
   const projectId = els.librarySelect.value;
   if (!projectId) {
@@ -5622,7 +5636,7 @@ function init() {
   });
   els.btnStart.addEventListener("click", startCreation);
   els.btnLoad.addEventListener("click", loadSelectedProject);
-  els.btnRefresh.addEventListener("click", refreshLibrary);
+  els.btnRefresh.addEventListener("click", refreshStudioPage);
   els.btnRender.addEventListener("click", startRender);
   els.btnAiEdit?.addEventListener("click", startAiEdit);
   els.btnRecut?.addEventListener("click", startAiEdit);
