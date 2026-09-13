@@ -3,7 +3,25 @@ import json
 from dataclasses import replace
 from types import SimpleNamespace
 
+import pytest
+
 from scripts import stage5a_runtime_check as runtime_check
+
+
+@pytest.fixture(autouse=True)
+def mock_host_runtime_capabilities(monkeypatch):
+    """Keep application-contract tests independent of CI host binaries.
+
+    ``check_binaries`` exercises the executable contract separately.  The
+    ASGI checks below should not fail merely because a GitHub runner lacks
+    ffmpeg/ffprobe or the default storage paths.  Production ``main()`` still
+    runs the real binary and workspace checks before accepting the deployment.
+    """
+
+    import server
+
+    monkeypatch.setattr(server, "_binary_ready", lambda _binary: True)
+    monkeypatch.setattr(server, "_directory_ready", lambda _path: True)
 
 
 def test_fixed_media_binaries_execute_without_arbitrary_command(monkeypatch, capsys):
